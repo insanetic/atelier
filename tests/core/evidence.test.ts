@@ -105,3 +105,16 @@ test('cachedIo fetches each url once', async () => {
   await cached.fetchText('https://a.dev')
   assert.deepEqual(seen, ['https://a.dev'])
 })
+
+test('self evidence with a sha git could read as an option never reaches git', async () => {
+  const io = fakeIo()
+  const evil: Evidence = { kind: 'code', repo: 'self', sha: '--output=/tmp/pwned', path: 'x', lines: '1', quote: 'x' }
+  const outcome = await checkEvidence(ctxOf(io), STUDY_DIR, evil)
+  assert.equal(outcome.ok, false)
+  assert.deepEqual(io.runs, [])
+})
+
+test('code evidence with an unsupported repo url is a miss, not a crash', async () => {
+  const outcome = await checkEvidence(ctxOf(fakeIo()), STUDY_DIR, { ...code, repo: 'git@github.com:getlago/lago-api.git' })
+  assert.equal(outcome.ok, false)
+})

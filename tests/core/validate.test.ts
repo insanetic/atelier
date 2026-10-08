@@ -128,3 +128,8 @@ test('decided gate: cited findings must be verified and fresh as of decided_at',
   const drifted = decidedGate(decided, [{ ...fresh, status: 'drifted' }], 'f')
   assert.equal(drifted[0].level, 'warn')
 })
+
+test('code evidence paths stay inside the checkout', () => {
+  const f = codeFinding({ evidence: [{ ...codeFinding().evidence[0], path: '../../../../.ssh/id_rsa' }] })
+  assert.match(text(validateFinding(f, study(), 'f')), /path must be relative to the repository root/)
+})

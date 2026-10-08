@@ -15,8 +15,8 @@ test('ensureTree initialises, fetches and checks out the pinned sha once', async
   assert.deepEqual(io.runs, [
     ['git', '-C', dir, 'rev-parse', 'HEAD'],
     ['git', 'init', '-q', dir],
-    ['git', '-C', dir, 'remote', 'add', 'origin', LAGO_URL],
-    ['git', '-C', dir, 'fetch', '-q', '--depth', '1', 'origin', SHA],
+    ['git', '-C', dir, 'remote', 'add', '--', 'origin', LAGO_URL],
+    ['git', '-C', dir, 'fetch', '-q', '--depth', '1', '--', 'origin', SHA],
     ['git', '-C', dir, '-c', 'advice.detachedHead=false', 'checkout', '-q', '--detach', 'FETCH_HEAD'],
     ['git', '-C', dir, 'rev-parse', 'HEAD'],
   ])
@@ -42,4 +42,15 @@ test('cloneRef checks out every pinned repository of a reference', async () => {
   assert.deepEqual(await cloneRef(ctx, 'lago'), { ok: true, value: [treeDir(CFG, LAGO_URL, SHA)], warnings: [] })
   const stripe = await cloneRef(ctx, 'stripe')
   assert.match(stripe.ok ? '' : stripe.errors[0], /has no repositories to clone/)
+})
+
+test('ensureTree refuses a sha or url that git could read as an option', async () => {
+  const io = fakeIo()
+  gitFake(io)
+  const ctx = { io, cfg: CFG, today: TODAY }
+  const badSha = await ensureTree(ctx, LAGO_URL, '--upload-pack=touch /tmp/pwned')
+  assert.match(badSha.ok ? '' : badSha.errors[0], /not a full 40-character sha/)
+  const badUrl = await ensureTree(ctx, '--upload-pack=touch /tmp/pwned', SHA)
+  assert.match(badUrl.ok ? '' : badUrl.errors[0], /unsupported repository url/)
+  assert.deepEqual(io.runs, [])
 })

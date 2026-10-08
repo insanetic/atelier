@@ -110,6 +110,7 @@ function evidenceIssues(item: Evidence, index: number): string[] {
     if (!isText(item.repo)) out.push(`${at}.repo is required`)
     if (!isSha(item.sha)) out.push(`${at}.sha must be a full 40-character sha`)
     if (!isText(item.path)) out.push(`${at}.path is required`)
+    else if (item.path.startsWith('/') || item.path.split('/').includes('..')) out.push(`${at}.path must be relative to the repository root`)
     if (typeof item.lines !== 'string' || !/^\d+(-\d+)?$/.test(item.lines)) out.push(`${at}.lines must be N or N-M`)
     else {
       const [first, last] = parseLines(item.lines)

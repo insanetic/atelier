@@ -1,5 +1,5 @@
 import type { Ctx } from './io.ts'
-import { join, treeDir } from './paths.ts'
+import { join, parseRepoUrl, treeDir } from './paths.ts'
 import { locateQuote } from './normalize.ts'
 import { lineRange } from './evidence.ts'
 import { ensureTree } from './clone.ts'
@@ -11,7 +11,7 @@ import type { OpResult } from './result.ts'
 export type RepinResult = { pins: { url: string; sha: string }[]; moved: string[]; drifted: string[] }
 
 async function remoteHead(ctx: Ctx, url: string): Promise<string | undefined> {
-  const listed = await ctx.io.run(['git', 'ls-remote', url, 'HEAD'])
+  const listed = await ctx.io.run(['git', 'ls-remote', '--', url, 'HEAD'])
   const sha = listed.stdout.split(/\s+/)[0]
   return listed.exitCode === 0 && isSha(sha) ? sha : undefined
 }
@@ -29,6 +29,11 @@ export async function repin(ctx: Ctx, refId: string, toSha?: string): Promise<Op
   const result: RepinResult = { pins: [], moved: [], drifted: [] }
   const topics = await listTopics(ctx.io, ctx.cfg)
   for (const repo of repos) {
+    try {
+      parseRepoUrl(repo.url)
+    } catch (problem) {
+      return fail((problem as Error).message)
+    }
     const sha = toSha ?? (await remoteHead(ctx, repo.url))
     if (sha === undefined) return fail(`cannot resolve HEAD of ${repo.url}`)
     const tree = await ensureTree(ctx, repo.url, sha)

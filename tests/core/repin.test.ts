@@ -32,3 +32,12 @@ test('repin --to needs a full sha', async () => {
   const out = await repin({ io, cfg: CFG, today: TODAY }, 'lago', 'abc')
   assert.match(out.ok ? '' : out.errors[0], /full 40-character sha/)
 })
+
+test('repin refuses a repository url git could read as an option, before running git', async () => {
+  const io = fakeIo()
+  seedStudy(io, { references: [{ id: 'lago', name: 'Lago', repos: [{ url: '--upload-pack=touch /tmp/pwned', pin: SHA, pinned_at: '2026-10-01' }] }] })
+  gitFake(io)
+  const out = await repin({ io, cfg: CFG, today: TODAY }, 'lago')
+  assert.match(out.ok ? '' : out.errors[0], /unsupported repository url/)
+  assert.deepEqual(io.runs, [])
+})

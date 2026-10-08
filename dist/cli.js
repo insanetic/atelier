@@ -6536,6 +6536,7 @@ function evidenceIssues(item, index) {
     if (!isText(item.repo)) out.push(`${at}.repo is required`);
     if (!isSha(item.sha)) out.push(`${at}.sha must be a full 40-character sha`);
     if (!isText(item.path)) out.push(`${at}.path is required`);
+    else if (item.path.startsWith("/") || item.path.split("/").includes("..")) out.push(`${at}.path must be relative to the repository root`);
     if (typeof item.lines !== "string" || !/^\d+(-\d+)?$/.test(item.lines)) out.push(`${at}.lines must be N or N-M`);
     else {
       const [first, last] = parseLines(item.lines);
@@ -6922,11 +6923,18 @@ function lineRange(found) {
   return found.start === found.end ? `${found.start}` : `${found.start}-${found.end}`;
 }
 async function readAtSha(ctx, repo, sha, path) {
+  if (!isSha(sha)) return void 0;
   if (repo === "self") {
     const shown = await ctx.io.run(["git", "show", `${sha}:${path}`], ctx.cfg.root);
     return shown.exitCode === 0 ? shown.stdout : void 0;
   }
-  return ctx.io.readText(join(treeDir(ctx.cfg, repo, sha), path));
+  let dir;
+  try {
+    dir = treeDir(ctx.cfg, repo, sha);
+  } catch {
+    return void 0;
+  }
+  return ctx.io.readText(join(dir, path));
 }
 async function checkEvidence(ctx, studyDir, evidence) {
   if (CODE_KINDS.includes(evidence.kind)) return checkCode(ctx, evidence);
@@ -6988,14 +6996,20 @@ async function headOf(ctx, dir) {
   return head.exitCode === 0 ? head.stdout.trim() : void 0;
 }
 async function ensureTree(ctx, url, sha) {
-  const dir = treeDir(ctx.cfg, url, sha);
+  if (!isSha(sha)) return fail(`${sha} is not a full 40-character sha`);
+  let dir;
+  try {
+    dir = treeDir(ctx.cfg, url, sha);
+  } catch (problem) {
+    return fail(problem.message);
+  }
   if (await headOf(ctx, dir) === sha) return ok(dir);
   const steps = [];
   if (!await ctx.io.exists(join(dir, ".git"))) {
-    steps.push(["git", "init", "-q", dir], ["git", "-C", dir, "remote", "add", "origin", url]);
+    steps.push(["git", "init", "-q", dir], ["git", "-C", dir, "remote", "add", "--", "origin", url]);
   }
   steps.push(
-    ["git", "-C", dir, "fetch", "-q", "--depth", "1", "origin", sha],
+    ["git", "-C", dir, "fetch", "-q", "--depth", "1", "--", "origin", sha],
     ["git", "-C", dir, "-c", "advice.detachedHead=false", "checkout", "-q", "--detach", "FETCH_HEAD"]
   );
   for (const argv of steps) {
@@ -7021,7 +7035,7 @@ async function cloneRef(ctx, refId) {
 
 // core/repin.ts
 async function remoteHead(ctx, url) {
-  const listed = await ctx.io.run(["git", "ls-remote", url, "HEAD"]);
+  const listed = await ctx.io.run(["git", "ls-remote", "--", url, "HEAD"]);
   const sha = listed.stdout.split(/\s+/)[0];
   return listed.exitCode === 0 && isSha(sha) ? sha : void 0;
 }
@@ -7037,6 +7051,11 @@ async function repin(ctx, refId, toSha) {
   const result = { pins: [], moved: [], drifted: [] };
   const topics = await listTopics(ctx.io, ctx.cfg);
   for (const repo of repos) {
+    try {
+      parseRepoUrl(repo.url);
+    } catch (problem) {
+      return fail(problem.message);
+    }
     const sha = toSha ?? await remoteHead(ctx, repo.url);
     if (sha === void 0) return fail(`cannot resolve HEAD of ${repo.url}`);
     const tree = await ensureTree(ctx, repo.url, sha);

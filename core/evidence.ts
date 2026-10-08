@@ -2,7 +2,7 @@ import type { Ctx, FetchResult, Io } from './io.ts'
 import type { Evidence, Via } from './types.ts'
 import { join, treeDir } from './paths.ts'
 import { containsQuote, htmlToText, locateQuote } from './normalize.ts'
-import { CODE_KINDS, parseLines } from './validate.ts'
+import { CODE_KINDS, isSha, parseLines } from './validate.ts'
 
 export const MAX_ARTIFACT_BYTES = 300 * 1024
 
@@ -17,11 +17,19 @@ export function lineRange(found: { start: number; end: number }): string {
 }
 
 export async function readAtSha(ctx: Ctx, repo: string, sha: string, path: string): Promise<string | undefined> {
+  // sha reaches git's argv for our own repo: only a full hex sha can never be read as an option.
+  if (!isSha(sha)) return undefined
   if (repo === 'self') {
     const shown = await ctx.io.run(['git', 'show', `${sha}:${path}`], ctx.cfg.root)
     return shown.exitCode === 0 ? shown.stdout : undefined
   }
-  return ctx.io.readText(join(treeDir(ctx.cfg, repo, sha), path))
+  let dir: string
+  try {
+    dir = treeDir(ctx.cfg, repo, sha)
+  } catch {
+    return undefined
+  }
+  return ctx.io.readText(join(dir, path))
 }
 
 export async function checkEvidence(ctx: Ctx, studyDir: string, evidence: Evidence): Promise<CheckOutcome> {

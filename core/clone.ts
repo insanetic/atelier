@@ -1,6 +1,7 @@
 import type { Ctx } from './io.ts'
 import { join, treeDir } from './paths.ts'
 import { loadReferences } from './store.ts'
+import { isSha } from './validate.ts'
 import { fail, ok } from './result.ts'
 import type { OpResult } from './result.ts'
 
@@ -11,14 +12,21 @@ async function headOf(ctx: Ctx, dir: string): Promise<string | undefined> {
 
 /** A shallow checkout of exactly one commit, kept per sha under the cache. */
 export async function ensureTree(ctx: Ctx, url: string, sha: string): Promise<OpResult<string>> {
-  const dir = treeDir(ctx.cfg, url, sha)
+  // Both reach git's argv: a value starting with "-" would be read as an option (--upload-pack runs commands).
+  if (!isSha(sha)) return fail(`${sha} is not a full 40-character sha`)
+  let dir: string
+  try {
+    dir = treeDir(ctx.cfg, url, sha)
+  } catch (problem) {
+    return fail((problem as Error).message)
+  }
   if ((await headOf(ctx, dir)) === sha) return ok(dir)
   const steps: string[][] = []
   if (!(await ctx.io.exists(join(dir, '.git')))) {
-    steps.push(['git', 'init', '-q', dir], ['git', '-C', dir, 'remote', 'add', 'origin', url])
+    steps.push(['git', 'init', '-q', dir], ['git', '-C', dir, 'remote', 'add', '--', 'origin', url])
   }
   steps.push(
-    ['git', '-C', dir, 'fetch', '-q', '--depth', '1', 'origin', sha],
+    ['git', '-C', dir, 'fetch', '-q', '--depth', '1', '--', 'origin', sha],
     ['git', '-C', dir, '-c', 'advice.detachedHead=false', 'checkout', '-q', '--detach', 'FETCH_HEAD'],
   )
   for (const argv of steps) {
