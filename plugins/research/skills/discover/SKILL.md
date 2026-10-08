@@ -9,7 +9,7 @@ The registry (`research/registry/`) is the list of every known competitor, bench
 
 | File | Holds |
 |---|---|
-| `taxonomy.yaml` | Categories (kebab-case) and capabilities (snake_case), each with a definition |
+| `taxonomy.yaml` | `scope` (include and exclude rules for the whole registry), categories (kebab-case) and capabilities (snake_case), each with a definition |
 | `references.yaml` | Facts per reference (kind, categories, source model, status, owner, domains, aliases) and our dated `stance` (tier, overlap per category). No stance = not a competitor |
 | `candidates.yaml` | Discovered, waiting for approval (written only by `propose_candidate`) |
 | `rejected.yaml` | Turned down, with the reason, so they are never proposed again |
@@ -18,8 +18,8 @@ The registry (`research/registry/`) is the list of every known competitor, bench
 
 `/discover <category> [<category> …]`. The categories must exist in `taxonomy.yaml`; propose a new one to the user (id + one-line definition) if needed.
 
-1. Run `research refs --category <c>` for each category: that is what is known.
-2. Dispatch `research:discoverer` agents in ONE message, one per channel and category: `alternatives`, `github`, `launches`, `marketplaces`. Give each the category id, its definition and the channel.
+1. Read `research/registry/taxonomy.yaml` and run `research refs --category <c>` for each category: that is the scope and what is known. If `scope` is missing, write it with the user first: a short list of include rules (who the product is for, what its core is) and exclude rules (the neighbouring markets that look alike). Without it, discovery floods the queue.
+2. Dispatch `research:discoverer` agents in ONE message, one per channel and category: `alternatives`, `github`, `launches`, `marketplaces`. Give each the category id, its definition, the channel, and the scope rules verbatim.
 3. Snowball: when round 1 proposed new candidates, run one more `alternatives` round seeded with their names. Repeat until a round proposes nothing new (at most 3 rounds).
 4. Report:
    - every candidate (`research candidates`): id, name, domain, the channels that found it;
@@ -29,3 +29,5 @@ The registry (`research/registry/`) is the list of every known competitor, bench
 6. Run `research landscape` so the landscape study gains the new references.
 
 Never move a candidate into the registry without the user's approval.
+
+Headless runs (`claude -p`) stop background agents after 10 minutes; set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0` so every round finishes.

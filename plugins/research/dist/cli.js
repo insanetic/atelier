@@ -6692,6 +6692,15 @@ function validateTaxonomy(data, file) {
       if (!isText(definition)) out.push(error(file, `${section}.${id} needs a definition`));
     }
   }
+  if (data.scope !== void 0) {
+    if (!isMapping(data.scope)) out.push(error(file, "scope must have include and exclude rules"));
+    else {
+      for (const key of ["include", "exclude"]) {
+        const rules = data.scope[key];
+        if (rules !== void 0 && (!Array.isArray(rules) || !rules.every(isText))) out.push(error(file, `scope.${key} must be a list of rules`));
+      }
+    }
+  }
   return out;
 }
 function validateCandidates(data, references, rejected, taxonomy, file) {
@@ -7059,7 +7068,9 @@ async function loadTaxonomy(io, cfg) {
   const loaded = await readYaml(io, path);
   if (loaded.error !== void 0) throw new Error(`${path}: ${loaded.error}`);
   const data = loaded.data ?? {};
-  return { categories: data.categories ?? {}, capabilities: data.capabilities ?? {} };
+  const taxonomy = { categories: data.categories ?? {}, capabilities: data.capabilities ?? {} };
+  if (data.scope !== void 0) taxonomy.scope = data.scope;
+  return taxonomy;
 }
 function loadFindings(io, cfg, topic) {
   return readList(io, files.findings(cfg, topic));

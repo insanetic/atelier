@@ -51,7 +51,9 @@ export async function loadTaxonomy(io: Io, cfg: Config): Promise<Taxonomy> {
   const loaded = await readYaml(io, path)
   if (loaded.error !== undefined) throw new Error(`${path}: ${loaded.error}`)
   const data = (loaded.data ?? {}) as Partial<Taxonomy>
-  return { categories: data.categories ?? {}, capabilities: data.capabilities ?? {} }
+  const taxonomy: Taxonomy = { categories: data.categories ?? {}, capabilities: data.capabilities ?? {} }
+  if (data.scope !== undefined) taxonomy.scope = data.scope
+  return taxonomy
 }
 
 export function loadFindings(io: Io, cfg: Config, topic: string): Promise<Finding[]> {

@@ -1,6 +1,6 @@
 {
   "name": "research",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Evidence-anchored technical prior-art studies for Claude Code",
   "type": "module",
   "private": true,

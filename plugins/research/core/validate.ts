@@ -245,6 +245,15 @@ export function validateTaxonomy(data: unknown, file: string): Issue[] {
       if (!isText(definition)) out.push(error(file, `${section}.${id} needs a definition`))
     }
   }
+  if (data.scope !== undefined) {
+    if (!isMapping(data.scope)) out.push(error(file, 'scope must have include and exclude rules'))
+    else {
+      for (const key of ['include', 'exclude'] as const) {
+        const rules = data.scope[key]
+        if (rules !== undefined && (!Array.isArray(rules) || !rules.every(isText))) out.push(error(file, `scope.${key} must be a list of rules`))
+      }
+    }
+  }
   return out
 }
 

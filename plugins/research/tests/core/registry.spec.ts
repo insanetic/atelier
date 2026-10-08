@@ -7,7 +7,7 @@ import type { CandidateInput } from '../../core/registry.ts'
 import { renderIssues, runCheck } from '../../core/check.ts'
 import { renderOp } from '../../core/findings.ts'
 import { files } from '../../core/paths.ts'
-import { loadCandidates, loadReferences, loadRejected, loadStudy } from '../../core/store.ts'
+import { loadCandidates, loadReferences, loadRejected, loadStudy, loadTaxonomy } from '../../core/store.ts'
 import { toYaml } from '../../core/yaml.ts'
 import { fakeIo } from './fake-io.ts'
 import type { FakeIo } from './fake-io.ts'
@@ -162,4 +162,13 @@ test('check reports candidates that collide with the registry and studies that m
   const rendered = renderIssues(await runCheck(ctx))
   assert.match(rendered, /candidate lago2: domain getlago\.com is already registered as lago/)
   assert.match(rendered, /warn .*lago overlaps usage-billing/)
+})
+
+test('a taxonomy scope holds include and exclude rules as text', async () => {
+  const scoped = { ...TAXONOMY, scope: { include: ['built for B2B software companies'], exclude: ['mobile in-app purchases'] } }
+  assert.deepEqual(validateTaxonomy(scoped, 'taxonomy.yaml'), [])
+  assert.match(text(validateTaxonomy({ ...TAXONOMY, scope: { include: 'B2B' } }, 'taxonomy.yaml')), /scope\.include must be a list of rules/)
+  const io = fakeIo()
+  io.files.set(files.taxonomy(CFG), toYaml(scoped))
+  assert.deepEqual((await loadTaxonomy(io, CFG)).scope, scoped.scope)
 })

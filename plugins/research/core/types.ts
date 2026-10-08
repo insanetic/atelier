@@ -69,7 +69,12 @@ export type Reference = {
 }
 
 /** The controlled vocabulary: market categories (kebab-case) and capabilities (snake_case), each defined. */
-export type Taxonomy = { categories: Record<string, string>; capabilities: Record<string, string> }
+export type Taxonomy = {
+  categories: Record<string, string>
+  capabilities: Record<string, string>
+  /** What belongs in the registry at all: every discovery agent applies these rules before proposing. */
+  scope?: { include?: string[]; exclude?: string[] }
+}
 
 export type Candidate = {
   id: string
