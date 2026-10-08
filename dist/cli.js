@@ -6379,7 +6379,8 @@ function resolvePath(base, path, home) {
 function parseRepoUrl(url) {
   const match = /^https?:\/\/([^/]+)\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/.exec(url);
   if (!match) throw new Error(`unsupported repository url ${url}; expected https://<host>/<owner>/<repo>`);
-  return { host: match[1], owner: match[2], name: match[3] };
+  const [, host = "", owner = "", name = ""] = match;
+  return { host, owner, name };
 }
 function treeDir(cfg, repoUrl, sha) {
   const { host, owner, name } = parseRepoUrl(repoUrl);
@@ -6449,7 +6450,7 @@ function locateQuote(text, quote, maxSpan = 30) {
   if (needle === "") return void 0;
   const lines = text.split("\n");
   const normalized = lines.map(normalizeText);
-  const firstWord = needle.split(" ")[0];
+  const firstWord = needle.split(" ")[0] ?? needle;
   for (let start = 0; start < lines.length; start++) {
     if (!normalized.slice(start, start + maxSpan).join(" ").includes(firstWord)) continue;
     for (let end = start; end < Math.min(lines.length, start + maxSpan); end++) {
@@ -6494,7 +6495,7 @@ var isMapping = (value) => value !== null && typeof value === "object" && !Array
 var error = (file, message) => ({ level: "error", kind: "schema", file, message });
 var warn2 = (file, message, kind = "schema") => ({ level: "warn", kind, file, message });
 function parseLines(lines) {
-  const [first, last] = lines.split("-").map(Number);
+  const [first = Number.NaN, last] = lines.split("-").map(Number);
   return [first, last ?? first];
 }
 function methodOf(evidence) {
@@ -6757,7 +6758,7 @@ function citationIssues(notes, topic, index, file) {
   const out = [];
   for (const match of notes.matchAll(/\[f:(?:([a-z0-9-]+)\/)?([^\]\s]+)\]/g)) {
     const owner = match[1] ?? topic;
-    if (!index.get(owner)?.has(match[2])) out.push(error(file, `citation ${match[0]} does not resolve`));
+    if (!index.get(owner)?.has(match[2] ?? "")) out.push(error(file, `citation ${match[0]} does not resolve`));
   }
   return out;
 }

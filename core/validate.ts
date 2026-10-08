@@ -55,7 +55,7 @@ export function hostOf(url: string): string {
 }
 
 export function parseLines(lines: string): [number, number] {
-  const [first, last] = lines.split('-').map(Number)
+  const [first = Number.NaN, last] = lines.split('-').map(Number)
   return [first, last ?? first]
 }
 
@@ -340,7 +340,7 @@ export function citationIssues(notes: string, topic: string, index: ReadonlyMap<
   const out: Issue[] = []
   for (const match of notes.matchAll(/\[f:(?:([a-z0-9-]+)\/)?([^\]\s]+)\]/g)) {
     const owner = match[1] ?? topic
-    if (!index.get(owner)?.has(match[2])) out.push(error(file, `citation ${match[0]} does not resolve`))
+    if (!index.get(owner)?.has(match[2] ?? '')) out.push(error(file, `citation ${match[0]} does not resolve`))
   }
   return out
 }

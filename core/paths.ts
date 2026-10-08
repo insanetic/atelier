@@ -27,7 +27,8 @@ export function resolvePath(base: string, path: string, home: string): string {
 export function parseRepoUrl(url: string): { host: string; owner: string; name: string } {
   const match = /^https?:\/\/([^/]+)\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/.exec(url)
   if (!match) throw new Error(`unsupported repository url ${url}; expected https://<host>/<owner>/<repo>`)
-  return { host: match[1], owner: match[2], name: match[3] }
+  const [, host = '', owner = '', name = ''] = match
+  return { host, owner, name }
 }
 
 export function treeDir(cfg: Config, repoUrl: string, sha: string): string {

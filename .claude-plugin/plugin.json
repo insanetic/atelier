@@ -2,5 +2,8 @@
   "name": "research-kit",
   "version": "0.1.0",
   "description": "Evidence-anchored technical prior-art studies: compare how others solve a problem, verify every claim, judge our design.",
+  "author": {
+    "name": "insanetic"
+  },
   "types": "./types/index.d.ts"
 }

@@ -1,5 +1,13 @@
 {
   "name": "research-kit",
-  "owner": { "name": "insanetic" },
-  "plugins": [{ "name": "research-kit", "source": "./" }]
+  "description": "research-kit: evidence-anchored technical prior-art studies for Claude Code",
+  "owner": {
+    "name": "insanetic"
+  },
+  "plugins": [
+    {
+      "name": "research-kit",
+      "source": "./"
+    }
+  ]
 }

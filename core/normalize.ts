@@ -60,7 +60,7 @@ export function locateQuote(text: string, quote: string, maxSpan = 30): { start:
   if (needle === '') return undefined
   const lines = text.split('\n')
   const normalized = lines.map(normalizeText)
-  const firstWord = needle.split(' ')[0]
+  const firstWord = needle.split(' ')[0] ?? needle
   for (let start = 0; start < lines.length; start++) {
     if (!normalized.slice(start, start + maxSpan).join(' ').includes(firstWord)) continue
     for (let end = start; end < Math.min(lines.length, start + maxSpan); end++) {
