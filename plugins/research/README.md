@@ -23,6 +23,19 @@ Then run `/study tax`, or just ask "how do others do tax?".
 
 ---
 
+## The list of everyone we compare against
+
+`research/registry/` keeps every known competitor, benchmark product and standard, so no study depends on someone remembering a vendor or on a vendor ranking well in search.
+
+- `taxonomy.yaml`: categories (`usage-billing`, `entitlements`, …) and capabilities (`public_api`, …), each with a definition.
+- `references.yaml`: facts per product (kind, categories, open source or not, status, owner, domains, aliases) and our dated stance (tier 1, 2 or watch; overlap direct or adjacent per category). Being a competitor, being open source and being a benchmark are separate: the first is our stance, the second a fact, the third a role inside one study.
+- `/discover <category>` sends one discoverer per channel (alternatives pages, GitHub topics and awesome lists, launches such as Show HN, marketplaces) and repeats until a round finds nothing new. Finds land in `candidates.yaml`; you approve them with `research approve <id>` or turn them down with `research reject <id> --reason …` (kept in `rejected.yaml`, so they are never proposed again).
+- Every study names its categories; `research check` warns when a registered competitor overlapping them is neither included nor excluded with a reason.
+
+**Benchmarks** are studies of one thing we have: `/study api-model --against stripe,lago`, or against everyone with a capability (`research refs --capability public_api`, read from the standing landscape study that `research landscape` keeps in step with the registry).
+
+---
+
 ## How a study runs
 
 1. **Frame:** the question and the decision it feeds.
@@ -66,13 +79,15 @@ Update later with `/plugin marketplace update atelier`.
 | Component | Name | On invoke¹ | What it does |
 |---|---|---|---|
 | Skill | `/study` (`/research:study`) | ~2.4k | The method: drives the eight steps |
+| Skill | `/discover` (`/research:discover`) | small | Finds missing competitors through several channels |
 | Agent | `research:scout` | ~530 | Proposes comparison questions, criteria and references |
 | Agent | `research:researcher` | ~510 | Researches one reference and records its findings |
 | Agent | `research:verifier` | ~400 | Re-checks quotes and judges support, independently |
 | Agent | `research:analyst` | ~200 | Proposes scores against the written criteria |
 | Agent | `research:critic` | ~170 | Attacks candidate designs with the recorded pain |
-| Tools | `add_finding`, `verify_finding`, `set_score`, `clone`, `query`, `matrix` | n/a | Validated writes, quote checks, search, the comparison pane |
-| Command | `research` (on PATH in sessions) | n/a | `init`, `check`, `stale`, `query`, `matrix`, `decide`, `reverify`, `clone`, `repin` |
+| Agent | `research:discoverer` | small | Searches one discovery channel and proposes candidates with evidence |
+| Tools | `add_finding`, `verify_finding`, `set_score`, `clone`, `query`, `matrix`, `refs`, `propose_candidate` | n/a | Validated writes, quote checks, search, the registry, the comparison pane |
+| Command | `research` (on PATH in sessions) | n/a | `init`, `check`, `stale`, `query`, `matrix`, `decide`, `reverify`, `clone`, `repin`, `refs`, `candidates`, `approve`, `reject`, `landscape` |
 
 ¹ Tokens from `claude plugin details research@atelier`. The always-on cost is about 415 tokens for the skill and agent descriptions, plus the six tool schemas (about 1.2k tokens, estimated from their size).
 

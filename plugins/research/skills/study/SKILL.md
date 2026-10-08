@@ -15,17 +15,25 @@ Agents collect. Deterministic checks verify quotes. The verifier judges support.
 
 | File | Who writes it |
 |---|---|
-| `study.yaml` | You, by hand: question, decision, dimensions, criteria, references and their roles, decision |
+| `study.yaml` | You, by hand: question, decision, `categories` (from the taxonomy), dimensions, criteria, references and their roles, `excluded` (id: reason), decision |
 | `findings.yaml` | Tools only: `add_finding`, `verify_finding` |
 | `assessment.yaml` | Tools only: `set_score` |
 | `study.md` | You: approaches found, trade-offs, pain, where ours stands, candidates, decision. Cite findings as `[f:<id>]` or `[f:<topic>/<id>]` |
 | `artifacts/` | Screenshots and transcripts for `tested` evidence, ≤ 300 KB each |
 
-`research/references.yaml` lists every reference once: id, name, docs, `api_spec`, `repos` (url plus pinned sha). Run `research check` after every hand edit. Pin a new open-source reference with `research repin <ref>`.
+`research/registry/` holds the list of every known competitor, benchmark product and standard (`references.yaml`, with facts and our dated stance), the `taxonomy.yaml`, and the `candidates.yaml` / `rejected.yaml` of discovery (see the research:discover skill). Studies pick their references from it; a role (competitor, specialist, code-read, standard, alternative, anti, ours) belongs to the study, not the reference. Run `research check` after every hand edit. Pin an open-source reference with `research repin <ref>`.
 
 ## Start
 
 `/study <topic> [--quick]` runs this skill (also `/research:study`); the arguments are the topic and, optionally, `--quick`. Saying "how do others do X?" starts it too: derive a kebab-case topic from X. First run `research init <topic>` (add `--quick` for quick mode): it creates the study files, or leaves an existing study untouched. Then call `matrix` with the topic: it opens the pane and shows what is already known.
+
+## Benchmarks
+
+A benchmark is a study of one thing we have, rated against others:
+- `/study api-model --against stripe,lago`: only the named references, plus ours.
+- "against everyone who has a public API": `research refs --capability public_api` lists the references whose landscape finding is verified. If a capability is missing from the landscape study, add it to `taxonomy.yaml`, run `research landscape`, and research that one question first.
+
+Its criteria (for an API: error model, pagination, idempotency, versioning…) get written levels, and every reference, ours included, is scored on them.
 
 ## Modes
 
@@ -38,7 +46,8 @@ Agents collect. Deterministic checks verify quotes. The verifier judges support.
 2. **Map.** Dispatch `research:scout` with the frame. It proposes:
    - **dimensions:** snake_case id, the question to ask, type, options, volatility, and optionally Kano/Wardley tags;
    - **criteria,** with written levels for 1, 3 and 5;
-   - **references by role:** at least one competitor, one specialist or best-in-class product, one open-source project and one alternative approach, plus a standard if one exists, plus ours.
+   - **categories** from the taxonomy that the study covers;
+   - **references by role:** every registered competitor whose stance overlaps those categories (or excluded with a reason; `research check` warns about any left out), at least one specialist or best-in-class product, one code-read project and one alternative approach, plus a standard if one exists, plus ours.
 
    Show the proposal to the user. **Do not continue until the user approves the dimensions and references.** Then write `study.yaml` and `references.yaml` and run `research repin <ref>` for each open-source reference. `research check` must pass.
 3. **Collect.** Dispatch one `research:researcher` per reference that isn't ours, all in a single message so they run in parallel. Each prompt contains:

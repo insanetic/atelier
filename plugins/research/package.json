@@ -1,11 +1,15 @@
 {
   "name": "research",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Evidence-anchored technical prior-art studies for Claude Code",
   "type": "module",
   "private": true,
-  "bin": { "research": "dist/cli.js" },
-  "engines": { "node": ">=24" },
+  "bin": {
+    "research": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "esbuild core/index.ts --bundle --format=esm --platform=neutral --main-fields=module,main --outfile=dist/core.js && esbuild cli/bin.ts --bundle --format=esm --platform=neutral --main-fields=module,main --external:node:* --target=node24 --banner:js='#!/usr/bin/env node' --outfile=dist/cli.js && chmod +x dist/cli.js",
     "test": "node --test 'tests/core/*.spec.ts' 'tests/cli/*.spec.ts'",

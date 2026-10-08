@@ -22,7 +22,8 @@ criteria: []
 `
 
 const SEED: Record<string, string> = {
-  [`${ROOT}/research/references.yaml`]: '- id: stripe\n  name: Stripe\n',
+  [`${ROOT}/research/registry/references.yaml`]: '- id: stripe\n  name: Stripe\n  categories: [subscription-billing]\n',
+  [`${ROOT}/research/registry/taxonomy.yaml`]: 'categories:\n  subscription-billing: Recurring plans and invoices\ncapabilities: {}\n',
   [`${ROOT}/research/studies/tax/study.yaml`]: STUDY,
   [FINDINGS]: '[]\n',
   [`${ROOT}/research/studies/tax/assessment.yaml`]: '[]\n',

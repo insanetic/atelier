@@ -1,8 +1,20 @@
 import type { Ctx } from './io.ts'
-import type { Finding, Issue, Reference, Study } from './types.ts'
+import type { Finding, Issue, Reference, Rejection, Study, Taxonomy } from './types.ts'
 import { files } from './paths.ts'
 import { listTopics, loadNotes, readYaml } from './store.ts'
-import { citationIssues, decidedGate, validateFinding, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
+import {
+  citationIssues,
+  coverageIssues,
+  decidedGate,
+  validateCandidates,
+  validateFinding,
+  validateFindings,
+  validateReferences,
+  validateRejected,
+  validateScores,
+  validateStudy,
+  validateTaxonomy,
+} from './validate.ts'
 import { isStale, stalePins } from './fresh.ts'
 
 type Bundle = { topic: string; study: Study; findings: Finding[]; ids: Set<string> }
@@ -10,16 +22,35 @@ type Bundle = { topic: string; study: Study; findings: Finding[]; ids: Set<strin
 const error = (file: string, message: string): Issue => ({ level: 'error', kind: 'schema', file, message })
 const stale = (file: string, message: string): Issue => ({ level: 'warn', kind: 'freshness', file, message })
 const idOf = (item: unknown) => (item !== null && typeof item === 'object' ? (item as { id?: unknown }).id : undefined)
+const isMapping = (item: unknown): item is Record<string, unknown> => item !== null && typeof item === 'object' && !Array.isArray(item)
+const asTaxonomy = (data: Record<string, unknown>): Taxonomy => ({
+  categories: isMapping(data.categories) ? (data.categories as Record<string, string>) : {},
+  capabilities: isMapping(data.capabilities) ? (data.capabilities as Record<string, string>) : {},
+})
 
 /** Every schema, integrity and freshness rule, offline: no fetches and no git. */
 export async function runCheck(ctx: Ctx): Promise<Issue[]> {
   const issues: Issue[] = []
+  const taxonomyFile = files.taxonomy(ctx.cfg)
+  const taxonomyYaml = await readYaml(ctx.io, taxonomyFile)
+  if (taxonomyYaml.error !== undefined) issues.push(error(taxonomyFile, taxonomyYaml.error))
+  else if (!taxonomyYaml.missing) issues.push(...validateTaxonomy(taxonomyYaml.data, taxonomyFile))
+  const taxonomy = isMapping(taxonomyYaml.data) ? asTaxonomy(taxonomyYaml.data) : undefined
   const refsFile = files.references(ctx.cfg)
   const refs = await readYaml(ctx.io, refsFile)
   if (refs.error !== undefined) issues.push(error(refsFile, refs.error))
-  else if (!refs.missing) issues.push(...validateReferences(refs.data, refsFile))
-  const references = Array.isArray(refs.data) ? (refs.data as Reference[]) : []
+  else if (!refs.missing) issues.push(...validateReferences(refs.data, refsFile, taxonomy))
+  const references = Array.isArray(refs.data) ? (refs.data as unknown[]).filter(isMapping).map(item => item as Reference) : []
   const refIds = new Set(references.map(ref => ref.id))
+  const rejectedFile = files.rejected(ctx.cfg)
+  const rejectedYaml = await readYaml(ctx.io, rejectedFile)
+  if (rejectedYaml.error !== undefined) issues.push(error(rejectedFile, rejectedYaml.error))
+  else if (!rejectedYaml.missing) issues.push(...validateRejected(rejectedYaml.data, rejectedFile))
+  const rejected = Array.isArray(rejectedYaml.data) ? (rejectedYaml.data as unknown[]).filter(isMapping).map(item => item as Rejection) : []
+  const candidatesFile = files.candidates(ctx.cfg)
+  const candidates = await readYaml(ctx.io, candidatesFile)
+  if (candidates.error !== undefined) issues.push(error(candidatesFile, candidates.error))
+  else if (!candidates.missing) issues.push(...validateCandidates(candidates.data, references, rejected, taxonomy, candidatesFile))
   const bundles: Bundle[] = []
   for (const topic of await listTopics(ctx.io, ctx.cfg)) {
     const studyFile = files.study(ctx.cfg, topic)
@@ -28,10 +59,11 @@ export async function runCheck(ctx: Ctx): Promise<Issue[]> {
       issues.push(error(studyFile, loaded.error ?? 'study.yaml is missing'))
       continue
     }
-    const studyIssues = validateStudy(loaded.data, topic, refIds, studyFile)
+    const studyIssues = validateStudy(loaded.data, topic, refIds, studyFile, taxonomy)
     issues.push(...studyIssues)
     if (studyIssues.some(issue => issue.level === 'error')) continue
     const study = loaded.data as Study
+    issues.push(...coverageIssues(study, references, studyFile))
     const findingsFile = files.findings(ctx.cfg, topic)
     const found = await readYaml(ctx.io, findingsFile)
     if (found.error !== undefined) {

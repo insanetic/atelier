@@ -81,3 +81,32 @@ describe('network', () => {
     expect(String(out.result)).toContain('https://docs.stripe.com/tax answered nothing')
   })
 })
+
+describe('registry', () => {
+  test('refs lists the registered references of a category', async ($, on) => {
+    world(on)
+    await $.session.start(START)
+    const out = await $.tool.call({ tool: 'mcp__research__refs', category: 'subscription-billing' })
+    expect(String(out.result)).toContain('stripe  Stripe  product  -  subscription-billing')
+  })
+
+  test('propose_candidate queues a product the registry does not know', async ($, on) => {
+    const files = world(on, { 'https://flexprice.io': '<h1>Open-source usage-based billing</h1>' })
+    await $.session.start(START)
+    const input = {
+      tool: 'mcp__research__propose_candidate',
+      id: 'flexprice',
+      name: 'Flexprice',
+      domains: ['flexprice.io'],
+      categories: ['subscription-billing'],
+      found_by: ['github'],
+      evidence: [{ kind: 'docs', url: 'https://flexprice.io', quote: 'Open-source usage-based billing' }],
+    }
+    expect(String((await $.tool.call(input)).result)).toBe('proposed flexprice (found by github)')
+    expect(files.get(`${ROOT}/research/registry/candidates.yaml`)).toContain('id: flexprice')
+    const again = await $.tool.call({ ...input, found_by: ['launches'] })
+    expect(String(again.result)).toBe('merged into candidate flexprice (found by github, launches)')
+    const known = await $.tool.call({ ...input, id: 'stripe-billing', name: 'Stripe', domains: ['stripe.com'] })
+    expect(String(known.result)).toContain('already registered as stripe')
+  })
+})

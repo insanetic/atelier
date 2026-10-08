@@ -1,5 +1,5 @@
 // core/types.ts
-var ROLES = ["competitor", "specialist", "oss", "standard", "alternative", "anti", "ours"];
+var ROLES = ["competitor", "specialist", "code-read", "standard", "alternative", "anti", "ours"];
 var VOLATILITIES = ["fast", "medium", "slow"];
 var DIMENSION_TYPES = ["enum", "number", "duration", "bool", "text"];
 var STUDY_STATUSES = ["quick", "draft", "decided", "superseded"];
@@ -12,6 +12,11 @@ var FINDING_KINDS = ["answer", "pain"];
 var VIAS = ["fetch", "git", "archive", "browser", "file"];
 var KANO = ["must", "performance", "attractive"];
 var WARDLEY = ["genesis", "custom", "product", "commodity"];
+var REFERENCE_KINDS = ["product", "standard", "approach", "ours"];
+var SOURCE_MODELS = ["open_source", "source_available", "proprietary"];
+var DELIVERIES = ["saas", "self_hosted", "library"];
+var REFERENCE_STATUSES = ["active", "acquired", "sunset", "dead"];
+var OVERLAPS = ["direct", "adjacent"];
 
 // core/result.ts
 function ok(value, warnings = []) {
@@ -6325,6 +6330,12 @@ function setInYaml(text, values) {
   for (const [key, value] of Object.entries(values)) doc.set(key, doc.createNode(value));
   return doc.toString({ lineWidth: 0 });
 }
+function appendToYamlList(text, item) {
+  const doc = parseDocument(text);
+  if (doc.contents === null) return stringify3([item], { lineWidth: 0 });
+  doc.add(doc.createNode(item));
+  return doc.toString({ lineWidth: 0 });
+}
 
 // core/paths.ts
 function join(...parts) {
@@ -6360,7 +6371,11 @@ function treeDir(cfg, repoUrl, sha) {
   return join(cfg.cache, "repos", host, owner, name, sha);
 }
 var files = {
-  references: (cfg) => join(cfg.dir, "references.yaml"),
+  registry: (cfg) => join(cfg.dir, "registry"),
+  references: (cfg) => join(cfg.dir, "registry", "references.yaml"),
+  taxonomy: (cfg) => join(cfg.dir, "registry", "taxonomy.yaml"),
+  candidates: (cfg) => join(cfg.dir, "registry", "candidates.yaml"),
+  rejected: (cfg) => join(cfg.dir, "registry", "rejected.yaml"),
   studies: (cfg) => join(cfg.dir, "studies"),
   studyDir: (cfg, topic) => join(cfg.dir, "studies", topic),
   study: (cfg, topic) => join(cfg.dir, "studies", topic, "study.yaml"),
@@ -6581,10 +6596,11 @@ function evidenceIssues(item, index) {
   }
   return out;
 }
-function validateReferences(data, file) {
+function validateReferences(data, file, taxonomy) {
   if (!Array.isArray(data)) return [error(file, "references.yaml must be a list")];
   const out = [];
   const seen = /* @__PURE__ */ new Set();
+  const domainOwner = /* @__PURE__ */ new Map();
   data.forEach((raw, index) => {
     const at = `references[${index}]`;
     if (!isMapping(raw)) {
@@ -6612,7 +6628,137 @@ function validateReferences(data, file) {
       if (repo.pin !== void 0 && !isSha(repo.pin)) out.push(error(file, `${where}.pin must be a full 40-character sha`));
       if (repo.pin !== void 0 && !isDate(repo.pinned_at)) out.push(error(file, `${where}.pinned_at must be YYYY-MM-DD when pin is set`));
     });
+    out.push(...factIssues(ref, at, taxonomy).map((message) => error(file, message)));
+    for (const raw2 of Array.isArray(ref.domains) ? ref.domains : []) {
+      if (typeof raw2 !== "string" || typeof ref.id !== "string") continue;
+      const domain = normalizeDomain(raw2);
+      const owner = domainOwner.get(domain);
+      if (owner !== void 0 && owner !== ref.id) out.push(error(file, `domain ${domain} is used by ${owner} and ${ref.id}`));
+      else domainOwner.set(domain, ref.id);
+    }
   });
+  data.forEach((raw, index) => {
+    if (!isMapping(raw)) return;
+    for (const link of ["owned_by", "successor"]) {
+      const target = raw[link];
+      if (target !== void 0 && (typeof target !== "string" || !seen.has(target))) {
+        out.push(error(file, `references[${index}].${link} ${String(target)} is not a registered reference`));
+      }
+    }
+  });
+  return out;
+}
+function normalizeDomain(value) {
+  return value.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/^www\./, "").replace(/[/?#].*$/, "");
+}
+var categoryIssue = (taxonomy, value) => taxonomy !== void 0 && (typeof value !== "string" || !(value in (taxonomy.categories ?? {}))) ? `${String(value)} is not in taxonomy.yaml` : void 0;
+function listIssues(value, at) {
+  return value !== void 0 && (!Array.isArray(value) || !value.every(isText)) ? [`${at} must be a list of text`] : [];
+}
+function factIssues(ref, at, taxonomy) {
+  const out = [];
+  if (ref.kind !== void 0 && !isOneOf(REFERENCE_KINDS, ref.kind)) out.push(`${at}.kind must be one of ${REFERENCE_KINDS.join(", ")}`);
+  for (const field of ["aliases", "domains", "categories", "delivery"]) out.push(...listIssues(ref[field], `${at}.${field}`));
+  for (const category of Array.isArray(ref.categories) ? ref.categories : []) {
+    const problem = categoryIssue(taxonomy, category);
+    if (problem) out.push(`${at}.categories: ${problem}`);
+  }
+  if (ref.source_model !== void 0 && !isOneOf(SOURCE_MODELS, ref.source_model)) out.push(`${at}.source_model must be one of ${SOURCE_MODELS.join(", ")}`);
+  if (Array.isArray(ref.delivery) && !ref.delivery.every((item) => isOneOf(DELIVERIES, item))) out.push(`${at}.delivery must use ${DELIVERIES.join(", ")}`);
+  if (ref.status !== void 0 && !isOneOf(REFERENCE_STATUSES, ref.status)) out.push(`${at}.status must be one of ${REFERENCE_STATUSES.join(", ")}`);
+  if (ref.stance !== void 0) {
+    const stance = isMapping(ref.stance) ? ref.stance : {};
+    if (stance.tier !== 1 && stance.tier !== 2 && stance.tier !== "watch") out.push(`${at}.stance.tier must be 1, 2 or watch`);
+    if (!isMapping(stance.overlap)) out.push(`${at}.stance.overlap must map categories to direct or adjacent`);
+    else {
+      for (const [category, level] of Object.entries(stance.overlap)) {
+        const problem = categoryIssue(taxonomy, category);
+        if (problem) out.push(`${at}.stance.overlap.${category}: ${problem}`);
+        if (!isOneOf(OVERLAPS, level)) out.push(`${at}.stance.overlap.${category} must be direct or adjacent`);
+      }
+    }
+    if (!isDate(stance.reviewed)) out.push(`${at}.stance.reviewed must be YYYY-MM-DD`);
+  }
+  return out;
+}
+function validateTaxonomy(data, file) {
+  if (!isMapping(data)) return [error(file, "taxonomy.yaml must map categories and capabilities to definitions")];
+  const out = [];
+  const sections = [
+    ["categories", REF_ID, "kebab-case"],
+    ["capabilities", SNAKE_ID, "snake_case"]
+  ];
+  for (const [section, pattern, shape] of sections) {
+    const entries = data[section];
+    if (entries === void 0 || entries === null) continue;
+    if (!isMapping(entries)) {
+      out.push(error(file, `${section} must map ids to definitions`));
+      continue;
+    }
+    for (const [id, definition] of Object.entries(entries)) {
+      if (!pattern.test(id)) out.push(error(file, `${section}.${id} must be ${shape}`));
+      if (!isText(definition)) out.push(error(file, `${section}.${id} needs a definition`));
+    }
+  }
+  return out;
+}
+function validateCandidates(data, references, rejected, taxonomy, file) {
+  if (!Array.isArray(data)) return [error(file, "candidates.yaml must be a list")];
+  const registeredDomain = new Map(references.flatMap((ref) => (ref.domains ?? []).map((domain) => [normalizeDomain(domain), ref.id])));
+  const rejectedDomain = new Set(rejected.flatMap((item) => (item.domains ?? []).map(normalizeDomain)));
+  const refIds = new Set(references.map((ref) => ref.id));
+  const out = [];
+  data.forEach((raw, index) => {
+    if (!isMapping(raw)) {
+      out.push(error(file, `candidates[${index}] must be a mapping`));
+      return;
+    }
+    const at = `candidate ${typeof raw.id === "string" ? raw.id : `[${index}]`}`;
+    const problems = [];
+    if (typeof raw.id !== "string" || !REF_ID.test(raw.id)) problems.push("id must be kebab-case");
+    else if (refIds.has(raw.id)) problems.push(`id ${raw.id} is already registered`);
+    if (!isText(raw.name)) problems.push("name is required");
+    if (!Array.isArray(raw.domains) || raw.domains.length === 0 || !raw.domains.every(isText)) problems.push("domains must list at least one domain");
+    for (const category of Array.isArray(raw.categories) ? raw.categories : []) {
+      const problem = categoryIssue(taxonomy, category);
+      if (problem) problems.push(`categories: ${problem}`);
+    }
+    if (!Array.isArray(raw.found_by) || raw.found_by.length === 0 || !raw.found_by.every(isText)) problems.push("found_by must name the discovery channels");
+    if (!Array.isArray(raw.evidence) || raw.evidence.length === 0) problems.push("evidence must show the product exists");
+    else raw.evidence.forEach((item, i) => problems.push(...evidenceIssues(item, i)));
+    if (!isDate(raw.proposed_at)) problems.push("proposed_at must be YYYY-MM-DD");
+    for (const domain of Array.isArray(raw.domains) ? raw.domains.filter(isText).map(normalizeDomain) : []) {
+      const owner = registeredDomain.get(domain);
+      if (owner !== void 0) problems.push(`domain ${domain} is already registered as ${owner}`);
+      if (rejectedDomain.has(domain)) problems.push(`domain ${domain} was rejected before`);
+    }
+    out.push(...problems.map((message) => error(file, `${at}: ${message}`)));
+  });
+  return out;
+}
+function validateRejected(data, file) {
+  if (!Array.isArray(data)) return [error(file, "rejected.yaml must be a list")];
+  return data.flatMap((raw, index) => {
+    const item = isMapping(raw) ? raw : {};
+    const at = `rejected[${index}]`;
+    const problems = [];
+    if (!isText(item.id)) problems.push(`${at}.id is required`);
+    if (!isText(item.name)) problems.push(`${at}.name is required`);
+    if (!isText(item.reason)) problems.push(`${at}.reason is required`);
+    if (!isDate(item.rejected_at)) problems.push(`${at}.rejected_at must be YYYY-MM-DD`);
+    return problems.map((message) => error(file, message));
+  });
+}
+function coverageIssues(study, references, file) {
+  const categories = Array.isArray(study.categories) ? study.categories : [];
+  if (categories.length === 0) return [];
+  const out = [];
+  for (const ref of references) {
+    const overlap = isMapping(ref.stance?.overlap) ? ref.stance.overlap : {};
+    const hit = categories.find((category) => category in overlap);
+    if (hit === void 0 || ref.id in study.references || (study.excluded ?? {})[ref.id] !== void 0) continue;
+    out.push(warn2(file, `${ref.id} overlaps ${hit}: include it or add it to excluded with a reason`));
+  }
   return out;
 }
 function criterionIssues(criteria, file) {
@@ -6659,7 +6805,7 @@ function dimensionIssues(dimensions, file) {
   });
   return out;
 }
-function validateStudy(data, topic, refIds, file) {
+function validateStudy(data, topic, refIds, file, taxonomy) {
   if (!isMapping(data)) return [error(file, "study.yaml must be a mapping")];
   const study = data;
   const out = [];
@@ -6693,6 +6839,25 @@ function validateStudy(data, topic, refIds, file) {
       if (!Array.isArray(decision.cites) || decision.cites.length === 0) out.push(error(file, "decision.cites must list the finding ids the decision rests on"));
       if (!isText(decision.revisit_when)) out.push(error(file, "decision.revisit_when is required"));
       if (!isMapping(decision.snapshot)) out.push(error(file, "decision.snapshot is missing; record decisions with research decide"));
+    }
+  }
+  if (study.categories !== void 0) {
+    if (!Array.isArray(study.categories)) out.push(error(file, "categories must be a list of taxonomy categories"));
+    else {
+      for (const category of study.categories) {
+        const problem = categoryIssue(taxonomy, category);
+        if (problem) out.push(error(file, `categories: ${problem}`));
+      }
+    }
+  }
+  if (study.excluded !== void 0) {
+    if (!isMapping(study.excluded)) out.push(error(file, "excluded must map reference ids to reasons"));
+    else {
+      for (const [id, reason] of Object.entries(study.excluded)) {
+        if (!refIds.has(id)) out.push(error(file, `excluded.${id} is not in references.yaml`));
+        if (!isText(reason)) out.push(error(file, `excluded.${id} needs a reason`));
+        if (isMapping(study.references) && id in study.references) out.push(error(file, `${id} is both referenced and excluded`));
+      }
     }
   }
   if (!hasOurs && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
@@ -6890,6 +7055,23 @@ async function readList(io, path) {
 function loadReferences(io, cfg) {
   return readList(io, files.references(cfg));
 }
+function loadCandidates(io, cfg) {
+  return readList(io, files.candidates(cfg));
+}
+function loadRejected(io, cfg) {
+  return readList(io, files.rejected(cfg));
+}
+function saveCandidates(io, cfg, candidates) {
+  return io.writeText(files.candidates(cfg), toYaml(candidates));
+}
+var EMPTY_TAXONOMY = { categories: {}, capabilities: {} };
+async function loadTaxonomy(io, cfg) {
+  const path = files.taxonomy(cfg);
+  const loaded = await readYaml(io, path);
+  if (loaded.error !== void 0) throw new Error(`${path}: ${loaded.error}`);
+  const data = loaded.data ?? {};
+  return { categories: data.categories ?? {}, capabilities: data.capabilities ?? {} };
+}
 function loadFindings(io, cfg, topic) {
   return readList(io, files.findings(cfg, topic));
 }
@@ -6929,7 +7111,8 @@ async function loadValidStudy(ctx, topic) {
   const study = await loadStudy(ctx.io, ctx.cfg, topic);
   if (study === void 0) return fail(`study ${topic} does not exist`);
   const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map((ref) => ref.id));
-  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter((issue) => issue.level === "error");
+  const taxonomy = await loadTaxonomy(ctx.io, ctx.cfg);
+  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic), taxonomy).filter((issue) => issue.level === "error");
   if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map((issue) => issue.message).join("; ")}`);
   return ok(study);
 }
@@ -6947,7 +7130,10 @@ async function createStudy(ctx, topic, mode) {
     [files.findings(ctx.cfg, topic), toYaml([])],
     [files.assessment(ctx.cfg, topic), toYaml([])],
     [files.notes(ctx.cfg, topic), notesTemplate(topic)],
-    [files.references(ctx.cfg), toYaml([])]
+    [files.references(ctx.cfg), toYaml([])],
+    [files.taxonomy(ctx.cfg), toYaml(EMPTY_TAXONOMY)],
+    [files.candidates(ctx.cfg), toYaml([])],
+    [files.rejected(ctx.cfg), toYaml([])]
   ];
   for (const [path, text] of starters) if (await ctx.io.readText(path) === void 0) await ctx.io.writeText(path, text);
   return ok({ study, created: true });
@@ -7311,14 +7497,33 @@ async function repin(ctx, refId, toSha) {
 var error2 = (file, message) => ({ level: "error", kind: "schema", file, message });
 var stale = (file, message) => ({ level: "warn", kind: "freshness", file, message });
 var idOf = (item) => item !== null && typeof item === "object" ? item.id : void 0;
+var isMapping2 = (item) => item !== null && typeof item === "object" && !Array.isArray(item);
+var asTaxonomy = (data) => ({
+  categories: isMapping2(data.categories) ? data.categories : {},
+  capabilities: isMapping2(data.capabilities) ? data.capabilities : {}
+});
 async function runCheck(ctx) {
   const issues = [];
+  const taxonomyFile = files.taxonomy(ctx.cfg);
+  const taxonomyYaml = await readYaml(ctx.io, taxonomyFile);
+  if (taxonomyYaml.error !== void 0) issues.push(error2(taxonomyFile, taxonomyYaml.error));
+  else if (!taxonomyYaml.missing) issues.push(...validateTaxonomy(taxonomyYaml.data, taxonomyFile));
+  const taxonomy = isMapping2(taxonomyYaml.data) ? asTaxonomy(taxonomyYaml.data) : void 0;
   const refsFile = files.references(ctx.cfg);
   const refs = await readYaml(ctx.io, refsFile);
   if (refs.error !== void 0) issues.push(error2(refsFile, refs.error));
-  else if (!refs.missing) issues.push(...validateReferences(refs.data, refsFile));
-  const references = Array.isArray(refs.data) ? refs.data : [];
+  else if (!refs.missing) issues.push(...validateReferences(refs.data, refsFile, taxonomy));
+  const references = Array.isArray(refs.data) ? refs.data.filter(isMapping2).map((item) => item) : [];
   const refIds = new Set(references.map((ref) => ref.id));
+  const rejectedFile = files.rejected(ctx.cfg);
+  const rejectedYaml = await readYaml(ctx.io, rejectedFile);
+  if (rejectedYaml.error !== void 0) issues.push(error2(rejectedFile, rejectedYaml.error));
+  else if (!rejectedYaml.missing) issues.push(...validateRejected(rejectedYaml.data, rejectedFile));
+  const rejected = Array.isArray(rejectedYaml.data) ? rejectedYaml.data.filter(isMapping2).map((item) => item) : [];
+  const candidatesFile = files.candidates(ctx.cfg);
+  const candidates = await readYaml(ctx.io, candidatesFile);
+  if (candidates.error !== void 0) issues.push(error2(candidatesFile, candidates.error));
+  else if (!candidates.missing) issues.push(...validateCandidates(candidates.data, references, rejected, taxonomy, candidatesFile));
   const bundles = [];
   for (const topic of await listTopics(ctx.io, ctx.cfg)) {
     const studyFile = files.study(ctx.cfg, topic);
@@ -7327,10 +7532,11 @@ async function runCheck(ctx) {
       issues.push(error2(studyFile, loaded.error ?? "study.yaml is missing"));
       continue;
     }
-    const studyIssues = validateStudy(loaded.data, topic, refIds, studyFile);
+    const studyIssues = validateStudy(loaded.data, topic, refIds, studyFile, taxonomy);
     issues.push(...studyIssues);
     if (studyIssues.some((issue) => issue.level === "error")) continue;
     const study = loaded.data;
+    issues.push(...coverageIssues(study, references, studyFile));
     const findingsFile = files.findings(ctx.cfg, topic);
     const found = await readYaml(ctx.io, findingsFile);
     if (found.error !== void 0) {
@@ -7477,25 +7683,163 @@ async function decide(ctx, input) {
   await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "decided", decision }));
   return ok(decision);
 }
+
+// core/registry.ts
+var REGISTRY = "registry";
+var LANDSCAPE = "landscape";
+var sameName = (a, b) => typeof a === "string" && typeof b === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
+var sharesDomain = (domains, wanted) => (domains ?? []).map(normalizeDomain).some((domain) => wanted.includes(domain));
+async function proposeCandidate(ctx, input, lock = new KeyedLock()) {
+  if (!Array.isArray(input.domains) || !Array.isArray(input.found_by) || !Array.isArray(input.evidence)) return fail("domains, found_by and evidence must be lists");
+  const domains = [...new Set(input.domains.map(normalizeDomain).filter((domain) => domain !== ""))];
+  const evidence = input.evidence.map(
+    (item) => WEB_KINDS.includes(item.kind) && item.retrieved === void 0 ? { ...item, retrieved: ctx.today } : { ...item }
+  );
+  const draft = {
+    id: input.id,
+    name: input.name,
+    domains,
+    categories: input.categories ?? [],
+    found_by: input.found_by,
+    evidence,
+    proposed_at: ctx.today
+  };
+  if (input.note !== void 0) draft.note = input.note;
+  const references = await loadReferences(ctx.io, ctx.cfg);
+  const rejected = await loadRejected(ctx.io, ctx.cfg);
+  const known = references.find(
+    (ref) => ref.id === draft.id || sameName(ref.name, draft.name) || (ref.aliases ?? []).some((alias) => sameName(alias, draft.name)) || sharesDomain(ref.domains, domains)
+  );
+  if (known !== void 0) return fail(`${draft.name} is already registered as ${known.id}`);
+  const refused = rejected.find((item) => item.id === draft.id || sameName(item.name, draft.name) || sharesDomain(item.domains, domains));
+  if (refused !== void 0) return fail(`${draft.name} was rejected on ${refused.rejected_at}: ${refused.reason}`);
+  const invalid = validateCandidates([draft], references, rejected, await loadTaxonomy(ctx.io, ctx.cfg), files.candidates(ctx.cfg));
+  if (invalid.length > 0) return fail(...invalid.map((issue) => issue.message));
+  const errors = [];
+  const warnings = [];
+  for (const [index, item] of evidence.entries()) {
+    const outcome = await checkEvidence(ctx, files.registry(ctx.cfg), item);
+    if (outcome.ok) continue;
+    if (outcome.miss === "hidden" || outcome.miss === "blocked") warnings.push(`evidence[${index}]: ${outcome.reason}; confirm it in a browser before approving`);
+    else errors.push(`evidence[${index}]: ${outcome.reason}`);
+  }
+  if (errors.length > 0) return fail(...errors);
+  return lock.run(REGISTRY, async () => {
+    const candidates = await loadCandidates(ctx.io, ctx.cfg);
+    const twin = candidates.find((item) => item.id === draft.id || sameName(item.name, draft.name) || sharesDomain(item.domains, domains));
+    if (twin === void 0) {
+      await saveCandidates(ctx.io, ctx.cfg, [...candidates, draft]);
+      return ok({ candidate: draft, merged: false }, warnings);
+    }
+    const merged = {
+      ...twin,
+      categories: [.../* @__PURE__ */ new Set([...twin.categories, ...draft.categories])],
+      found_by: [.../* @__PURE__ */ new Set([...twin.found_by, ...draft.found_by])],
+      evidence: [...twin.evidence, ...draft.evidence.filter((item) => !twin.evidence.some((existing) => existing.url === item.url))]
+    };
+    await saveCandidates(ctx.io, ctx.cfg, candidates.map((item) => item === twin ? merged : item));
+    return ok({ candidate: merged, merged: true }, warnings);
+  });
+}
+async function approveCandidate(ctx, id, lock = new KeyedLock()) {
+  return lock.run(REGISTRY, async () => {
+    const candidates = await loadCandidates(ctx.io, ctx.cfg);
+    const candidate = candidates.find((item) => item.id === id);
+    if (candidate === void 0) return fail(`candidate ${id} does not exist`);
+    const reference = { id: candidate.id, name: candidate.name, kind: "product", status: "active", domains: candidate.domains, categories: candidate.categories };
+    const path = files.references(ctx.cfg);
+    await ctx.io.writeText(path, appendToYamlList(await ctx.io.readText(path) ?? "", reference));
+    await saveCandidates(ctx.io, ctx.cfg, candidates.filter((item) => item !== candidate));
+    return ok(reference);
+  });
+}
+async function rejectCandidate(ctx, id, reason, lock = new KeyedLock()) {
+  if (typeof reason !== "string" || reason.trim() === "") return fail("a reason is required, so the product is not proposed again");
+  return lock.run(REGISTRY, async () => {
+    const candidates = await loadCandidates(ctx.io, ctx.cfg);
+    const candidate = candidates.find((item) => item.id === id);
+    if (candidate === void 0) return fail(`candidate ${id} does not exist`);
+    const rejection = { id: candidate.id, name: candidate.name, domains: candidate.domains, reason, rejected_at: ctx.today };
+    const path = files.rejected(ctx.cfg);
+    await ctx.io.writeText(path, appendToYamlList(await ctx.io.readText(path) ?? "", rejection));
+    await saveCandidates(ctx.io, ctx.cfg, candidates.filter((item) => item !== candidate));
+    return ok(rejection);
+  });
+}
+async function listReferences(ctx, filter) {
+  let rows = (await loadReferences(ctx.io, ctx.cfg)).map((ref) => ({ ref }));
+  if (filter.category !== void 0) rows = rows.filter((row) => (row.ref.categories ?? []).includes(filter.category ?? ""));
+  if (filter.tier !== void 0) rows = rows.filter((row) => row.ref.stance !== void 0 && String(row.ref.stance.tier) === filter.tier);
+  if (filter.kind !== void 0) rows = rows.filter((row) => (row.ref.kind ?? "product") === filter.kind);
+  if (filter.capability === void 0) return rows;
+  const capability = filter.capability;
+  const landscape = await loadStudy(ctx.io, ctx.cfg, LANDSCAPE);
+  const dimension = landscape?.dimensions.find((dim) => dim.id === capability);
+  if (landscape === void 0 || dimension === void 0) return [];
+  const findings = await loadFindings(ctx.io, ctx.cfg, LANDSCAPE);
+  return rows.flatMap((row) => {
+    const finding = findings.find((item) => item.ref === row.ref.id && item.dimension === capability && item.kind === "answer" && item.status !== "superseded");
+    if (finding === void 0 || finding.answer !== true) return [];
+    return [{ ...row, capability: stateOf(finding, dimension, ctx.today), capabilityId: capability }];
+  });
+}
+function renderReferences(rows) {
+  if (rows.length === 0) return "no references match";
+  return rows.map(({ ref, capability, capabilityId }) => {
+    const tier = ref.stance === void 0 ? "-" : `tier ${ref.stance.tier}`;
+    const cells = [ref.id, ref.name, ref.kind ?? "product", tier, (ref.categories ?? []).join(",") || "-"];
+    if (capability !== void 0 && capabilityId !== void 0) cells.push(`${capabilityId}: ${capability}`);
+    return cells.join("  ");
+  }).join("\n");
+}
+function landscapeRole(ref) {
+  if (ref.kind === "ours") return "ours";
+  if (ref.kind === "standard") return "standard";
+  return ref.stance === void 0 ? "specialist" : "competitor";
+}
+async function syncLandscape(ctx) {
+  const taxonomy = await loadTaxonomy(ctx.io, ctx.cfg);
+  const references = (await loadReferences(ctx.io, ctx.cfg)).filter((ref) => (ref.status ?? "active") === "active");
+  const made = await createStudy(ctx, LANDSCAPE, "full");
+  if (!made.ok) return made;
+  const dimensions = Object.entries(taxonomy.capabilities).map(([id, ask]) => ({ id, ask, type: "bool", volatility: "medium" }));
+  const roles = Object.fromEntries(references.map((ref) => [ref.id, landscapeRole(ref)]));
+  const path = files.study(ctx.cfg, LANDSCAPE);
+  const updated = setInYaml(await ctx.io.readText(path) ?? "", {
+    question: "Which capabilities does each registered reference have?",
+    decision_needed: "Which references a benchmark selects by capability",
+    references: roles,
+    dimensions
+  });
+  await ctx.io.writeText(path, updated);
+  return ok({ dimensions: dimensions.length, references: references.length });
+}
 export {
   CELL_STATES,
   CODE_KINDS,
   CONFIDENCES,
   CONFIG_FILE,
+  DELIVERIES,
   DIMENSION_TYPES,
+  EMPTY_TAXONOMY,
   EVIDENCE_KINDS,
   FINDING_ID,
   FINDING_KINDS,
   FINDING_STATUSES,
   KANO,
   KeyedLock,
+  LANDSCAPE,
   MAX_ARTIFACT_BYTES,
   MAX_CODE_LINES,
   MAX_QUOTE_CHARS,
   METHODS,
+  OVERLAPS,
   PIN_MAX_DAYS,
   PRIMARY_KINDS,
+  REFERENCE_KINDS,
+  REFERENCE_STATUSES,
   ROLES,
+  SOURCE_MODELS,
   STUDY_MODES,
   STUDY_STATUSES,
   TOPIC,
@@ -7508,6 +7852,8 @@ export {
   addDays,
   addFinding,
   answerIssue,
+  appendToYamlList,
+  approveCandidate,
   buildMatrix,
   cachedIo,
   canConfirm,
@@ -7516,12 +7862,14 @@ export {
   citationIssues,
   cloneRef,
   containsQuote,
+  coverageIssues,
   createStudy,
   decide,
   decidedGate,
   decodeEntities,
   describeFinding,
   ensureTree,
+  evidenceIssues,
   fail,
   files,
   findArchive,
@@ -7533,16 +7881,21 @@ export {
   isTopic,
   join,
   lineRange,
+  listReferences,
   listTopics,
   loadAssessment,
+  loadCandidates,
   loadConfig,
   loadFindings,
   loadNotes,
   loadReferences,
+  loadRejected,
   loadStudy,
+  loadTaxonomy,
   loadValidStudy,
   locateQuote,
   methodOf,
+  normalizeDomain,
   normalizeText,
   numberGuard,
   numbersIn,
@@ -7550,13 +7903,16 @@ export {
   parseLines,
   parseRepoUrl,
   parseYaml,
+  proposeCandidate,
   query,
   readAtSha,
   readYaml,
+  rejectCandidate,
   renderHits,
   renderIssues,
   renderMatrix,
   renderOp,
+  renderReferences,
   renderReport,
   repin,
   requestArchive,
@@ -7564,6 +7920,7 @@ export {
   reverify,
   runCheck,
   saveAssessment,
+  saveCandidates,
   saveFindings,
   saveReferences,
   setInYaml,
@@ -7571,14 +7928,18 @@ export {
   stalePins,
   stateOf,
   statusLine,
+  syncLandscape,
   toYaml,
   todayFromMs,
   treeDir,
+  validateCandidates,
   validateFinding,
   validateFindings,
   validateReferences,
+  validateRejected,
   validateScore,
   validateScores,
   validateStudy,
+  validateTaxonomy,
   verifyFinding
 };

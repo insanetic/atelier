@@ -1,5 +1,5 @@
 import type { Ctx, Io } from './io.ts'
-import type { Config, Finding, Reference, Score, Study, StudyMode } from './types.ts'
+import type { Candidate, Config, Finding, Reference, Rejection, Score, Study, StudyMode, Taxonomy } from './types.ts'
 import { files } from './paths.ts'
 import { parseYaml, toYaml } from './yaml.ts'
 import { validateStudy } from './validate.ts'
@@ -30,6 +30,28 @@ async function readList<T>(io: Io, path: string): Promise<T[]> {
 
 export function loadReferences(io: Io, cfg: Config): Promise<Reference[]> {
   return readList<Reference>(io, files.references(cfg))
+}
+
+export function loadCandidates(io: Io, cfg: Config): Promise<Candidate[]> {
+  return readList<Candidate>(io, files.candidates(cfg))
+}
+
+export function loadRejected(io: Io, cfg: Config): Promise<Rejection[]> {
+  return readList<Rejection>(io, files.rejected(cfg))
+}
+
+export function saveCandidates(io: Io, cfg: Config, candidates: Candidate[]): Promise<void> {
+  return io.writeText(files.candidates(cfg), toYaml(candidates))
+}
+
+export const EMPTY_TAXONOMY: Taxonomy = { categories: {}, capabilities: {} }
+
+export async function loadTaxonomy(io: Io, cfg: Config): Promise<Taxonomy> {
+  const path = files.taxonomy(cfg)
+  const loaded = await readYaml(io, path)
+  if (loaded.error !== undefined) throw new Error(`${path}: ${loaded.error}`)
+  const data = (loaded.data ?? {}) as Partial<Taxonomy>
+  return { categories: data.categories ?? {}, capabilities: data.capabilities ?? {} }
 }
 
 export function loadFindings(io: Io, cfg: Config, topic: string): Promise<Finding[]> {
@@ -78,7 +100,8 @@ export async function loadValidStudy(ctx: Ctx, topic: string): Promise<OpResult<
   const study = await loadStudy(ctx.io, ctx.cfg, topic)
   if (study === undefined) return fail(`study ${topic} does not exist`)
   const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map(ref => ref.id))
-  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter(issue => issue.level === 'error')
+  const taxonomy = await loadTaxonomy(ctx.io, ctx.cfg)
+  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic), taxonomy).filter(issue => issue.level === 'error')
   if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map(issue => issue.message).join('; ')}`)
   return ok(study)
 }
@@ -99,6 +122,9 @@ export async function createStudy(ctx: Ctx, topic: string, mode: StudyMode): Pro
     [files.assessment(ctx.cfg, topic), toYaml([])],
     [files.notes(ctx.cfg, topic), notesTemplate(topic)],
     [files.references(ctx.cfg), toYaml([])],
+    [files.taxonomy(ctx.cfg), toYaml(EMPTY_TAXONOMY)],
+    [files.candidates(ctx.cfg), toYaml([])],
+    [files.rejected(ctx.cfg), toYaml([])],
   ]
   for (const [path, text] of starters) if ((await ctx.io.readText(path)) === undefined) await ctx.io.writeText(path, text)
   return ok({ study, created: true })

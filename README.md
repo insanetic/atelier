@@ -14,7 +14,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 
 | Plugin | Invoke | What it does |
 |---|---|---|
-| [research](plugins/research) | `/study <topic>` | Technical prior-art studies: how other products, open-source projects and standards solve a problem, verified quote by quote and compared with our own design. |
+| [research](plugins/research) | `/study <topic>`, `/discover <category>` | Technical prior-art studies and benchmarks: how other products, open-source projects and standards solve a problem, verified quote by quote and compared with our own design; plus the list of every known competitor, kept complete by discovery. |
 
 ---
 

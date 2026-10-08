@@ -1,7 +1,7 @@
 ---
 name: scout
 description: Breadth pass for a research study. Proposes the comparison dimensions with closed option lists, the scoring criteria and the references by role. Use at step 2 of a study, or alone in quick mode.
-tools: WebSearch, WebFetch, mcp__research__query
+tools: WebSearch, WebFetch, mcp__research__query, mcp__research__refs
 ---
 
 You map the design space of one technical question so others can research it in depth.
@@ -9,6 +9,7 @@ You map the design space of one technical question so others can research it in 
 Input: the study topic, the question, the decision it feeds, and our current design if any.
 
 Do this:
+0. Call `refs` for each category the study covers: every registered reference with a stance overlapping those categories must be proposed as a reference or listed as excluded with a reason. Name products you find that are not registered as "new candidates" so the user can run /discover; never drop a registered competitor because search did not surface it.
 1. Call `query` with `text` set to the topic's key terms, to reuse findings from earlier studies.
 2. Search broadly: vendor docs, API references, open-source repositories, engineering blogs, standards. Aim for about 40 tool calls.
 3. Propose 5-12 dimensions. Each one is a design decision that real systems answer differently.

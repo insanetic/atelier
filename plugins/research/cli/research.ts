@@ -2,11 +2,17 @@ import type { Io } from '../core/io.ts'
 import { CELL_STATES } from '../core/fresh.ts'
 import type { CellState } from '../core/fresh.ts'
 import {
+  approveCandidate,
   buildMatrix,
   cloneRef,
   createStudy,
   decide,
   files,
+  listReferences,
+  loadCandidates,
+  rejectCandidate,
+  renderReferences,
+  syncLandscape,
   loadConfig,
   loadFindings,
   loadValidStudy,
@@ -36,9 +42,17 @@ export const USAGE = `usage: research <command>
   clone <ref>                check out a reference's pinned repositories
   repin <ref> [--to SHA]     move a reference to a new commit and re-anchor its code findings
   decide <topic> --chosen C --cites ID,ID --revisit "TRIGGER"
-                             record the decision; refuses unverified, disputed, drifted or stale citations`
+                             record the decision; refuses unverified, disputed, drifted or stale citations
 
-const VALUED = new Set(['ref', 'dimension', 'study', 'state', 'text', 'to', 'chosen', 'cites', 'revisit'])
+  registry (research/registry/):
+  refs [--category C] [--tier 1|2|watch] [--capability X] [--kind K]
+                             list registered references; --capability reads the verified landscape study
+  candidates                 list discovered products waiting for approval
+  approve <id>               move a candidate into references.yaml
+  reject <id> --reason R     record why a candidate is out, so it is not proposed again
+  landscape                  sync the landscape study: one question per capability, every active reference`
+
+const VALUED = new Set(['ref', 'dimension', 'study', 'state', 'text', 'to', 'chosen', 'cites', 'revisit', 'category', 'tier', 'capability', 'kind', 'reason'])
 
 export function parseArgs(args: readonly string[]): { positional: string[]; flags: Map<string, string | true> } {
   const positional: string[] = []
@@ -131,6 +145,36 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
       const out = await decide(ctx, { study: topic, chosen: valueOf('chosen') ?? '', cites, revisit_when: valueOf('revisit') ?? '' })
       if (!out.ok) return { code: 1, output: out.errors.join('\n') }
       return { code: 0, output: `decided ${topic}: ${out.value.chosen} (cites ${out.value.cites.join(', ')})` }
+    }
+    case 'refs': {
+      const filter = { category: valueOf('category'), tier: valueOf('tier'), capability: valueOf('capability'), kind: valueOf('kind') }
+      return { code: 0, output: renderReferences(await listReferences(ctx, filter)) }
+    }
+    case 'candidates': {
+      const candidates = await loadCandidates(env.io, cfg)
+      if (candidates.length === 0) return { code: 0, output: 'no candidates' }
+      const lines = candidates.map(item =>
+        [item.id, item.name, item.domains.join(','), item.categories.join(',') || '-', `found by ${item.found_by.join(', ')}`].join('  '),
+      )
+      return { code: 0, output: lines.join('\n') }
+    }
+    case 'approve': {
+      const id = positional[0]
+      if (id === undefined) return usageError('approve needs a candidate id')
+      const out = await approveCandidate(ctx, id)
+      return out.ok ? { code: 0, output: `approved ${id}: added to the registry` } : { code: 1, output: out.errors.join('\n') }
+    }
+    case 'reject': {
+      const id = positional[0]
+      const reason = valueOf('reason')
+      if (id === undefined || reason === undefined) return usageError('reject needs a candidate id and --reason')
+      const out = await rejectCandidate(ctx, id, reason)
+      return out.ok ? { code: 0, output: `rejected ${id}: ${reason}` } : { code: 1, output: out.errors.join('\n') }
+    }
+    case 'landscape': {
+      const out = await syncLandscape(ctx)
+      if (!out.ok) return { code: 1, output: out.errors.join('\n') }
+      return { code: 0, output: `landscape: ${out.value.dimensions} capabilities, ${out.value.references} references` }
     }
     default:
       return usageError(`unknown command ${command}`)
