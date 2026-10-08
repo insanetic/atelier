@@ -1,4 +1,4 @@
-import { parse, parseDocument, stringify } from 'yaml'
+import { isSeq, parse, parseDocument, stringify, visit } from 'yaml'
 
 export function parseYaml(text: string): unknown {
   return parse(text) ?? null
@@ -19,6 +19,14 @@ export function setInYaml(text: string, values: Record<string, unknown>): string
 export function appendToYamlList(text: string, item: unknown): string {
   const doc = parseDocument(text)
   if (doc.contents === null) return stringify([item], { lineWidth: 0 })
+  // `[]` and other one-line lists are flow sequences: appending rewrites the whole list as a readable block list.
+  if (isSeq(doc.contents) && doc.contents.flow === true) {
+    visit(doc, {
+      Collection(_, node) {
+        node.flow = false
+      },
+    })
+  }
   doc.add(doc.createNode(item))
   return doc.toString({ lineWidth: 0 })
 }

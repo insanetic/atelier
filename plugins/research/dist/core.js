@@ -6333,6 +6333,13 @@ function setInYaml(text, values) {
 function appendToYamlList(text, item) {
   const doc = parseDocument(text);
   if (doc.contents === null) return stringify3([item], { lineWidth: 0 });
+  if (isSeq(doc.contents) && doc.contents.flow === true) {
+    visit(doc, {
+      Collection(_, node) {
+        node.flow = false;
+      }
+    });
+  }
   doc.add(doc.createNode(item));
   return doc.toString({ lineWidth: 0 });
 }
