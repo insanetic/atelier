@@ -1,0 +1,20 @@
+{
+  "name": "research-kit",
+  "version": "0.1.0",
+  "description": "Evidence-anchored technical prior-art studies for Claude Code",
+  "type": "module",
+  "private": true,
+  "bin": { "research": "dist/cli.js" },
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "esbuild core/index.ts --bundle --format=esm --platform=neutral --main-fields=module,main --outfile=dist/core.js && esbuild cli/bin.ts --bundle --format=esm --platform=node --target=node24 --banner:js='#!/usr/bin/env node' --outfile=dist/cli.js && chmod +x dist/cli.js",
+    "test": "node --test 'tests/core/*.test.ts' 'tests/cli/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "yaml": "^2.8.0"
+  }
+}
