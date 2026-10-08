@@ -6,6 +6,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 # In Claude Code:
 /plugin marketplace add insanetic/atelier
 /plugin install research@atelier
+/plugin install premortem@atelier
 ```
 
 ---
@@ -15,6 +16,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 | Plugin | Invoke | What it does |
 |---|---|---|
 | [research](plugins/research) | `/study <topic>`, `/discover <category>` | Technical prior-art studies and benchmarks: how other products, open-source projects and standards solve a problem, verified quote by quote and compared with our own design; plus the list of every known competitor, kept complete by discovery. |
+| [premortem](plugins/premortem) | `/premortem <plan>` | A premortem before anything costly or hard to reverse: assume it already failed, work backward to the causes from every vantage point, rank them, and change the plan before going ahead. |
 
 ---
 
@@ -25,17 +27,19 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 ```bash
 /plugin marketplace add insanetic/atelier     # from GitHub
 /plugin install research@atelier
+/plugin install premortem@atelier
 # or, from a local clone:
 /plugin marketplace add ./path/to/atelier
 ```
 
-The same from a terminal: `claude plugin marketplace add insanetic/atelier && claude plugin install research@atelier`.
+The same from a terminal: `claude plugin marketplace add insanetic/atelier && claude plugin install <plugin>@atelier`.
 
-**For a project** (everyone who opens it is offered the plugin). Run this in the project root and commit `.claude/settings.json`:
+**For a project** (everyone who opens it is offered the plugins). Run this in the project root and commit `.claude/settings.json`:
 
 ```bash
 claude plugin marketplace add insanetic/atelier --scope project
 claude plugin install research@atelier --scope project
+claude plugin install premortem@atelier --scope project
 ```
 
 Update later with `/plugin marketplace update atelier`; enable or disable with `/plugin`.
@@ -49,7 +53,8 @@ Update later with `/plugin marketplace update atelier`; enable or disable with `
 ├── .claude-plugin/
 │   └── marketplace.json          # the atelier marketplace: one entry per plugin
 └── plugins/
-    └── research/                 # self-contained plugin: manifest, skill, agents, hooks, CLI, tests
+    ├── research/                 # self-contained plugin: manifest, skill, agents, hooks, CLI, tests
+    └── premortem/                # skill-only plugin: manifest and the premortem skill
 ```
 
 Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json` and has one entry in `.claude-plugin/marketplace.json`.

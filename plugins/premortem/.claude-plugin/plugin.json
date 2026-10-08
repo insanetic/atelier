@@ -1,0 +1,8 @@
+{
+  "name": "premortem",
+  "version": "0.2.0",
+  "description": "Assume it already failed, then work backward to the causes: a premortem before shipping, merging, launching or committing to a plan.",
+  "author": {
+    "name": "insanetic"
+  }
+}
