@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { FINDINGS, ROOT, clocks, world } from './world.ts'
+import { FINDINGS, ROOT, clocks, opened, world } from './world.ts'
 
 const START = { cwd: ROOT, surface: 'terminal' as const, isInteractive: true }
 
@@ -33,7 +33,7 @@ describe('tools', () => {
     const files = world(on, { 'https://docs.stripe.com/tax': '<p>Tax is rounded per line item.</p>' })
     await $.session.start(START)
     const out = await $.tool.call({
-      tool: 'mcp__research-kit__add_finding',
+      tool: 'mcp__research__add_finding',
       study: 'tax',
       ref: 'stripe',
       dimension: 'rounding',
@@ -47,17 +47,18 @@ describe('tools', () => {
   test('add_finding rejects an answer outside the options', async ($, on) => {
     world(on)
     await $.session.start(START)
-    const out = await $.tool.call({ tool: 'mcp__research-kit__add_finding', study: 'tax', ref: 'stripe', dimension: 'rounding', answer: 'per_order', evidence: [] })
+    const out = await $.tool.call({ tool: 'mcp__research__add_finding', study: 'tax', ref: 'stripe', dimension: 'rounding', answer: 'per_order', evidence: [] })
     expect(String(out.result)).toContain('is not one of [per_line, per_invoice]')
   })
 
   test('matrix answers with the table and fills the pane', async ($, on) => {
     world(on)
     await $.session.start(START)
-    const out = await $.tool.call({ tool: 'mcp__research-kit__matrix', study: 'tax' })
+    const out = await $.tool.call({ tool: 'mcp__research__matrix', study: 'tax' })
     expect(String(out.result)).toContain('| dimension | stripe |')
+    expect(opened).toContain('research-study')
     const props = { title: 'Study tax', isFocused: false, bodyColumns: 100, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 40 }, view: {} }
-    const ui = await $.ui.mount({ plugin: 'research-kit', surface: 'terminal', component: 'Pane', props, requestId: 'research-study' })
+    const ui = await $.ui.mount({ plugin: 'research', surface: 'terminal', component: 'Pane', props, requestId: 'research-study' })
     expect(await ui.find({ type: 'Text', text: /rounding/ })).toBeDefined()
     await ui.unmount()
   })
@@ -68,7 +69,7 @@ describe('network', () => {
     world(on, {}, ['https://docs.stripe.com/tax'])
     await $.session.start(START)
     const call = $.tool.call({
-      tool: 'mcp__research-kit__add_finding',
+      tool: 'mcp__research__add_finding',
       study: 'tax',
       ref: 'stripe',
       dimension: 'rounding',

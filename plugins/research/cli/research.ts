@@ -16,7 +16,6 @@ import {
   renderMatrix,
   renderReport,
   repin,
-  resolvePath,
   reverify,
   runCheck,
 } from '../core/index.ts'
@@ -32,14 +31,14 @@ export const USAGE = `usage: research <command>
   query [--ref R] [--dimension D] [--study S] [--state X] [--text T]
                              search findings across studies
   matrix <topic>             print a study's comparison matrix
-  reverify [--due] [--report FILE]
+  reverify [--due]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
   repin <ref> [--to SHA]     move a reference to a new commit and re-anchor its code findings
   decide <topic> --chosen C --cites ID,ID --revisit "TRIGGER"
                              record the decision; refuses unverified, disputed, drifted or stale citations`
 
-const VALUED = new Set(['ref', 'dimension', 'study', 'state', 'text', 'report', 'to', 'chosen', 'cites', 'revisit'])
+const VALUED = new Set(['ref', 'dimension', 'study', 'state', 'text', 'to', 'chosen', 'cites', 'revisit'])
 
 export function parseArgs(args: readonly string[]): { positional: string[]; flags: Map<string, string | true> } {
   const positional: string[] = []
@@ -108,10 +107,7 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
       return { code: 0, output: renderMatrix(buildMatrix(loaded.value, await loadFindings(env.io, cfg, topic), env.today)) }
     }
     case 'reverify': {
-      const output = renderReport(await reverify(ctx, { dueOnly: flags.has('due') }))
-      const report = valueOf('report')
-      if (report !== undefined) await env.io.writeText(resolvePath(env.cwd, report, env.home), `${output}\n`)
-      return { code: 0, output }
+      return { code: 0, output: renderReport(await reverify(ctx, { dueOnly: flags.has('due') })) }
     }
     case 'clone': {
       const ref = positional[0]

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { nodeIo } from '../../cli/node-io.ts'
 
 test('nodeIo reads, writes, lists and sizes real files', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'research-kit-'))
+  const root = await mkdtemp(join(tmpdir(), 'research-'))
   const io = nodeIo()
   await io.writeText(`${root}/a/b/file.txt`, 'hello')
   assert.equal(await io.readText(`${root}/a/b/file.txt`), 'hello')

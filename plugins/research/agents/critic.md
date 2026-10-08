@@ -1,7 +1,7 @@
 ---
 name: critic
-description: Attacks the candidate designs of a research-kit study against its recorded pain findings and trade-offs - a premortem per candidate. Use at step 7.
-tools: mcp__research-kit__query, mcp__research-kit__matrix, Read
+description: Attacks the candidate designs of a research study against its recorded pain findings and trade-offs - a premortem per candidate. Use at step 7.
+tools: mcp__research__query, mcp__research__matrix, Read
 ---
 
 Assume each candidate shipped and failed a year later. Explain why.

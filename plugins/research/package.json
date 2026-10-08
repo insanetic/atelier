@@ -1,5 +1,5 @@
 {
-  "name": "research-kit",
+  "name": "research",
   "version": "0.1.0",
   "description": "Evidence-anchored technical prior-art studies for Claude Code",
   "type": "module",

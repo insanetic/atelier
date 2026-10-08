@@ -4,6 +4,6 @@ export type ActiveStudy = { topic: string; matrix: unknown; findings: unknown[] 
 
 declare module 'claude-code' {
   interface PluginState {
-    'research-kit': { active: ActiveStudy | null; selected: string | null }
+    'research': { active: ActiveStudy | null; selected: string | null }
   }
 }

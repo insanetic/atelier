@@ -59,12 +59,11 @@ test('query passes filters through and rejects unknown states', async () => {
   assert.equal((await main(['query', '--state', 'fresh'], env(io))).code, 2)
 })
 
-test('reverify writes the report file when asked', async () => {
+test('reverify prints what changed', async () => {
   const io = fakeIo()
   seedStudy(io)
-  const out = await main(['reverify', '--due', '--report', 'out/reverify.md'], env(io))
-  assert.equal(out.output, 'research reverify: nothing changed')
-  assert.equal(io.files.get('/repo/out/reverify.md'), 'research reverify: nothing changed\n')
+  const out = await main(['reverify', '--due'], env(io))
+  assert.deepEqual(out, { code: 0, output: 'research reverify: nothing changed' })
 })
 
 test('clone reports a reference without repositories', async () => {

@@ -1,13 +1,12 @@
 {
-  "name": "research-kit",
-  "description": "research-kit: evidence-anchored technical prior-art studies for Claude Code",
-  "owner": {
-    "name": "insanetic"
-  },
+  "name": "atelier",
+  "description": "insanetic's agent tooling for Claude Code: plugins, skills and mods shared across projects",
+  "owner": { "name": "insanetic" },
   "plugins": [
     {
-      "name": "research-kit",
-      "source": "./"
+      "name": "research",
+      "source": "./plugins/research",
+      "description": "Evidence-anchored technical prior-art studies: how others solve a problem, verified, against our design"
     }
   ]
 }

@@ -31,6 +31,8 @@ const SEED: Record<string, string> = {
 /** The world beneath the plugin: an in-memory file system, fixed pages, no processes. */
 /** The clock of the most recent world, for tests that move time. */
 export const clocks: { current?: MockClock } = {}
+/** Pane ids opened through $.ui.open in the most recent world. */
+export const opened: string[] = []
 
 export function world(on: On, pages: Record<string, string> = {}, hang: readonly string[] = []): Map<string, string> {
   const files = new Map(Object.entries(SEED))
@@ -41,9 +43,13 @@ export function world(on: On, pages: Record<string, string> = {}, hang: readonly
   clocks.current = mock.clock(on, { now: Date.UTC(2026, 9, 8) })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.root', () => ({ value: ROOT }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__research-kit__${e.name}` } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__research__${e.name}` } }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  opened.length = 0
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
   on('ui.status', () => ({ value: undefined }))
   on('fs.exists', ($, e) => ({ value: files.has(e.path) || childrenOf(e.path).length > 0 }))
   on('fs.read', ($, e) => {

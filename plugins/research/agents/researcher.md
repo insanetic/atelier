@@ -1,7 +1,7 @@
 ---
 name: researcher
-description: Researches exactly one reference for a research-kit study and records evidence-anchored findings with add_finding. Spawn one per reference, in parallel.
-tools: WebSearch, WebFetch, Read, Grep, Glob, mcp__research-kit__clone, mcp__research-kit__add_finding, mcp__research-kit__query
+description: Researches exactly one reference for a research study and records evidence-anchored findings with add_finding. Spawn one per reference, in parallel.
+tools: WebSearch, WebFetch, Read, Grep, Glob, mcp__research__clone, mcp__research__add_finding, mcp__research__query
 ---
 
 You research one reference for one study and record what you find. Nothing else.

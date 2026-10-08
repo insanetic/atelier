@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ToolSpec } from 'claude-code'
 import * as core from '../dist/core.js'
 
-const USER_AGENT = 'research-kit/0.1 (+https://github.com/insanetic/research-kit)'
+const USER_AGENT = 'research/0.1 (+https://github.com/insanetic/atelier)'
 // $.http.fetch takes no timeout and the hook budget stands still while it waits:
 // a source that never answers would hold the tool, so the clock bounds it.
 const FETCH_TIMEOUT_MS = 15_000
@@ -40,15 +40,15 @@ function modIo($: EngineInterface): core.Io {
 
 type ActiveStudy = { topic: string; matrix: core.Matrix; findings: core.Finding[] }
 
-const PLUGIN = 'research-kit'
+const PLUGIN = 'research'
 const PANE = 'research-study'
 const DENY = `${PLUGIN}: findings.yaml and assessment.yaml are written only through the add_finding, verify_finding and set_score tools`
 const GUARDED_FILE = /(^|\/)studies\/[^/]+\/(findings|assessment)\.yaml$/
 const GUARDED_BASH =
   /(?:>>?|\btee\b(?:\s+-a)?)\s*\S*(?:findings|assessment)\.yaml|\b(?:sed\s+-i|perl\s+-p?i|mv|cp|rm)\b[^|;&]*(?:findings|assessment)\.yaml/
 
-const active = atom({ plugin: 'research-kit', key: 'active' } as const, null)
-const selected = atom({ plugin: 'research-kit', key: 'selected' } as const, null)
+const active = atom({ plugin: 'research', key: 'active' } as const, null)
+const selected = atom({ plugin: 'research', key: 'selected' } as const, null)
 const studyLock = new core.KeyedLock()
 
 const EVIDENCE = {
@@ -193,11 +193,6 @@ async function refreshIfActive($: EngineInterface, ctx: core.Ctx, topic: unknown
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     for (const tool of TOOLS) await $.tool.register(tool)
-    await $.command.register({
-      name: 'study',
-      description: 'Start or reopen a research study; without a topic, open the matrix pane',
-      argumentHint: '<topic> [--quick]',
-    })
     return next(e)
   })
 
@@ -205,7 +200,7 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Write' }, ($, e, next) => (GUARDED_FILE.test(e.file_path) ? { deny: DENY } : next(e)))
   on('tool.call', { tool: 'Bash' }, ($, e, next) => (GUARDED_BASH.test(e.command) ? { deny: DENY } : next(e)))
 
-  on('tool.call', { tool: 'mcp__research-kit__add_finding' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__research__add_finding' }, async ($, e) => {
     try {
       const input = argsOf(e) as unknown as core.AddFindingInput
       const ctx = await contextOf($)
@@ -217,7 +212,7 @@ export const register: Register = on => {
     }
   })
 
-  on('tool.call', { tool: 'mcp__research-kit__verify_finding' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__research__verify_finding' }, async ($, e) => {
     try {
       const input = argsOf(e) as unknown as core.VerifyInput
       const ctx = await contextOf($)
@@ -230,7 +225,7 @@ export const register: Register = on => {
     }
   })
 
-  on('tool.call', { tool: 'mcp__research-kit__set_score' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__research__set_score' }, async ($, e) => {
     try {
       const args = argsOf(e)
       const input = { ...args, agent: typeof args.agent === 'string' ? args.agent : 'analyst' } as unknown as core.SetScoreInput
@@ -242,7 +237,7 @@ export const register: Register = on => {
     }
   })
 
-  on('tool.call', { tool: 'mcp__research-kit__clone' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__research__clone' }, async ($, e) => {
     try {
       const out = await core.cloneRef(await contextOf($), String(argsOf(e).ref))
       return { result: out.ok ? out.value.join('\n') : core.renderOp(out, '') }
@@ -251,7 +246,7 @@ export const register: Register = on => {
     }
   })
 
-  on('tool.call', { tool: 'mcp__research-kit__query' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__research__query' }, async ($, e) => {
     try {
       const hits = await core.query(await contextOf($), argsOf(e) as core.QueryInput)
       return { result: core.renderHits(hits) }
@@ -260,40 +255,18 @@ export const register: Register = on => {
     }
   })
 
-  on('tool.call', { tool: 'mcp__research-kit__matrix' }, async ($, e) => {
+  on('tool.call', { tool: 'mcp__research__matrix' }, async ($, e) => {
     try {
       const topic = String(argsOf(e).study)
       const shown = await showStudy($, await contextOf($), topic)
-      return { result: shown.ok ? core.renderMatrix(shown.value) : shown.errors.join('\n') }
+      if (!shown.ok) return { result: shown.errors.join('\n') }
+      await $.ui.open({ id: PANE, title: `Study ${topic}` })
+      return { result: core.renderMatrix(shown.value) }
     } catch (problem) {
       return failure(problem)
     }
   })
 
-  on('command.run', { command: 'study' }, async ($, e) => {
-    try {
-      const [topic, ...flags] = e.args.trim().split(/\s+/).filter(word => word !== '')
-      if (topic === undefined) {
-        const current = await activeStudy($)
-        if (current === null) return { text: 'No active study. Run /study <topic> to start one.' }
-        await $.ui.open({ id: PANE, title: `Study ${current.topic}` })
-        return { text: `Matrix of ${current.topic} opened.` }
-      }
-      const ctx = await contextOf($)
-      const made = await core.createStudy(ctx, topic, flags.includes('--quick') ? 'quick' : 'full')
-      if (!made.ok) return { text: made.errors.join('\n') }
-      await showStudy($, ctx, topic)
-      await $.ui.open({ id: PANE, title: `Study ${topic}` })
-      const dir = core.files.studyDir(ctx.cfg, topic)
-      const { mode } = made.value.study
-      return {
-        text: `Study ${topic} ${made.value.created ? 'created' : 'reopened'} (${mode} mode) at ${dir}.`,
-        context: [`The user ran /study ${e.args.trim()}. Run the research-kit study skill for the study "${topic}" in ${mode} mode; its files are in ${dir}.`],
-      }
-    } catch (problem) {
-      return { text: `${PLUGIN}: ${(problem as Error).message}` }
-    }
-  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)

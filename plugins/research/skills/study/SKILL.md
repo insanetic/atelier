@@ -1,6 +1,6 @@
 ---
 name: study
-description: Run an evidence-anchored prior-art study before building something - how other products, open-source projects and standards solve it, and whether our design is genuinely good or better. Use when the user says "we need to add X", "how do others do X", "compare our X", "is our X good", "prior art", "benchmark against", or runs /study. Works through the research-kit tools (add_finding, verify_finding, set_score, clone, query, matrix) and the research CLI.
+description: Run an evidence-anchored prior-art study before building something - how other products, open-source projects and standards solve it, and whether our design is genuinely good or better. Use when the user says "we need to add X", "how do others do X", "compare our X", "is our X good", "prior art", "benchmark against", or runs /study. Works through the research tools (add_finding, verify_finding, set_score, clone, query, matrix) and the research CLI.
 ---
 
 # Study
@@ -23,38 +23,42 @@ Agents collect. Deterministic checks verify quotes. The verifier judges support.
 
 `research/references.yaml` lists every reference once: id, name, docs, `api_spec`, `repos` (url plus pinned sha). Run `research check` after every hand edit. Pin a new open-source reference with `research repin <ref>`.
 
+## Start
+
+`/study <topic> [--quick]` runs this skill (also `/research:study`); the arguments are the topic and, optionally, `--quick`. Saying "how do others do X?" starts it too: derive a kebab-case topic from X. First run `research init <topic>` (add `--quick` for quick mode): it creates the study files, or leaves an existing study untouched. Then call `matrix` with the topic: it opens the pane and shows what is already known.
+
 ## Modes
 
-- **quick** (about 10 minutes): one `research-kit:scout` pass. Record the scout's answers with `add_finding`; they stay unverified. Set `status: quick`. The study can be promoted to full later, keeping its findings.
+- **quick** (about 10 minutes): one `research:scout` pass. Record the scout's answers with `add_finding`; they stay unverified. Set `status: quick`. The study can be promoted to full later, keeping its findings.
 - **full**: the eight steps below.
 
 ## Full study
 
 1. **Frame.** Fill in `question`, `decision_needed` and `mode` in `study.yaml`. Ask the user what decision this feeds, and what our current or planned design is, whenever either is unclear.
-2. **Map.** Dispatch `research-kit:scout` with the frame. It proposes:
+2. **Map.** Dispatch `research:scout` with the frame. It proposes:
    - **dimensions:** snake_case id, the question to ask, type, options, volatility, and optionally Kano/Wardley tags;
    - **criteria,** with written levels for 1, 3 and 5;
    - **references by role:** at least one competitor, one specialist or best-in-class product, one open-source project and one alternative approach, plus a standard if one exists, plus ours.
 
    Show the proposal to the user. **Do not continue until the user approves the dimensions and references.** Then write `study.yaml` and `references.yaml` and run `research repin <ref>` for each open-source reference. `research check` must pass.
-3. **Collect.** Dispatch one `research-kit:researcher` per reference that isn't ours, all in a single message so they run in parallel. Each prompt contains:
+3. **Collect.** Dispatch one `research:researcher` per reference that isn't ours, all in a single message so they run in parallel. Each prompt contains:
    - the study topic and the reference id;
    - every dimension with its options;
    - "record each answer with add_finding".
 
    Record ours yourself: `repo: self` at `git rev-parse HEAD` for built code, or `kind: spec` pointing at a design doc at a sha.
-4. **Verify.** Dispatch `research-kit:verifier`, one per reference, with only that reference's finding ids. The verifier never sees researcher output. For findings it reports as needing a browser, open the page with your browser tools, read the quote, and call `verify_finding` with `browser_confirmed: true`, or `outcome: disputed` with a note.
+4. **Verify.** Dispatch `research:verifier`, one per reference, with only that reference's finding ids. The verifier never sees researcher output. For findings it reports as needing a browser, open the page with your browser tools, read the quote, and call `verify_finding` with `browser_confirmed: true`, or `outcome: disputed` with a note.
 5. **Synthesize.** Call `matrix`. Fill in these sections of `study.md`, citing findings throughout:
    - **Paradigms found:** named groups of option combinations, with their members;
    - **Trade-offs;**
    - **Pain:** from pain findings.
-6. **Evaluate.** Dispatch `research-kit:analyst`; it proposes scores with `set_score` (agent: analyst). Show the scores to the user. **Scores count only after the user confirms them.** Re-call `set_score` with `confirmed_by: human` for each confirmed score. In `study.md` → "Where ours stands", rate ours on each dimension: below / par / above / different by choice.
+6. **Evaluate.** Dispatch `research:analyst`; it proposes scores with `set_score` (agent: analyst). Show the scores to the user. **Scores count only after the user confirms them.** Re-call `set_score` with `confirmed_by: human` for each confirmed score. In `study.md` → "Where ours stands", rate ours on each dimension: below / par / above / different by choice.
 7. **Ideate.** Write at least three candidates in `study.md`, each naming the cells it picks (`dimension = option`):
    - **(a) Best-of recombination:** the strongest answer per dimension, even when each comes from a different reference.
    - **(b) The strongest reference adapted:** copy its reasoning, not its shape, and re-derive it under our constraints.
    - **(c) Constraint inversion:** list the reference's constraints (legacy, backward compatibility, business model) and design as if we had none of them.
 
-   Then dispatch `research-kit:critic` to attack each candidate against the pain findings, and record its objections under each candidate.
+   Then dispatch `research:critic` to attack each candidate against the pain findings, and record its objections under each candidate.
 8. **Decide.** The user decides. Record it with `research decide <topic> --chosen <candidate> --cites <id>,<id> --revisit "<trigger>"`. It refuses citations that are unverified, disputed, drifted or past their TTL, then writes `decision` (with a snapshot of each citation) and `status: decided` into `study.yaml`, keeping its comments. Never write `decision` by hand: `research check` fails a decision without a snapshot. Evidence that changes later only warns "revisit the decision".
 
 ## Evidence rules
@@ -71,7 +75,7 @@ Agents collect. Deterministic checks verify quotes. The verifier judges support.
 Each dimension's `volatility` sets a TTL: fast 90 days, medium 180, slow 365. Pins older than 180 days are reported stale.
 
 - `research stale` lists stale, drifted and pin-stale findings.
-- A weekly CI job runs `research reverify --due`.
+- Run `research reverify --due` when you reopen a study or before a decision relies on old findings: it re-checks every finding past its TTL without using the model.
 - When you reopen a study, re-research its drifted findings first.
 
 ## CLI

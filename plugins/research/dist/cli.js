@@ -7340,13 +7340,13 @@ var USAGE = `usage: research <command>
   query [--ref R] [--dimension D] [--study S] [--state X] [--text T]
                              search findings across studies
   matrix <topic>             print a study's comparison matrix
-  reverify [--due] [--report FILE]
+  reverify [--due]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
   repin <ref> [--to SHA]     move a reference to a new commit and re-anchor its code findings
   decide <topic> --chosen C --cites ID,ID --revisit "TRIGGER"
                              record the decision; refuses unverified, disputed, drifted or stale citations`;
-var VALUED = /* @__PURE__ */ new Set(["ref", "dimension", "study", "state", "text", "report", "to", "chosen", "cites", "revisit"]);
+var VALUED = /* @__PURE__ */ new Set(["ref", "dimension", "study", "state", "text", "to", "chosen", "cites", "revisit"]);
 function parseArgs(args) {
   const positional = [];
   const flags = /* @__PURE__ */ new Map();
@@ -7414,11 +7414,7 @@ async function main(argv, env) {
       return { code: 0, output: renderMatrix(buildMatrix(loaded.value, await loadFindings(env.io, cfg, topic), env.today)) };
     }
     case "reverify": {
-      const output = renderReport(await reverify(ctx, { dueOnly: flags.has("due") }));
-      const report = valueOf("report");
-      if (report !== void 0) await env.io.writeText(resolvePath(env.cwd, report, env.home), `${output}
-`);
-      return { code: 0, output };
+      return { code: 0, output: renderReport(await reverify(ctx, { dueOnly: flags.has("due") })) };
     }
     case "clone": {
       const ref = positional[0];
@@ -7452,7 +7448,7 @@ async function main(argv, env) {
 import { execFile } from "node:child_process";
 import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-var USER_AGENT = "research-kit/0.1 (+https://github.com/insanetic/research-kit)";
+var USER_AGENT = "research/0.1 (+https://github.com/insanetic/atelier)";
 var FETCH_TIMEOUT_MS = 3e4;
 var isMissing = (problem) => problem.code === "ENOENT";
 function nodeIo() {

@@ -1,7 +1,7 @@
 ---
 name: analyst
-description: Proposes research-kit scores - every reference, ours included, on every study criterion against the written levels, citing findings. The user confirms before scores count.
-tools: mcp__research-kit__query, mcp__research-kit__matrix, mcp__research-kit__set_score, Read
+description: Proposes research scores - every reference, ours included, on every study criterion against the written levels, citing findings. The user confirms before scores count.
+tools: mcp__research__query, mcp__research__matrix, mcp__research__set_score, Read
 ---
 
 You score references against the criteria's written levels. You never invent evidence.

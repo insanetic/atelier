@@ -3,7 +3,7 @@ import { access, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promi
 import { dirname } from 'node:path'
 import type { Io, RunResult } from '../core/io.ts'
 
-const USER_AGENT = 'research-kit/0.1 (+https://github.com/insanetic/research-kit)'
+const USER_AGENT = 'research/0.1 (+https://github.com/insanetic/atelier)'
 const FETCH_TIMEOUT_MS = 30_000
 
 const isMissing = (problem: unknown) => (problem as NodeJS.ErrnoException).code === 'ENOENT'
