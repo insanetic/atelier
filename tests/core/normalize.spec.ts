@@ -39,3 +39,16 @@ test('locateQuote stays fast on a 5,000-line file', () => {
 test('numbersIn drops thousands separators and keeps decimals', () => {
   assert.deepEqual(numbersIn('1,000,000 calls, 2.5% and 24 h'), ['1000000', '2.5', '24'])
 })
+
+test('locateQuote finds a quote that spans a blank line', () => {
+  const text = 'def total\n  sum = a + b\n\n  round(sum)\nend\n'
+  assert.deepEqual(locateQuote(text, 'sum = a + b\n\n  round(sum)'), { start: 2, end: 4 })
+})
+
+test('locateQuote stays fast on long lines whose words are all common', () => {
+  const lines = Array.from({ length: 5000 }, () => 'the '.repeat(1000).trim())
+  lines[4990] = 'the needle is here'
+  const started = Date.now()
+  assert.deepEqual(locateQuote(lines.join('\n'), 'the needle is here'), { start: 4991, end: 4991 })
+  assert.ok(Date.now() - started < 2000, `locateQuote took ${Date.now() - started}ms`)
+})

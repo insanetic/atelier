@@ -46,7 +46,7 @@ It also adds that directory to `permissions.additionalDirectories`.
 npx --yes --package=github:insanetic/research-kit#v0.1.0 research check
 ```
 
-Commands: `init`, `check`, `stale`, `query`, `matrix`, `reverify [--due] [--report FILE]`, `clone`, `repin`.
+Commands: `init`, `check`, `stale`, `query`, `matrix`, `decide`, `reverify [--due] [--report FILE]`, `clone`, `repin`.
 
 ## Develop
 

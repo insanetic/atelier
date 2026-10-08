@@ -2,14 +2,14 @@ import type { Ctx } from './io.ts'
 import type { Finding, Issue, Reference, Study } from './types.ts'
 import { files } from './paths.ts'
 import { listTopics, loadNotes, readYaml } from './store.ts'
-import { citationIssues, decidedGate, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
+import { citationIssues, decidedGate, validateFinding, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
 import { isStale, stalePins } from './fresh.ts'
 
-type Bundle = { topic: string; study: Study; findings: Finding[] }
+type Bundle = { topic: string; study: Study; findings: Finding[]; ids: Set<string> }
 
 const error = (file: string, message: string): Issue => ({ level: 'error', kind: 'schema', file, message })
 const stale = (file: string, message: string): Issue => ({ level: 'warn', kind: 'freshness', file, message })
-const isRecord = (item: unknown): item is Finding => item !== null && typeof item === 'object'
+const idOf = (item: unknown) => (item !== null && typeof item === 'object' ? (item as { id?: unknown }).id : undefined)
 
 /** Every schema, integrity and freshness rule, offline: no fetches and no git. */
 export async function runCheck(ctx: Ctx): Promise<Issue[]> {
@@ -40,9 +40,13 @@ export async function runCheck(ctx: Ctx): Promise<Issue[]> {
     }
     const data = found.missing ? [] : found.data
     issues.push(...validateFindings(data, study, findingsFile))
-    bundles.push({ topic, study, findings: Array.isArray(data) ? data.filter(isRecord) : [] })
+    const entries: unknown[] = Array.isArray(data) ? data : []
+    // The gates below read dates and statuses: they only see records that passed validation.
+    const valid = entries.filter(raw => validateFinding(raw, study, findingsFile).length === 0) as Finding[]
+    const ids = new Set(entries.map(idOf).filter((id): id is string => typeof id === 'string'))
+    bundles.push({ topic, study, findings: valid, ids })
   }
-  const index = new Map(bundles.map(bundle => [bundle.topic, new Set(bundle.findings.map(finding => finding.id))]))
+  const index = new Map(bundles.map(bundle => [bundle.topic, bundle.ids]))
   for (const { topic, study, findings } of bundles) {
     const scoresFile = files.assessment(ctx.cfg, topic)
     const scores = await readYaml(ctx.io, scoresFile)

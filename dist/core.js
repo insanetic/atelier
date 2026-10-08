@@ -6320,6 +6320,11 @@ function parseYaml(text) {
 function toYaml(value) {
   return stringify3(value, { lineWidth: 0 });
 }
+function setInYaml(text, values) {
+  const doc = parseDocument(text);
+  for (const [key, value] of Object.entries(values)) doc.set(key, doc.createNode(value));
+  return doc.toString({ lineWidth: 0 });
+}
 
 // core/paths.ts
 function join(...parts) {
@@ -6413,22 +6418,33 @@ function containsQuote(haystack, quote) {
   const needle = normalizeText(quote);
   return needle !== "" && normalizeText(haystack).includes(needle);
 }
-function locateQuote(text, quote, maxSpan = 30) {
+function locateQuote(text, quote) {
   const needle = normalizeText(quote);
   if (needle === "") return void 0;
-  const lines = text.split("\n");
-  const normalized = lines.map(normalizeText);
-  const firstWord = needle.split(" ")[0] ?? needle;
-  for (let start = 0; start < lines.length; start++) {
-    if (!normalized.slice(start, start + maxSpan).join(" ").includes(firstWord)) continue;
-    for (let end = start; end < Math.min(lines.length, start + maxSpan); end++) {
-      if (!normalized.slice(start, end + 1).join(" ").includes(needle)) continue;
-      let first = start;
-      while (first < end && normalized.slice(first + 1, end + 1).join(" ").includes(needle)) first++;
-      return { start: first + 1, end: end + 1 };
+  const offsets = [];
+  const lineNumbers = [];
+  let joined = "";
+  text.split("\n").forEach((line, index) => {
+    const normalized = normalizeText(line);
+    if (normalized === "") return;
+    if (joined !== "") joined += " ";
+    offsets.push(joined.length);
+    lineNumbers.push(index + 1);
+    joined += normalized;
+  });
+  const at = joined.indexOf(needle);
+  if (at === -1) return void 0;
+  const lineAt = (offset) => {
+    let low = 0;
+    let high = offsets.length - 1;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if ((offsets[mid] ?? 0) <= offset) low = mid;
+      else high = mid - 1;
     }
-  }
-  return void 0;
+    return lineNumbers[low] ?? 1;
+  };
+  return { start: lineAt(at), end: lineAt(at + needle.length - 1) };
 }
 function numbersIn(text) {
   return (text.match(/\d+(?:[.,]\d+)*/g) ?? []).map((number) => number.replace(/,(?=\d{3}(?!\d))/g, ""));
@@ -6438,6 +6454,7 @@ function numbersIn(text) {
 var TTL_DAYS = { fast: 90, medium: 180, slow: 365 };
 var PIN_MAX_DAYS = 180;
 var DAY_MS = 864e5;
+var isDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 function addDays(date, days) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
@@ -6446,7 +6463,7 @@ function todayFromMs(ms) {
 }
 var CELL_STATES = ["verified", "unverified", "stale", "drifted", "disputed", "unknown"];
 function isStale(finding, dimension, asOf) {
-  if (finding.verified === void 0) return false;
+  if (finding.verified === void 0 || !isDate(finding.verified.at)) return false;
   return addDays(finding.verified.at, TTL_DAYS[dimension?.volatility ?? "fast"]) < asOf;
 }
 function stateOf(finding, dimension, today) {
@@ -6458,8 +6475,8 @@ function stateOf(finding, dimension, today) {
 }
 function stalePins(references, today) {
   return references.flatMap(
-    (ref) => (ref.repos ?? []).flatMap(
-      (repo) => repo.pin !== void 0 && repo.pinned_at !== void 0 && addDays(repo.pinned_at, PIN_MAX_DAYS) < today ? [{ ref: ref.id, url: repo.url, pinned_at: repo.pinned_at }] : []
+    (ref) => (Array.isArray(ref.repos) ? ref.repos : []).flatMap(
+      (repo) => repo.pin !== void 0 && isDate(repo.pinned_at) && addDays(repo.pinned_at, PIN_MAX_DAYS) < today ? [{ ref: ref.id, url: repo.url, pinned_at: repo.pinned_at }] : []
     )
   );
 }
@@ -6486,7 +6503,6 @@ var SNAKE_ID = /^[a-z][a-z0-9_]*$/;
 var OPTION = /^[a-z0-9][a-z0-9_]*$/;
 var DURATION = /^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/;
 var LEVEL_KEYS = ["1", "2", "3", "4", "5"];
-var isDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 var isSha = (value) => typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
 var isText = (value) => typeof value === "string" && value.trim() !== "";
 var isOneOf = (list, value) => typeof value === "string" && list.includes(value);
@@ -6580,6 +6596,7 @@ function validateReferences(data, file) {
     else if (seen.has(ref.id)) out.push(error(file, `${at}.id ${ref.id} is duplicated`));
     else seen.add(ref.id);
     if (!isText(ref.name)) out.push(error(file, `${at}.name is required`));
+    if (ref.repos !== void 0 && !Array.isArray(ref.repos)) out.push(error(file, `${at}.repos must be a list`));
     const repos = Array.isArray(ref.repos) ? ref.repos : [];
     repos.forEach((repoRaw, i) => {
       const repo = isMapping(repoRaw) ? repoRaw : {};
@@ -6675,6 +6692,7 @@ function validateStudy(data, topic, refIds, file) {
       if (!isDate(decision.decided_at)) out.push(error(file, "decision.decided_at must be YYYY-MM-DD"));
       if (!Array.isArray(decision.cites) || decision.cites.length === 0) out.push(error(file, "decision.cites must list the finding ids the decision rests on"));
       if (!isText(decision.revisit_when)) out.push(error(file, "decision.revisit_when is required"));
+      if (!isMapping(decision.snapshot)) out.push(error(file, "decision.snapshot is missing; record decisions with research decide"));
     }
   }
   if (!hasOurs && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
@@ -6687,6 +6705,11 @@ function validateFinding(raw, study, file) {
   const finding = raw;
   const out = [];
   if (typeof finding.id !== "string" || !FINDING_ID.test(finding.id)) out.push("id must look like <ref>.<dimension>[.<n>]");
+  else if (typeof finding.ref === "string" && typeof finding.dimension === "string") {
+    const base = `${finding.ref}.${finding.dimension}`;
+    const isOwn = finding.id === base || finding.id.startsWith(`${base}.`) && /^\d+$/.test(finding.id.slice(base.length + 1));
+    if (!isOwn) out.push(`id must be ${base} or ${base}.<n>`);
+  }
   if (typeof finding.ref !== "string" || !(finding.ref in study.references)) out.push(`ref ${String(finding.ref)} is not a reference of study ${study.topic}`);
   const dimension = study.dimensions.find((dim) => dim.id === finding.dimension);
   if (!dimension) out.push(`dimension ${String(finding.dimension)} is not a dimension of study ${study.topic}`);
@@ -6772,18 +6795,18 @@ function citationIssues(notes, topic, index, file) {
 }
 function decidedGate(study, findings, file) {
   if (study.status !== "decided" || study.decision === void 0) return [];
-  const { decided_at: decidedAt, cites } = study.decision;
+  const { decided_at: decidedAt, cites, snapshot = {} } = study.decision;
   const byId = new Map(findings.map((finding) => [finding.id, finding]));
   const out = [];
   for (const id of cites) {
     const finding = byId.get(id);
-    const dimension = study.dimensions.find((dim) => dim.id === finding?.dimension);
-    if (!finding) out.push(error(file, `decision cites ${id}, which does not exist`));
-    else if (finding.status === "disputed") out.push(error(file, `decision cites ${id}, which is disputed`));
-    else if (finding.verified === void 0) out.push(error(file, `decision cites ${id}, which is not verified`));
-    else if (addDays(finding.verified.at, TTL_DAYS[dimension?.volatility ?? "fast"]) < decidedAt) {
-      out.push(error(file, `decision cites ${id}, which was past its TTL on ${decidedAt}`));
-    } else if (finding.status === "drifted") out.push(warn2(file, `decision cites ${id}, which has drifted since; revisit the decision`, "freshness"));
+    const taken = snapshot[id];
+    if (finding === void 0) out.push(error(file, `decision cites ${id}, which does not exist`));
+    else if (taken === void 0) out.push(error(file, `decision has no snapshot of ${id}; record decisions with research decide`));
+    else {
+      const change = finding.status !== "current" ? `is ${finding.status}` : finding.verified === void 0 ? "was re-recorded and is unverified" : finding.confidence !== taken.confidence ? `is now ${finding.confidence}` : void 0;
+      if (change !== void 0) out.push(warn2(file, `decision cites ${id}, which ${change} since ${decidedAt}; revisit the decision`, "freshness"));
+    }
   }
   return out;
 }
@@ -6848,6 +6871,8 @@ function describeFinding(finding) {
 
 // core/store.ts
 var TOPIC = /^[a-z0-9][a-z0-9-]*$/;
+var TOPIC_RULE = "study must be a kebab-case topic such as tax or plan-change";
+var isTopic = (value) => typeof value === "string" && TOPIC.test(value);
 async function readYaml(io, path) {
   const text = await io.readText(path);
   if (text === void 0) return { data: void 0, missing: true };
@@ -6875,7 +6900,7 @@ async function loadStudy(io, cfg, topic) {
   const path = files.study(cfg, topic);
   const loaded = await readYaml(io, path);
   if (loaded.error !== void 0) throw new Error(`${path}: ${loaded.error}`);
-  return loaded.data !== null && typeof loaded.data === "object" ? loaded.data : void 0;
+  return loaded.data !== null && typeof loaded.data === "object" && !Array.isArray(loaded.data) ? loaded.data : void 0;
 }
 async function loadNotes(io, cfg, topic) {
   return await io.readText(files.notes(cfg, topic)) ?? "";
@@ -6899,29 +6924,49 @@ function notesTemplate(topic) {
 ${sections.map((section) => `## ${section}
 `).join("\n")}`;
 }
+async function loadValidStudy(ctx, topic) {
+  if (!isTopic(topic)) return fail(TOPIC_RULE);
+  const study = await loadStudy(ctx.io, ctx.cfg, topic);
+  if (study === void 0) return fail(`study ${topic} does not exist`);
+  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map((ref) => ref.id));
+  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter((issue) => issue.level === "error");
+  if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map((issue) => issue.message).join("; ")}`);
+  return ok(study);
+}
 async function createStudy(ctx, topic, mode) {
-  if (!TOPIC.test(topic)) return fail(`topic ${topic} must be kebab-case, e.g. tax or plan-change`);
-  const existing = await loadStudy(ctx.io, ctx.cfg, topic);
-  if (existing !== void 0) return ok({ study: existing, created: false });
+  if (!isTopic(topic)) return fail(TOPIC_RULE);
+  const studyFile = files.study(ctx.cfg, topic);
+  if (await ctx.io.readText(studyFile) !== void 0) {
+    const existing = await loadStudy(ctx.io, ctx.cfg, topic);
+    if (existing === void 0) return fail(`${studyFile}: study.yaml is empty or not a mapping; fix it by hand`);
+    return ok({ study: existing, created: false });
+  }
   const study = { topic, question: "", decision_needed: "", status: "draft", mode, references: {}, dimensions: [], criteria: [] };
-  await ctx.io.writeText(files.study(ctx.cfg, topic), toYaml(study));
-  await saveFindings(ctx.io, ctx.cfg, topic, []);
-  await saveAssessment(ctx.io, ctx.cfg, topic, []);
-  await ctx.io.writeText(files.notes(ctx.cfg, topic), notesTemplate(topic));
-  if (await ctx.io.readText(files.references(ctx.cfg)) === void 0) await saveReferences(ctx.io, ctx.cfg, []);
+  const starters = [
+    [studyFile, toYaml(study)],
+    [files.findings(ctx.cfg, topic), toYaml([])],
+    [files.assessment(ctx.cfg, topic), toYaml([])],
+    [files.notes(ctx.cfg, topic), notesTemplate(topic)],
+    [files.references(ctx.cfg), toYaml([])]
+  ];
+  for (const [path, text] of starters) if (await ctx.io.readText(path) === void 0) await ctx.io.writeText(path, text);
   return ok({ study, created: true });
 }
 
 // core/query.ts
 async function query(ctx, input) {
+  if (input.study !== void 0 && !isTopic(input.study)) return [];
   const topics = input.study === void 0 ? await listTopics(ctx.io, ctx.cfg) : [input.study];
+  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map((ref) => ref.id));
   const needle = input.text?.toLowerCase();
   const hits = [];
   for (const topic of topics) {
     const study = await loadStudy(ctx.io, ctx.cfg, topic);
-    if (study === void 0) continue;
+    if (study === void 0 || validateStudy(study, topic, refIds, "").some((issue) => issue.level === "error")) continue;
     for (const finding of await loadFindings(ctx.io, ctx.cfg, topic)) {
-      if (finding.status === "superseded") continue;
+      if (validateFinding(finding, study, "").length > 0 || finding.status === "superseded") continue;
+      if (input.id !== void 0 && finding.id !== input.id) continue;
+      if (input.kind !== void 0 && finding.kind !== input.kind) continue;
       if (input.ref !== void 0 && finding.ref !== input.ref) continue;
       if (input.dimension !== void 0 && finding.dimension !== input.dimension) continue;
       const state = stateOf(finding, study.dimensions.find((dim) => dim.id === finding.dimension), ctx.today);
@@ -6936,32 +6981,36 @@ async function query(ctx, input) {
 function renderHits(hits) {
   if (hits.length === 0) return "no findings match";
   return hits.map(({ study, finding, state }) => {
-    const detail = finding.detail === void 0 ? "" : ` (${finding.detail})`;
-    return `${study}/${finding.id} [${state}] ${finding.ref} ${finding.dimension} = ${String(finding.answer)}${detail}`;
+    const header = `${study}/${finding.id} [${state}] ${finding.ref} ${finding.dimension} = ${String(finding.answer)}`;
+    return [header, ...describeFinding(finding).slice(1).map((line) => `  ${line}`)].join("\n");
   }).join("\n");
 }
 
 // core/evidence.ts
 var MAX_ARTIFACT_BYTES = 300 * 1024;
 var pass = (via) => ({ ok: true, via });
-var miss = (reason, needsBrowser = false) => ({ ok: false, reason, needsBrowser });
+var miss = (reason, kind) => ({ ok: false, reason, miss: kind });
 var isReachable = (page) => page.status >= 200 && page.status < 400;
 function lineRange(found) {
   return found.start === found.end ? `${found.start}` : `${found.start}-${found.end}`;
 }
 async function readAtSha(ctx, repo, sha, path) {
-  if (!isSha(sha)) return void 0;
+  if (!isSha(sha)) return { reason: `${sha} is not a full 40-character sha`, isFileMissing: false };
   if (repo === "self") {
-    const shown = await ctx.io.run(["git", "show", `${sha}:${path}`], ctx.cfg.root);
-    return shown.exitCode === 0 ? shown.stdout : void 0;
+    const known = await ctx.io.run(["git", "cat-file", "-e", `${sha}^{commit}`], ctx.cfg.dir);
+    if (known.exitCode !== 0) return { reason: `commit ${sha.slice(0, 12)} is not in this repository; fetch its history`, isFileMissing: false };
+    const shown = await ctx.io.run(["git", "show", `${sha}:${path}`], ctx.cfg.dir);
+    return shown.exitCode === 0 ? { text: shown.stdout } : { reason: `${path} does not exist at ${sha.slice(0, 12)}`, isFileMissing: true };
   }
   let dir;
   try {
     dir = treeDir(ctx.cfg, repo, sha);
-  } catch {
-    return void 0;
+  } catch (problem) {
+    return { reason: problem.message, isFileMissing: false };
   }
-  return ctx.io.readText(join(dir, path));
+  if (!await ctx.io.exists(dir)) return { reason: `${repo} is not checked out at ${sha.slice(0, 12)}; clone the reference first`, isFileMissing: false };
+  const text = await ctx.io.readText(join(dir, path));
+  return text === void 0 ? { reason: `${path} does not exist at ${sha.slice(0, 12)}`, isFileMissing: true } : { text };
 }
 async function checkEvidence(ctx, studyDir, evidence) {
   if (CODE_KINDS.includes(evidence.kind)) return checkCode(ctx, evidence);
@@ -6970,30 +7019,33 @@ async function checkEvidence(ctx, studyDir, evidence) {
 }
 async function checkCode(ctx, evidence) {
   const { repo = "", sha = "", path = "", lines = "" } = evidence;
-  const text = await readAtSha(ctx, repo, sha, path);
-  if (text === void 0) return miss(`${path} is not available at ${sha.slice(0, 12)}; clone the reference first`);
+  const source = await readAtSha(ctx, repo, sha, path);
+  if (!("text" in source)) return miss(source.reason, source.isFileMissing ? "removed" : "unreachable");
   const [first, last] = parseLines(lines);
-  if (containsQuote(text.split("\n").slice(first - 1, last).join("\n"), evidence.quote)) return pass("git");
-  const found = locateQuote(text, evidence.quote);
-  return miss(found === void 0 ? `the quote is not in ${path}` : `the quote is at lines ${lineRange(found)}, not ${lines}`);
+  if (containsQuote(source.text.split("\n").slice(first - 1, last).join("\n"), evidence.quote)) return pass("git");
+  const found = locateQuote(source.text, evidence.quote);
+  return miss(found === void 0 ? `the quote is not in ${path}` : `the quote is at lines ${lineRange(found)}, not ${lines}`, "absent");
 }
 async function checkArtifact(io, studyDir, evidence) {
   const size = await io.size(join(studyDir, evidence.artifact ?? ""));
-  if (size === void 0) return miss(`artifact ${evidence.artifact} does not exist`);
-  if (size > MAX_ARTIFACT_BYTES) return miss(`artifact ${evidence.artifact} is ${size} bytes; the cap is ${MAX_ARTIFACT_BYTES}`);
+  if (size === void 0) return miss(`artifact ${evidence.artifact} does not exist`, "removed");
+  if (size > MAX_ARTIFACT_BYTES) return miss(`artifact ${evidence.artifact} is ${size} bytes; the cap is ${MAX_ARTIFACT_BYTES}`, "absent");
   return pass("file");
 }
 async function checkWeb(io, evidence) {
   const url = evidence.url ?? "";
   const live = await io.fetchText(url);
   if (isReachable(live)) {
-    return containsQuote(htmlToText(live.text), evidence.quote) ? pass("fetch") : miss(`the quote is not in the fetched page of ${url}`, true);
+    return containsQuote(htmlToText(live.text), evidence.quote) ? pass("fetch") : miss(`the quote is not in the fetched page of ${url}`, "hidden");
   }
   if (evidence.archive !== void 0) {
     const archived = await io.fetchText(evidence.archive);
     if (isReachable(archived) && containsQuote(htmlToText(archived.text), evidence.quote)) return pass("archive");
   }
-  return miss(`${url} answered ${live.status === 0 ? "nothing" : live.status}`);
+  const answered = `${url} answered ${live.status === 0 ? "nothing" : live.status}`;
+  if (live.status === 0) return miss(answered, "unreachable");
+  if (live.status === 404 || live.status === 410) return miss(answered, "removed");
+  return miss(answered, "blocked");
 }
 async function findArchive(io, url) {
   const answer = await io.fetchText(`https://archive.org/wayback/available?url=${encodeURIComponent(url)}`);
@@ -7032,7 +7084,9 @@ var KeyedLock = class {
 };
 
 // core/findings.ts
+var OUTCOMES = ["confirmed", "likely", "disputed"];
 var VIA_RANK = ["git", "file", "fetch", "archive", "browser"];
+var BROWSER = "the verifier must confirm it in a browser";
 function upsert(list, isSame, item) {
   const index = list.findIndex(isSame);
   return index === -1 ? [...list, item] : list.map((existing, i) => i === index ? item : existing);
@@ -7045,25 +7099,18 @@ function nextId(findings, ref, dimension, kind) {
   while (taken.has(`${base}.${n}`)) n++;
   return `${base}.${n}`;
 }
-async function validStudy(ctx, topic) {
-  const study = await loadStudy(ctx.io, ctx.cfg, topic);
-  if (study === void 0) return fail(`study ${topic} does not exist; run /study ${topic}`);
-  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map((ref) => ref.id));
-  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter((issue) => issue.level === "error");
-  if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map((issue) => issue.message).join("; ")}`);
-  return ok(study);
-}
-async function addFinding(ctx, input) {
-  if (typeof input.study !== "string" || !Array.isArray(input.evidence)) return fail("study (text) and evidence (a list) are required");
-  const loaded = await validStudy(ctx, input.study);
+var sameRecord = (a, b) => JSON.stringify([a.answer, a.evidence]) === JSON.stringify([b.answer, b.evidence]);
+async function addFinding(ctx, input, lock = new KeyedLock()) {
+  if (!isTopic(input.study)) return fail(TOPIC_RULE);
+  if (!Array.isArray(input.evidence)) return fail("evidence must be a list");
+  const loaded = await loadValidStudy(ctx, input.study);
   if (!loaded.ok) return loaded;
-  const findings = await loadFindings(ctx.io, ctx.cfg, input.study);
   const kind = input.kind ?? "answer";
   const evidence = input.evidence.map(
     (item) => WEB_KINDS.includes(item.kind) && item.retrieved === void 0 ? { ...item, retrieved: ctx.today } : { ...item }
   );
-  const finding = {
-    id: input.id ?? nextId(findings, input.ref, input.dimension, kind),
+  const draft = {
+    id: input.id ?? (kind === "answer" ? `${input.ref}.${input.dimension}` : `${input.ref}.${input.dimension}.2`),
     ref: input.ref,
     dimension: input.dimension,
     kind,
@@ -7073,32 +7120,37 @@ async function addFinding(ctx, input) {
     confidence: "unverified",
     status: "current"
   };
-  if (input.detail !== void 0) finding.detail = input.detail;
-  if (input.searched !== void 0) finding.searched = input.searched;
-  const invalid = validateFinding(finding, loaded.value, files.findings(ctx.cfg, input.study));
+  if (input.detail !== void 0) draft.detail = input.detail;
+  if (input.searched !== void 0) draft.searched = input.searched;
+  const invalid = validateFinding(draft, loaded.value, files.findings(ctx.cfg, input.study));
   if (invalid.length > 0) return fail(...invalid.map((issue) => issue.message));
+  for (const item of evidence) {
+    if (!WEB_KINDS.includes(item.kind) || item.archive !== void 0 || item.url === void 0) continue;
+    const archived = await findArchive(ctx.io, item.url);
+    if (archived !== void 0) item.archive = archived;
+  }
   const errors = [];
   const warnings = [];
   const studyDir = files.studyDir(ctx.cfg, input.study);
   for (const [index, item] of evidence.entries()) {
     const outcome = await checkEvidence(ctx, studyDir, item);
     if (outcome.ok) continue;
-    if (outcome.needsBrowser) warnings.push(`evidence[${index}]: ${outcome.reason}; the verifier must confirm it in a browser`);
+    if (outcome.miss === "hidden" || outcome.miss === "blocked") warnings.push(`evidence[${index}]: ${outcome.reason}; ${BROWSER}`);
     else errors.push(`evidence[${index}]: ${outcome.reason}`);
   }
   if (errors.length > 0) return fail(...errors);
-  for (const item of evidence) {
-    if (!WEB_KINDS.includes(item.kind) || item.archive !== void 0 || item.url === void 0) continue;
-    const archived = await findArchive(ctx.io, item.url);
-    if (archived === void 0) await requestArchive(ctx.io, item.url);
-    else item.archive = archived;
-  }
-  await saveFindings(ctx.io, ctx.cfg, input.study, upsert(findings, (existing) => existing.id === finding.id, finding));
+  const finding = await lock.run(input.study, async () => {
+    const findings = await loadFindings(ctx.io, ctx.cfg, input.study);
+    const stored = { ...draft, id: input.id ?? nextId(findings, input.ref, input.dimension, kind) };
+    await saveFindings(ctx.io, ctx.cfg, input.study, upsert(findings, (existing) => existing.id === stored.id, stored));
+    return stored;
+  });
   return ok(finding, warnings);
 }
-async function verifyFinding(ctx, input) {
-  const findings = await loadFindings(ctx.io, ctx.cfg, input.study);
-  const finding = findings.find((existing) => existing.id === input.id);
+async function verifyFinding(ctx, input, lock = new KeyedLock()) {
+  if (!isTopic(input.study)) return fail(TOPIC_RULE);
+  if (!OUTCOMES.includes(input.outcome)) return fail("outcome must be confirmed, likely or disputed");
+  const finding = (await loadFindings(ctx.io, ctx.cfg, input.study)).find((existing) => existing.id === input.id);
   if (finding === void 0) return fail(`finding ${input.id} does not exist in study ${input.study}`);
   let updated;
   if (input.outcome === "disputed") {
@@ -7114,28 +7166,39 @@ async function verifyFinding(ctx, input) {
     for (const [index, item] of finding.evidence.entries()) {
       const outcome = await checkEvidence(ctx, studyDir, item);
       if (outcome.ok) vias.push(outcome.via);
-      else if (outcome.needsBrowser && input.browser_confirmed === true) vias.push("browser");
+      else if ((outcome.miss === "hidden" || outcome.miss === "blocked") && input.browser_confirmed === true) vias.push("browser");
       else return fail(`evidence[${index}]: ${outcome.reason}`);
     }
     const via = VIA_RANK.find((candidate) => vias.includes(candidate)) ?? "browser";
     updated = { ...finding, confidence: input.outcome, status: "current", verified: { by: input.by ?? "verifier", at: ctx.today, via } };
   }
   if (input.note !== void 0) updated.note = input.note;
-  await saveFindings(ctx.io, ctx.cfg, input.study, upsert(findings, (existing) => existing.id === updated.id, updated));
-  return ok(updated);
+  return lock.run(input.study, async () => {
+    const findings = await loadFindings(ctx.io, ctx.cfg, input.study);
+    const current = findings.find((existing) => existing.id === input.id);
+    if (current === void 0 || !sameRecord(current, finding)) {
+      return fail(`finding ${input.id} changed while it was being verified; verify it again`);
+    }
+    await saveFindings(ctx.io, ctx.cfg, input.study, upsert(findings, (existing) => existing.id === updated.id, updated));
+    return ok(updated);
+  });
 }
-async function setScore(ctx, input) {
-  const loaded = await validStudy(ctx, input.study);
+async function setScore(ctx, input, lock = new KeyedLock()) {
+  if (!isTopic(input.study)) return fail(TOPIC_RULE);
+  const loaded = await loadValidStudy(ctx, input.study);
   if (!loaded.ok) return loaded;
-  const findings = await loadFindings(ctx.io, ctx.cfg, input.study);
-  const by = { agent: input.agent, at: ctx.today };
-  if (input.confirmed_by !== void 0) by.confirmed_by = input.confirmed_by;
-  const score = { ref: input.ref, criterion: input.criterion, level: input.level, because: input.because ?? [], by };
-  const invalid = validateScore(score, loaded.value, new Set(findings.map((finding) => finding.id)), files.assessment(ctx.cfg, input.study));
-  if (invalid.length > 0) return fail(...invalid.map((issue) => issue.message));
-  const scores = await loadAssessment(ctx.io, ctx.cfg, input.study);
-  await saveAssessment(ctx.io, ctx.cfg, input.study, upsert(scores, (existing) => existing.ref === score.ref && existing.criterion === score.criterion, score));
-  return ok(score);
+  return lock.run(input.study, async () => {
+    const findings = await loadFindings(ctx.io, ctx.cfg, input.study);
+    const by = { agent: input.agent, at: ctx.today };
+    if (input.confirmed_by !== void 0) by.confirmed_by = input.confirmed_by;
+    const score = { ref: input.ref, criterion: input.criterion, level: input.level, because: input.because ?? [], by };
+    const invalid = validateScore(score, loaded.value, new Set(findings.map((finding) => finding.id)), files.assessment(ctx.cfg, input.study));
+    if (invalid.length > 0) return fail(...invalid.map((issue) => issue.message));
+    const scores = await loadAssessment(ctx.io, ctx.cfg, input.study);
+    const isSame = (existing) => existing.ref === score.ref && existing.criterion === score.criterion;
+    await saveAssessment(ctx.io, ctx.cfg, input.study, upsert(scores, isSame, score));
+    return ok(score);
+  });
 }
 function renderOp(result, success) {
   if (!result.ok) return ["rejected:", ...result.errors.map((problem) => `- ${problem}`)].join("\n");
@@ -7162,7 +7225,7 @@ async function ensureTree(ctx, url, sha) {
   }
   steps.push(
     ["git", "-C", dir, "fetch", "-q", "--depth", "1", "--", "origin", sha],
-    ["git", "-C", dir, "-c", "advice.detachedHead=false", "checkout", "-q", "--detach", "FETCH_HEAD"]
+    ["git", "-C", dir, "-c", "advice.detachedHead=false", "-c", "core.symlinks=false", "checkout", "-q", "--detach", "FETCH_HEAD"]
   );
   for (const argv of steps) {
     const done = await ctx.io.run(argv);
@@ -7247,7 +7310,7 @@ async function repin(ctx, refId, toSha) {
 // core/check.ts
 var error2 = (file, message) => ({ level: "error", kind: "schema", file, message });
 var stale = (file, message) => ({ level: "warn", kind: "freshness", file, message });
-var isRecord = (item) => item !== null && typeof item === "object";
+var idOf = (item) => item !== null && typeof item === "object" ? item.id : void 0;
 async function runCheck(ctx) {
   const issues = [];
   const refsFile = files.references(ctx.cfg);
@@ -7276,9 +7339,12 @@ async function runCheck(ctx) {
     }
     const data = found.missing ? [] : found.data;
     issues.push(...validateFindings(data, study, findingsFile));
-    bundles.push({ topic, study, findings: Array.isArray(data) ? data.filter(isRecord) : [] });
+    const entries = Array.isArray(data) ? data : [];
+    const valid = entries.filter((raw) => validateFinding(raw, study, findingsFile).length === 0);
+    const ids = new Set(entries.map(idOf).filter((id) => typeof id === "string"));
+    bundles.push({ topic, study, findings: valid, ids });
   }
-  const index = new Map(bundles.map((bundle) => [bundle.topic, new Set(bundle.findings.map((finding) => finding.id))]));
+  const index = new Map(bundles.map((bundle) => [bundle.topic, bundle.ids]));
   for (const { topic, study, findings } of bundles) {
     const scoresFile = files.assessment(ctx.cfg, topic);
     const scores = await readYaml(ctx.io, scoresFile);
@@ -7328,7 +7394,10 @@ async function reverify(ctx, options) {
       for (const item of finding.evidence) {
         if (!WEB_KINDS.includes(item.kind) || item.archive !== void 0 || item.url === void 0) continue;
         const archived = await findArchive(run.io, item.url);
-        if (archived === void 0) continue;
+        if (archived === void 0) {
+          await requestArchive(run.io, item.url);
+          continue;
+        }
         item.archive = archived;
         isChanged = true;
         report.archived.push(label);
@@ -7338,12 +7407,12 @@ async function reverify(ctx, options) {
       const dimension = study.dimensions.find((dim) => dim.id === finding.dimension);
       if (options.dueOnly && !isStale(finding, dimension, run.today)) continue;
       const verdict = await recheck(run, topic, finding);
-      if (verdict === "skipped") {
-        report.skipped.push(label);
+      if (verdict.kind === "skipped") {
+        report.skipped.push(`${label} (${verdict.reason})`);
         continue;
       }
       isChanged = true;
-      if (verdict === "ok") {
+      if (verdict.kind === "ok") {
         finding.verified = { ...verified, at: run.today };
         report.refreshed.push(label);
       } else {
@@ -7359,13 +7428,15 @@ async function recheck(ctx, topic, finding) {
   for (const item of finding.evidence) {
     if (CODE_KINDS.includes(item.kind) && item.repo !== void 0 && item.repo !== "self" && item.sha !== void 0) {
       const tree = await ensureTree(ctx, item.repo, item.sha);
-      if (!tree.ok) return "skipped";
+      if (!tree.ok) return { kind: "skipped", reason: tree.errors.join("; ") };
     }
     const outcome = await checkEvidence(ctx, files.studyDir(ctx.cfg, topic), item);
     if (outcome.ok) continue;
-    return outcome.needsBrowser && finding.verified?.via === "browser" ? "skipped" : "drifted";
+    if (outcome.miss === "blocked" || outcome.miss === "unreachable") return { kind: "skipped", reason: outcome.reason };
+    if (outcome.miss === "hidden" && finding.verified?.via === "browser") return { kind: "skipped", reason: outcome.reason };
+    return { kind: "drifted" };
   }
-  return "ok";
+  return { kind: "ok" };
 }
 function renderReport(report) {
   const section = (title, ids) => ids.length === 0 ? [] : [`## ${title} (${ids.length})`, ...ids.map((id) => `- ${id}`), ""];
@@ -7376,6 +7447,35 @@ function renderReport(report) {
     ...section("Skipped (need a browser check)", report.skipped)
   ];
   return body.length === 0 ? "research reverify: nothing changed" : ["# research reverify", "", ...body].join("\n");
+}
+
+// core/decide.ts
+async function decide(ctx, input) {
+  const problems = [];
+  if (typeof input.chosen !== "string" || input.chosen.trim() === "") problems.push("chosen is required");
+  if (!Array.isArray(input.cites) || input.cites.length === 0) problems.push("cites must name at least one finding");
+  if (typeof input.revisit_when !== "string" || input.revisit_when.trim() === "") problems.push("revisit_when is required");
+  if (problems.length > 0) return fail(...problems);
+  const loaded = await loadValidStudy(ctx, input.study);
+  if (!loaded.ok) return loaded;
+  const byId = new Map((await loadFindings(ctx.io, ctx.cfg, input.study)).map((finding) => [finding.id, finding]));
+  const snapshot = {};
+  for (const id of input.cites) {
+    const finding = byId.get(id);
+    const dimension = loaded.value.dimensions.find((dim) => dim.id === finding?.dimension);
+    if (finding === void 0) problems.push(`${id} does not exist`);
+    else if (finding.status === "disputed") problems.push(`${id} is disputed`);
+    else if (finding.status === "drifted") problems.push(`${id} has drifted; re-research it first`);
+    else if (finding.status !== "current") problems.push(`${id} is ${finding.status}`);
+    else if (finding.verified === void 0 || finding.confidence === "unverified") problems.push(`${id} is not verified`);
+    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${dimension?.volatility ?? "fast"} TTL; re-verify it first`);
+    else snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence };
+  }
+  if (problems.length > 0) return fail(...problems);
+  const decision = { chosen: input.chosen, decided_at: ctx.today, cites: input.cites, revisit_when: input.revisit_when, snapshot };
+  const path = files.study(ctx.cfg, input.study);
+  await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "decided", decision }));
+  return ok(decision);
 }
 export {
   CELL_STATES,
@@ -7398,6 +7498,8 @@ export {
   ROLES,
   STUDY_MODES,
   STUDY_STATUSES,
+  TOPIC,
+  TOPIC_RULE,
   TTL_DAYS,
   VIAS,
   VOLATILITIES,
@@ -7415,6 +7517,7 @@ export {
   cloneRef,
   containsQuote,
   createStudy,
+  decide,
   decidedGate,
   decodeEntities,
   describeFinding,
@@ -7427,6 +7530,7 @@ export {
   isDate,
   isSha,
   isStale,
+  isTopic,
   join,
   lineRange,
   listTopics,
@@ -7436,6 +7540,7 @@ export {
   loadNotes,
   loadReferences,
   loadStudy,
+  loadValidStudy,
   locateQuote,
   methodOf,
   normalizeText,
@@ -7461,6 +7566,7 @@ export {
   saveAssessment,
   saveFindings,
   saveReferences,
+  setInYaml,
   setScore,
   stalePins,
   stateOf,

@@ -118,15 +118,28 @@ test('citations in study.md must resolve', () => {
   assert.match(text(citationIssues('see [f:stripe.vat]', 'tax', index, 'study.md')), /\[f:stripe.vat\] does not resolve/)
 })
 
-test('decided gate: cited findings must be verified and fresh as of decided_at', () => {
-  const decided = study({ status: 'decided', decision: { chosen: 'a', decided_at: '2026-10-20', cites: ['stripe.rounding'], revisit_when: 'x' } })
-  assert.match(text(decidedGate(decided, [docsFinding()], 'f')), /stripe.rounding, which is not verified/)
+test('decided gate: a decision must carry a snapshot of what it cited', () => {
+  const decision = { chosen: 'a', decided_at: '2026-10-20', cites: ['stripe.rounding'], revisit_when: 'x' }
   const fresh = docsFinding({ confidence: 'confirmed', verified: { by: 'verifier', at: '2026-10-08', via: 'fetch' } })
-  assert.deepEqual(decidedGate(decided, [fresh], 'f'), [])
-  const old = docsFinding({ confidence: 'confirmed', verified: { by: 'verifier', at: '2024-01-01', via: 'fetch' } })
-  assert.match(text(decidedGate(decided, [old], 'f')), /past its TTL on 2026-10-20/)
-  const drifted = decidedGate(decided, [{ ...fresh, status: 'drifted' }], 'f')
-  assert.equal(drifted[0].level, 'warn')
+  const unsnapped = study({ status: 'decided', decision: { ...decision, snapshot: {} } })
+  assert.match(text(decidedGate(unsnapped, [fresh], 'f')), /no snapshot of stripe\.rounding; record decisions with research decide/)
+  const snapped = study({ status: 'decided', decision: { ...decision, snapshot: { 'stripe.rounding': { verified_at: '2026-10-08', confidence: 'confirmed' } } } })
+  assert.deepEqual(decidedGate(snapped, [fresh], 'f'), [])
+})
+
+test('decided gate: evidence that changed after the decision only warns', () => {
+  const decision = { chosen: 'a', decided_at: '2026-10-20', cites: ['stripe.rounding'], revisit_when: 'x', snapshot: { 'stripe.rounding': { verified_at: '2026-10-08', confidence: 'confirmed' as const } } }
+  const decided = study({ status: 'decided', decision })
+  for (const later of [docsFinding(), docsFinding({ status: 'disputed' }), docsFinding({ status: 'drifted', confidence: 'confirmed', verified: { by: 'v', at: '2026-10-08', via: 'fetch' } })]) {
+    const issues = decidedGate(decided, [later], 'f')
+    assert.deepEqual(issues.map(issue => `${issue.level}/${issue.kind}`), ['warn/freshness'])
+    assert.match(issues[0].message, /revisit the decision/)
+  }
+})
+
+test("a finding id must belong to the finding's own ref and dimension", () => {
+  assert.match(text(validateFinding(docsFinding({ id: 'lago.rounding' }), study(), 'f')), /id must be stripe\.rounding or stripe\.rounding\.<n>/)
+  assert.deepEqual(validateFinding(docsFinding({ id: 'stripe.rounding.2' }), study(), 'f'), [])
 })
 
 test('code evidence paths stay inside the checkout', () => {

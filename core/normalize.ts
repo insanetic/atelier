@@ -55,22 +55,37 @@ export function containsQuote(haystack: string, quote: string): boolean {
   return needle !== '' && normalizeText(haystack).includes(needle)
 }
 
-export function locateQuote(text: string, quote: string, maxSpan = 30): { start: number; end: number } | undefined {
+/**
+ * Finds a quote's 1-based line range. Lines are normalized once and joined by a
+ * single space (blank lines drop out), so one indexOf covers the whole file.
+ */
+export function locateQuote(text: string, quote: string): { start: number; end: number } | undefined {
   const needle = normalizeText(quote)
   if (needle === '') return undefined
-  const lines = text.split('\n')
-  const normalized = lines.map(normalizeText)
-  const firstWord = needle.split(' ')[0] ?? needle
-  for (let start = 0; start < lines.length; start++) {
-    if (!normalized.slice(start, start + maxSpan).join(' ').includes(firstWord)) continue
-    for (let end = start; end < Math.min(lines.length, start + maxSpan); end++) {
-      if (!normalized.slice(start, end + 1).join(' ').includes(needle)) continue
-      let first = start
-      while (first < end && normalized.slice(first + 1, end + 1).join(' ').includes(needle)) first++
-      return { start: first + 1, end: end + 1 }
+  const offsets: number[] = []
+  const lineNumbers: number[] = []
+  let joined = ''
+  text.split('\n').forEach((line, index) => {
+    const normalized = normalizeText(line)
+    if (normalized === '') return
+    if (joined !== '') joined += ' '
+    offsets.push(joined.length)
+    lineNumbers.push(index + 1)
+    joined += normalized
+  })
+  const at = joined.indexOf(needle)
+  if (at === -1) return undefined
+  const lineAt = (offset: number) => {
+    let low = 0
+    let high = offsets.length - 1
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2)
+      if ((offsets[mid] ?? 0) <= offset) low = mid
+      else high = mid - 1
     }
+    return lineNumbers[low] ?? 1
   }
-  return undefined
+  return { start: lineAt(at), end: lineAt(at + needle.length - 1) }
 }
 
 export function numbersIn(text: string): string[] {

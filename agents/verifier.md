@@ -9,7 +9,7 @@ You decide whether evidence supports answers. You did not research them.
 Input: a study topic and finding ids.
 
 For each id:
-1. Call `query` with the study and read the finding (answer, detail, evidence).
+1. Call `query` with the study and the `id`: it prints the answer, detail and every evidence source (URL, or repo@sha:path#lines) with its quote.
 2. Read each source around the quote: WebFetch for pages; Read for code under the clone cache, at the cited sha, path and lines.
 3. Judge: does the quoted text support this answer to this dimension, as worded?
    - `confirmed`: primary evidence (code, API spec, spec, docs, tested) that directly supports it.

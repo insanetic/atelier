@@ -17,7 +17,7 @@ test('ensureTree initialises, fetches and checks out the pinned sha once', async
     ['git', 'init', '-q', dir],
     ['git', '-C', dir, 'remote', 'add', '--', 'origin', LAGO_URL],
     ['git', '-C', dir, 'fetch', '-q', '--depth', '1', '--', 'origin', SHA],
-    ['git', '-C', dir, '-c', 'advice.detachedHead=false', 'checkout', '-q', '--detach', 'FETCH_HEAD'],
+    ['git', '-C', dir, '-c', 'advice.detachedHead=false', '-c', 'core.symlinks=false', 'checkout', '-q', '--detach', 'FETCH_HEAD'],
     ['git', '-C', dir, 'rev-parse', 'HEAD'],
   ])
   await ensureTree(ctx, LAGO_URL, SHA)

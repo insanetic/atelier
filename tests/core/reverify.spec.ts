@@ -4,7 +4,7 @@ import { renderReport, reverify } from '../../core/reverify.ts'
 import { loadFindings } from '../../core/store.ts'
 import { fakeIo } from './fake-io.ts'
 import { gitFake } from './git-fake.ts'
-import { CFG, LAGO_FILE, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy } from './fixtures.ts'
+import { CFG, LAGO_FILE, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy } from './fixtures.ts'
 
 const verifiedOn = (at: string, via: 'fetch' | 'git' | 'browser') => ({ confidence: 'confirmed' as const, verified: { by: 'verifier', at, via } })
 
@@ -36,7 +36,9 @@ test('a browser-verified quote the raw fetch cannot see is skipped, not drifted'
   const { io, ctx } = setup()
   seedStudy(io, { findings: [docsFinding(verifiedOn('2025-01-01', 'browser'))] })
   io.pages.set(STRIPE_TAX_URL, { status: 200, text: '<div id="app"></div>' })
-  assert.deepEqual(await reverify(ctx, { dueOnly: true }), { refreshed: [], drifted: [], archived: [], skipped: ['tax/stripe.rounding'] })
+  const report = await reverify(ctx, { dueOnly: true })
+  assert.deepEqual([report.refreshed, report.drifted], [[], []])
+  assert.match(report.skipped[0] ?? '', /^tax\/stripe\.rounding \(the quote is not in the fetched page/)
 })
 
 test('missing archives are filled for current findings', async () => {
@@ -57,4 +59,35 @@ test('renderReport lists each non-empty group', () => {
     renderReport({ refreshed: ['tax/a.b'], drifted: ['tax/c.d'], archived: [], skipped: [] }),
     '# research reverify\n\n## Drifted (1)\n- tax/c.d\n\n## Refreshed (1)\n- tax/a.b\n',
   )
+})
+
+test('a source that cannot be reached is skipped with its reason, not drifted', async () => {
+  const { io, ctx } = setup()
+  seedStudy(io, { findings: [docsFinding(verifiedOn('2025-01-01', 'fetch'))] })
+  io.pages.set(STRIPE_TAX_URL, { status: 503, text: '' })
+  const report = await reverify(ctx, { dueOnly: true })
+  assert.deepEqual(report.drifted, [])
+  assert.match(report.skipped[0] ?? '', /^tax\/stripe\.rounding \(.*answered 503\)$/)
+})
+
+test('our own sha missing from a shallow clone is skipped, not drifted', async () => {
+  const { io, ctx } = setup()
+  const ours = codeFinding({
+    id: 'subneo.rounding',
+    ref: 'subneo',
+    evidence: [{ kind: 'code', repo: 'self', sha: SHA, path: 'internal/tax.go', lines: '1', quote: 'x' }],
+    ...verifiedOn('2025-01-01', 'git'),
+  })
+  seedStudy(io, { findings: [ours] })
+  io.onRun = () => ({ exitCode: 128, stdout: '', stderr: 'fatal: not a valid object name' })
+  const report = await reverify(ctx, { dueOnly: true })
+  assert.deepEqual(report.drifted, [])
+  assert.match(report.skipped[0] ?? '', /^tax\/subneo\.rounding \(.*not in this repository/)
+})
+
+test('reverify asks Wayback to save pages that have no archive yet', async () => {
+  const { io, ctx } = setup()
+  seedStudy(io, { findings: [docsFinding()] })
+  await reverify(ctx, { dueOnly: true })
+  assert.ok(io.fetched.includes(`https://web.archive.org/save/${STRIPE_TAX_URL}`))
 })

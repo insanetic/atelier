@@ -4,6 +4,9 @@ export const TTL_DAYS: Record<Volatility, number> = { fast: 90, medium: 180, slo
 export const PIN_MAX_DAYS = 180
 const DAY_MS = 86_400_000
 
+export const isDate = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
+
 export function addDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10)
 }
@@ -16,7 +19,7 @@ export const CELL_STATES = ['verified', 'unverified', 'stale', 'drifted', 'dispu
 export type CellState = (typeof CELL_STATES)[number]
 
 export function isStale(finding: Finding, dimension: Dimension | undefined, asOf: string): boolean {
-  if (finding.verified === undefined) return false
+  if (finding.verified === undefined || !isDate(finding.verified.at)) return false
   return addDays(finding.verified.at, TTL_DAYS[dimension?.volatility ?? 'fast']) < asOf
 }
 
@@ -32,8 +35,8 @@ export type StalePin = { ref: string; url: string; pinned_at: string }
 
 export function stalePins(references: readonly Reference[], today: string): StalePin[] {
   return references.flatMap(ref =>
-    (ref.repos ?? []).flatMap(repo =>
-      repo.pin !== undefined && repo.pinned_at !== undefined && addDays(repo.pinned_at, PIN_MAX_DAYS) < today
+    (Array.isArray(ref.repos) ? ref.repos : []).flatMap(repo =>
+      repo.pin !== undefined && isDate(repo.pinned_at) && addDays(repo.pinned_at, PIN_MAX_DAYS) < today
         ? [{ ref: ref.id, url: repo.url, pinned_at: repo.pinned_at }]
         : [],
     ),

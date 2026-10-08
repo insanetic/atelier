@@ -36,3 +36,20 @@ test('unparsable YAML is reported with its path', async () => {
   const io = fakeIo({ [files.study(CFG, 'tax')]: 'topic: [unclosed' })
   await assert.rejects(loadStudy(io, CFG, 'tax'), /study\.yaml/)
 })
+
+test('createStudy refuses to rebuild a study whose study.yaml is empty', async () => {
+  const io = fakeIo()
+  seedStudy(io, { findings: [docsFinding()], notes: '# tax\nhand-written synthesis\n' })
+  io.files.set(files.study(CFG, 'tax'), '# rewriting the frame\n')
+  const out = await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'full')
+  assert.match(out.ok ? '' : out.errors[0], /study\.yaml is empty or not a mapping/)
+  assert.deepEqual(await loadFindings(io, CFG, 'tax'), [docsFinding()])
+  assert.equal(io.files.get(files.notes(CFG, 'tax')), '# tax\nhand-written synthesis\n')
+})
+
+test('createStudy creates only the files that are missing', async () => {
+  const io = fakeIo({ [files.notes(CFG, 'tax')]: '# tax\nnotes first\n' })
+  const out = await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'full')
+  assert.equal(out.ok && out.value.created, true)
+  assert.equal(io.files.get(files.notes(CFG, 'tax')), '# tax\nnotes first\n')
+})

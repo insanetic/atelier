@@ -3,6 +3,9 @@ import type { EngineInterface, Register, ToolSpec } from 'claude-code'
 import * as core from '../dist/core.js'
 
 const USER_AGENT = 'research-kit/0.1 (+https://github.com/insanetic/research-kit)'
+// $.http.fetch takes no timeout and the hook budget stands still while it waits:
+// a source that never answers would hold the tool, so the clock bounds it.
+const FETCH_TIMEOUT_MS = 15_000
 
 /** core's Io over the engine: every byte goes through $, the mod has no Node. */
 function modIo($: EngineInterface): core.Io {
@@ -20,12 +23,12 @@ function modIo($: EngineInterface): core.Io {
       return (await $.fs.exists(path)) ? (await $.fs.stat(path)).size : undefined
     },
     async fetchText(url) {
-      try {
-        const page = await $.http.fetch(url, { headers: { 'user-agent': USER_AGENT } })
-        return { status: page.status, text: page.text }
-      } catch {
-        return { status: 0, text: '' }
-      }
+      const page = $.http.fetch(url, { headers: { 'user-agent': USER_AGENT } }).then(
+        answer => ({ status: answer.status, text: answer.text }),
+        () => ({ status: 0, text: '' }),
+      )
+      const timeout = $.clock.sleep(FETCH_TIMEOUT_MS).then(() => ({ status: 0, text: '' }))
+      return Promise.race([page, timeout])
     },
     async run(argv, cwd) {
       const init = cwd === undefined ? { timeoutMs: 120_000 } : { cwd, timeoutMs: 120_000 }
@@ -134,7 +137,15 @@ const TOOLS: ToolSpec[] = [
     description: 'Search findings across studies by reference, dimension, study, state (verified, unverified, stale, drifted, disputed, unknown) or text.',
     inputSchema: {
       type: 'object',
-      properties: { ref: { type: 'string' }, dimension: { type: 'string' }, study: { type: 'string' }, state: { type: 'string' }, text: { type: 'string' } },
+      properties: {
+        ref: { type: 'string' },
+        dimension: { type: 'string' },
+        study: { type: 'string' },
+        state: { type: 'string' },
+        text: { type: 'string' },
+        id: { type: 'string', description: 'One finding; its evidence (URL or repo@sha:path#lines and quote) is printed.' },
+        kind: { type: 'string', enum: ['answer', 'pain'] },
+      },
     },
   },
   {
@@ -160,14 +171,14 @@ async function contextOf($: EngineInterface): Promise<core.Ctx> {
 }
 
 /** Makes a study the active one: its matrix goes to the pane, its counts to the status line. */
-async function showStudy($: EngineInterface, ctx: core.Ctx, topic: string): Promise<core.Matrix | undefined> {
-  const study = await core.loadStudy(ctx.io, ctx.cfg, topic)
-  if (study === undefined) return undefined
+async function showStudy($: EngineInterface, ctx: core.Ctx, topic: string): Promise<core.OpResult<core.Matrix>> {
+  const loaded = await core.loadValidStudy(ctx, topic)
+  if (!loaded.ok) return loaded
   const findings = await core.loadFindings(ctx.io, ctx.cfg, topic)
-  const matrix = core.buildMatrix(study, findings, ctx.today)
+  const matrix = core.buildMatrix(loaded.value, findings, ctx.today)
   await update($, active, () => ({ topic, matrix, findings }))
   $.ui.status(core.statusLine(matrix))
-  return matrix
+  return core.ok(matrix)
 }
 
 async function activeStudy($: EngineInterface): Promise<ActiveStudy | null> {
@@ -198,7 +209,7 @@ export const register: Register = on => {
     try {
       const input = argsOf(e) as unknown as core.AddFindingInput
       const ctx = await contextOf($)
-      const out = await studyLock.run(String(input.study), () => core.addFinding(ctx, input))
+      const out = await core.addFinding(ctx, input, studyLock)
       await refreshIfActive($, ctx, input.study)
       return { result: core.renderOp(out, out.ok ? `recorded ${out.value.id} (${out.value.method}, unverified)` : '') }
     } catch (problem) {
@@ -210,7 +221,7 @@ export const register: Register = on => {
     try {
       const input = argsOf(e) as unknown as core.VerifyInput
       const ctx = await contextOf($)
-      const out = await studyLock.run(String(input.study), () => core.verifyFinding(ctx, input))
+      const out = await core.verifyFinding(ctx, input, studyLock)
       await refreshIfActive($, ctx, input.study)
       const verdict = out.ok ? (out.value.status === 'disputed' ? 'disputed' : `${out.value.confidence} via ${out.value.verified?.via}`) : ''
       return { result: core.renderOp(out, out.ok ? `${out.value.id}: ${verdict}` : '') }
@@ -224,7 +235,7 @@ export const register: Register = on => {
       const args = argsOf(e)
       const input = { ...args, agent: typeof args.agent === 'string' ? args.agent : 'analyst' } as unknown as core.SetScoreInput
       const ctx = await contextOf($)
-      const out = await studyLock.run(String(input.study), () => core.setScore(ctx, input))
+      const out = await core.setScore(ctx, input, studyLock)
       return { result: core.renderOp(out, out.ok ? `scored ${out.value.ref}/${out.value.criterion}: ${out.value.level}` : '') }
     } catch (problem) {
       return failure(problem)
@@ -252,8 +263,8 @@ export const register: Register = on => {
   on('tool.call', { tool: 'mcp__research-kit__matrix' }, async ($, e) => {
     try {
       const topic = String(argsOf(e).study)
-      const matrix = await showStudy($, await contextOf($), topic)
-      return { result: matrix === undefined ? `study ${topic} does not exist` : core.renderMatrix(matrix) }
+      const shown = await showStudy($, await contextOf($), topic)
+      return { result: shown.ok ? core.renderMatrix(shown.value) : shown.errors.join('\n') }
     } catch (problem) {
       return failure(problem)
     }

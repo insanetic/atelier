@@ -55,7 +55,7 @@ Agents collect. Deterministic checks verify quotes. The verifier judges support.
    - **(c) Constraint inversion:** list the reference's constraints (legacy, backward compatibility, business model) and design as if we had none of them.
 
    Then dispatch `research-kit:critic` to attack each candidate against the pain findings, and record its objections under each candidate.
-8. **Decide.** The user decides. Write `decision` in `study.yaml` (`chosen`, `decided_at`, `cites`, `revisit_when`) and set `status: decided`. `research check` fails if any cited finding is unverified, disputed, or was past its TTL on `decided_at`.
+8. **Decide.** The user decides. Record it with `research decide <topic> --chosen <candidate> --cites <id>,<id> --revisit "<trigger>"`. It refuses citations that are unverified, disputed, drifted or past their TTL, then writes `decision` (with a snapshot of each citation) and `status: decided` into `study.yaml`, keeping its comments. Never write `decision` by hand: `research check` fails a decision without a snapshot. Evidence that changes later only warns "revisit the decision".
 
 ## Evidence rules
 
@@ -76,4 +76,4 @@ Each dimension's `volatility` sets a TTL: fast 90 days, medium 180, slow 365. Pi
 
 ## CLI
 
-`research init <topic> [--quick]` · `research check` · `research stale` · `research query --ref stripe` · `research matrix <topic>` · `research reverify [--due]` · `research clone <ref>` · `research repin <ref> [--to <sha>]`
+`research init <topic> [--quick]` · `research check` · `research stale` · `research query --ref stripe` · `research matrix <topic>` · `research decide <topic> --chosen … --cites … --revisit …` · `research reverify [--due]` · `research clone <ref>` · `research repin <ref> [--to <sha>]`

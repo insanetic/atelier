@@ -4,12 +4,12 @@ import { files } from './paths.ts'
 import { listTopics, loadFindings, loadStudy, saveFindings } from './store.ts'
 import { CODE_KINDS, WEB_KINDS } from './validate.ts'
 import { isStale } from './fresh.ts'
-import { cachedIo, checkEvidence, findArchive } from './evidence.ts'
+import { cachedIo, checkEvidence, findArchive, requestArchive } from './evidence.ts'
 import { ensureTree } from './clone.ts'
 
 export type ReverifyReport = { refreshed: string[]; drifted: string[]; archived: string[]; skipped: string[] }
 
-type Verdict = 'ok' | 'drifted' | 'skipped'
+type Verdict = { kind: 'ok' } | { kind: 'drifted' } | { kind: 'skipped'; reason: string }
 
 /** Re-runs the deterministic checks; no model involved. Each URL is fetched once per run. */
 export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise<ReverifyReport> {
@@ -26,7 +26,10 @@ export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise
       for (const item of finding.evidence) {
         if (!WEB_KINDS.includes(item.kind) || item.archive !== undefined || item.url === undefined) continue
         const archived = await findArchive(run.io, item.url)
-        if (archived === undefined) continue
+        if (archived === undefined) {
+          await requestArchive(run.io, item.url)
+          continue
+        }
         item.archive = archived
         isChanged = true
         report.archived.push(label)
@@ -36,12 +39,12 @@ export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise
       const dimension = study.dimensions.find(dim => dim.id === finding.dimension)
       if (options.dueOnly && !isStale(finding, dimension, run.today)) continue
       const verdict = await recheck(run, topic, finding)
-      if (verdict === 'skipped') {
-        report.skipped.push(label)
+      if (verdict.kind === 'skipped') {
+        report.skipped.push(`${label} (${verdict.reason})`)
         continue
       }
       isChanged = true
-      if (verdict === 'ok') {
+      if (verdict.kind === 'ok') {
         finding.verified = { ...verified, at: run.today }
         report.refreshed.push(label)
       } else {
@@ -58,13 +61,16 @@ async function recheck(ctx: Ctx, topic: string, finding: Finding): Promise<Verdi
   for (const item of finding.evidence) {
     if (CODE_KINDS.includes(item.kind) && item.repo !== undefined && item.repo !== 'self' && item.sha !== undefined) {
       const tree = await ensureTree(ctx, item.repo, item.sha)
-      if (!tree.ok) return 'skipped'
+      if (!tree.ok) return { kind: 'skipped', reason: tree.errors.join('; ') }
     }
     const outcome = await checkEvidence(ctx, files.studyDir(ctx.cfg, topic), item)
     if (outcome.ok) continue
-    return outcome.needsBrowser && finding.verified?.via === 'browser' ? 'skipped' : 'drifted'
+    // Only a source that answered without the quote has changed; one that could not be read says nothing.
+    if (outcome.miss === 'blocked' || outcome.miss === 'unreachable') return { kind: 'skipped', reason: outcome.reason }
+    if (outcome.miss === 'hidden' && finding.verified?.via === 'browser') return { kind: 'skipped', reason: outcome.reason }
+    return { kind: 'drifted' }
   }
-  return 'ok'
+  return { kind: 'ok' }
 }
 
 export function renderReport(report: ReverifyReport): string {

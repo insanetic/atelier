@@ -16,7 +16,7 @@ import {
 import type { Answer, Criterion, Dimension, Evidence, EvidenceKind, Finding, Issue, Method, Reference, Score, Study } from './types.ts'
 import { normalizeText, numbersIn } from './normalize.ts'
 import { parseRepoUrl } from './paths.ts'
-import { TTL_DAYS, addDays } from './fresh.ts'
+import { isDate } from './fresh.ts'
 
 export const CODE_KINDS: readonly EvidenceKind[] = ['code', 'api_spec', 'spec']
 export const WEB_KINDS: readonly EvidenceKind[] = ['docs', 'blog', 'issue', 'marketing']
@@ -41,8 +41,6 @@ const OPTION = /^[a-z0-9][a-z0-9_]*$/
 const DURATION = /^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(?=\d)(\d+H)?(\d+M)?(\d+(\.\d+)?S)?)?$/
 const LEVEL_KEYS = ['1', '2', '3', '4', '5']
 
-export const isDate = (value: unknown): value is string =>
-  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
 export const isSha = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
 const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
 const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T => typeof value === 'string' && (list as readonly string[]).includes(value)
@@ -146,6 +144,7 @@ export function validateReferences(data: unknown, file: string): Issue[] {
     else if (seen.has(ref.id)) out.push(error(file, `${at}.id ${ref.id} is duplicated`))
     else seen.add(ref.id)
     if (!isText(ref.name)) out.push(error(file, `${at}.name is required`))
+    if (ref.repos !== undefined && !Array.isArray(ref.repos)) out.push(error(file, `${at}.repos must be a list`))
     const repos: unknown[] = Array.isArray(ref.repos) ? ref.repos : []
     repos.forEach((repoRaw, i) => {
       const repo = (isMapping(repoRaw) ? repoRaw : {}) as Record<string, unknown>
@@ -244,6 +243,7 @@ export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<
       if (!isDate(decision.decided_at)) out.push(error(file, 'decision.decided_at must be YYYY-MM-DD'))
       if (!Array.isArray(decision.cites) || decision.cites.length === 0) out.push(error(file, 'decision.cites must list the finding ids the decision rests on'))
       if (!isText(decision.revisit_when)) out.push(error(file, 'decision.revisit_when is required'))
+      if (!isMapping(decision.snapshot)) out.push(error(file, 'decision.snapshot is missing; record decisions with research decide'))
     }
   }
   if (!hasOurs && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
@@ -257,6 +257,11 @@ export function validateFinding(raw: unknown, study: Study, file: string): Issue
   const finding = raw as Partial<Finding>
   const out: string[] = []
   if (typeof finding.id !== 'string' || !FINDING_ID.test(finding.id)) out.push('id must look like <ref>.<dimension>[.<n>]')
+  else if (typeof finding.ref === 'string' && typeof finding.dimension === 'string') {
+    const base = `${finding.ref}.${finding.dimension}`
+    const isOwn = finding.id === base || (finding.id.startsWith(`${base}.`) && /^\d+$/.test(finding.id.slice(base.length + 1)))
+    if (!isOwn) out.push(`id must be ${base} or ${base}.<n>`)
+  }
   if (typeof finding.ref !== 'string' || !(finding.ref in study.references)) out.push(`ref ${String(finding.ref)} is not a reference of study ${study.topic}`)
   const dimension = study.dimensions.find(dim => dim.id === finding.dimension)
   if (!dimension) out.push(`dimension ${String(finding.dimension)} is not a dimension of study ${study.topic}`)
@@ -345,20 +350,32 @@ export function citationIssues(notes: string, topic: string, index: ReadonlyMap<
   return out
 }
 
+/**
+ * The freshness gate runs once, in `research decide`, which stores what each cited
+ * finding stood on. Here a decision only needs that snapshot; evidence that moved
+ * on afterwards asks for a revisit and never fails a later check.
+ */
 export function decidedGate(study: Study, findings: readonly Finding[], file: string): Issue[] {
   if (study.status !== 'decided' || study.decision === undefined) return []
-  const { decided_at: decidedAt, cites } = study.decision
+  const { decided_at: decidedAt, cites, snapshot = {} } = study.decision
   const byId = new Map(findings.map(finding => [finding.id, finding]))
   const out: Issue[] = []
   for (const id of cites) {
     const finding = byId.get(id)
-    const dimension = study.dimensions.find(dim => dim.id === finding?.dimension)
-    if (!finding) out.push(error(file, `decision cites ${id}, which does not exist`))
-    else if (finding.status === 'disputed') out.push(error(file, `decision cites ${id}, which is disputed`))
-    else if (finding.verified === undefined) out.push(error(file, `decision cites ${id}, which is not verified`))
-    else if (addDays(finding.verified.at, TTL_DAYS[dimension?.volatility ?? 'fast']) < decidedAt) {
-      out.push(error(file, `decision cites ${id}, which was past its TTL on ${decidedAt}`))
-    } else if (finding.status === 'drifted') out.push(warn(file, `decision cites ${id}, which has drifted since; revisit the decision`, 'freshness'))
+    const taken = snapshot[id]
+    if (finding === undefined) out.push(error(file, `decision cites ${id}, which does not exist`))
+    else if (taken === undefined) out.push(error(file, `decision has no snapshot of ${id}; record decisions with research decide`))
+    else {
+      const change =
+        finding.status !== 'current'
+          ? `is ${finding.status}`
+          : finding.verified === undefined
+            ? 'was re-recorded and is unverified'
+            : finding.confidence !== taken.confidence
+              ? `is now ${finding.confidence}`
+              : undefined
+      if (change !== undefined) out.push(warn(file, `decision cites ${id}, which ${change} since ${decidedAt}; revisit the decision`, 'freshness'))
+    }
   }
   return out
 }

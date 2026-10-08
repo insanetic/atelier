@@ -2,12 +2,15 @@ import type { Ctx, Io } from './io.ts'
 import type { Config, Finding, Reference, Score, Study, StudyMode } from './types.ts'
 import { files } from './paths.ts'
 import { parseYaml, toYaml } from './yaml.ts'
+import { validateStudy } from './validate.ts'
 import { fail, ok } from './result.ts'
 import type { OpResult } from './result.ts'
 
 export type Loaded = { data: unknown; missing: boolean; error?: string }
 
-const TOPIC = /^[a-z0-9][a-z0-9-]*$/
+export const TOPIC = /^[a-z0-9][a-z0-9-]*$/
+export const TOPIC_RULE = 'study must be a kebab-case topic such as tax or plan-change'
+export const isTopic = (value: unknown): value is string => typeof value === 'string' && TOPIC.test(value)
 
 export async function readYaml(io: Io, path: string): Promise<Loaded> {
   const text = await io.readText(path)
@@ -41,7 +44,7 @@ export async function loadStudy(io: Io, cfg: Config, topic: string): Promise<Stu
   const path = files.study(cfg, topic)
   const loaded = await readYaml(io, path)
   if (loaded.error !== undefined) throw new Error(`${path}: ${loaded.error}`)
-  return loaded.data !== null && typeof loaded.data === 'object' ? (loaded.data as Study) : undefined
+  return loaded.data !== null && typeof loaded.data === 'object' && !Array.isArray(loaded.data) ? (loaded.data as Study) : undefined
 }
 
 export async function loadNotes(io: Io, cfg: Config, topic: string): Promise<string> {
@@ -69,15 +72,34 @@ function notesTemplate(topic: string): string {
   return `# ${topic}\n\n${sections.map(section => `## ${section}\n`).join('\n')}`
 }
 
+/** A study whose study.yaml passes validation: the only kind tools build on. */
+export async function loadValidStudy(ctx: Ctx, topic: string): Promise<OpResult<Study>> {
+  if (!isTopic(topic)) return fail(TOPIC_RULE)
+  const study = await loadStudy(ctx.io, ctx.cfg, topic)
+  if (study === undefined) return fail(`study ${topic} does not exist`)
+  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map(ref => ref.id))
+  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter(issue => issue.level === 'error')
+  if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map(issue => issue.message).join('; ')}`)
+  return ok(study)
+}
+
+/** Creates the files of a new study; never overwrites one that exists. */
 export async function createStudy(ctx: Ctx, topic: string, mode: StudyMode): Promise<OpResult<{ study: Study; created: boolean }>> {
-  if (!TOPIC.test(topic)) return fail(`topic ${topic} must be kebab-case, e.g. tax or plan-change`)
-  const existing = await loadStudy(ctx.io, ctx.cfg, topic)
-  if (existing !== undefined) return ok({ study: existing, created: false })
+  if (!isTopic(topic)) return fail(TOPIC_RULE)
+  const studyFile = files.study(ctx.cfg, topic)
+  if ((await ctx.io.readText(studyFile)) !== undefined) {
+    const existing = await loadStudy(ctx.io, ctx.cfg, topic)
+    if (existing === undefined) return fail(`${studyFile}: study.yaml is empty or not a mapping; fix it by hand`)
+    return ok({ study: existing, created: false })
+  }
   const study: Study = { topic, question: '', decision_needed: '', status: 'draft', mode, references: {}, dimensions: [], criteria: [] }
-  await ctx.io.writeText(files.study(ctx.cfg, topic), toYaml(study))
-  await saveFindings(ctx.io, ctx.cfg, topic, [])
-  await saveAssessment(ctx.io, ctx.cfg, topic, [])
-  await ctx.io.writeText(files.notes(ctx.cfg, topic), notesTemplate(topic))
-  if ((await ctx.io.readText(files.references(ctx.cfg))) === undefined) await saveReferences(ctx.io, ctx.cfg, [])
+  const starters: [string, string][] = [
+    [studyFile, toYaml(study)],
+    [files.findings(ctx.cfg, topic), toYaml([])],
+    [files.assessment(ctx.cfg, topic), toYaml([])],
+    [files.notes(ctx.cfg, topic), notesTemplate(topic)],
+    [files.references(ctx.cfg), toYaml([])],
+  ]
+  for (const [path, text] of starters) if ((await ctx.io.readText(path)) === undefined) await ctx.io.writeText(path, text)
   return ok({ study, created: true })
 }

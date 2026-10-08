@@ -27,7 +27,7 @@ export async function ensureTree(ctx: Ctx, url: string, sha: string): Promise<Op
   }
   steps.push(
     ['git', '-C', dir, 'fetch', '-q', '--depth', '1', '--', 'origin', sha],
-    ['git', '-C', dir, '-c', 'advice.detachedHead=false', 'checkout', '-q', '--detach', 'FETCH_HEAD'],
+    ['git', '-C', dir, '-c', 'advice.detachedHead=false', '-c', 'core.symlinks=false', 'checkout', '-q', '--detach', 'FETCH_HEAD'],
   )
   for (const argv of steps) {
     const done = await ctx.io.run(argv)

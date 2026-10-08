@@ -23,7 +23,7 @@ test('code evidence names the right lines when the citation is off', async () =>
   assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, { ...code, lines: '4-5' }), {
     ok: false,
     reason: 'the quote is at lines 3, not 4-5',
-    needsBrowser: false,
+    miss: 'absent',
   })
 })
 
@@ -33,15 +33,44 @@ test('code evidence without a checkout asks for a clone', async () => {
   assert.match(outcome.ok ? '' : outcome.reason, /clone the reference first/)
 })
 
-test('self evidence reads through git show at the sha', async () => {
+test('self evidence reads through git show at the sha, in the repository that holds research/', async () => {
   const io = fakeIo()
-  io.onRun = argv =>
-    argv[1] === 'show' && argv[2] === `${SHA}:internal/tax.go`
+  const cwds: (string | undefined)[] = []
+  io.onRun = (argv, cwd) => {
+    cwds.push(cwd)
+    if (argv[1] === 'cat-file') return { exitCode: 0, stdout: '', stderr: '' }
+    return argv[1] === 'show' && argv[2] === `${SHA}:internal/tax.go`
       ? { exitCode: 0, stdout: 'package app\n\nfunc roundTax() {}\n', stderr: '' }
       : { exitCode: 128, stdout: '', stderr: 'bad object' }
+  }
   const self: Evidence = { kind: 'code', repo: 'self', sha: SHA, path: 'internal/tax.go', lines: '3', quote: 'func roundTax()' }
   assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, self), { ok: true, via: 'git' })
-  assert.deepEqual(io.runs[0], ['git', 'show', `${SHA}:internal/tax.go`])
+  assert.ok(io.runs.some(argv => argv[1] === 'show' && argv[2] === `${SHA}:internal/tax.go`))
+  assert.deepEqual([...new Set(cwds)], [CFG.dir])
+})
+
+test('a self sha missing from the repository is unreachable, not absent', async () => {
+  const io = fakeIo()
+  io.onRun = () => ({ exitCode: 128, stdout: '', stderr: 'fatal: not a valid object name' })
+  const self: Evidence = { kind: 'code', repo: 'self', sha: SHA, path: 'internal/tax.go', lines: '3', quote: 'func roundTax()' }
+  const outcome = await checkEvidence(ctxOf(io), STUDY_DIR, self)
+  assert.equal(outcome.ok ? '' : outcome.miss, 'unreachable')
+  assert.match(outcome.ok ? '' : outcome.reason, /not in this repository/)
+})
+
+test('a code quote that spans a blank line passes', async () => {
+  const path = lagoFilePath()
+  const io = fakeIo({ [path]: 'def total\n  sum = a + b\n\n  round(sum)\nend\n' })
+  const spanning = { ...code, lines: '2-4', quote: 'sum = a + b\n\n  round(sum)' }
+  assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, spanning), { ok: true, via: 'git' })
+})
+
+test('a page that blocks automated clients is blocked and one that is gone is removed', async () => {
+  const io = fakeIo()
+  io.pages.set(STRIPE_TAX_URL, { status: 403, text: 'Forbidden' })
+  assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, docs), { ok: false, reason: `${STRIPE_TAX_URL} answered 403`, miss: 'blocked' })
+  io.pages.set(STRIPE_TAX_URL, { status: 404, text: '' })
+  assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, docs), { ok: false, reason: `${STRIPE_TAX_URL} answered 404`, miss: 'removed' })
 })
 
 test('web evidence passes when the fetched page holds the quote', async () => {
@@ -56,7 +85,7 @@ test('a reachable page without the quote needs a browser', async () => {
   assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, docs), {
     ok: false,
     reason: `the quote is not in the fetched page of ${STRIPE_TAX_URL}`,
-    needsBrowser: true,
+    miss: 'hidden',
   })
 })
 
@@ -73,7 +102,7 @@ test('a source that answers nothing is rejected with its url', async () => {
   assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, docs), {
     ok: false,
     reason: `${STRIPE_TAX_URL} answered nothing`,
-    needsBrowser: false,
+    miss: 'unreachable',
   })
 })
 

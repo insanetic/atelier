@@ -49,7 +49,14 @@ export type Dimension = {
 
 export type Criterion = { id: string; ask: string; levels: Record<string, string> }
 
-export type Decision = { chosen: string; decided_at: string; cites: string[]; revisit_when: string }
+export type Decision = {
+  chosen: string
+  decided_at: string
+  cites: string[]
+  revisit_when: string
+  /** What each cited finding stood on when `research decide` recorded the decision. */
+  snapshot?: Record<string, { verified_at: string; confidence: Confidence }>
+}
 
 export type Study = {
   topic: string

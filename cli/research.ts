@@ -5,10 +5,11 @@ import {
   buildMatrix,
   cloneRef,
   createStudy,
+  decide,
   files,
   loadConfig,
   loadFindings,
-  loadStudy,
+  loadValidStudy,
   query,
   renderHits,
   renderIssues,
@@ -34,9 +35,11 @@ export const USAGE = `usage: research <command>
   reverify [--due] [--report FILE]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
-  repin <ref> [--to SHA]     move a reference to a new commit and re-anchor its code findings`
+  repin <ref> [--to SHA]     move a reference to a new commit and re-anchor its code findings
+  decide <topic> --chosen C --cites ID,ID --revisit "TRIGGER"
+                             record the decision; refuses unverified, disputed, drifted or stale citations`
 
-const VALUED = new Set(['ref', 'dimension', 'study', 'state', 'text', 'report', 'to'])
+const VALUED = new Set(['ref', 'dimension', 'study', 'state', 'text', 'report', 'to', 'chosen', 'cites', 'revisit'])
 
 export function parseArgs(args: readonly string[]): { positional: string[]; flags: Map<string, string | true> } {
   const positional: string[] = []
@@ -100,9 +103,9 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
     case 'matrix': {
       const topic = positional[0]
       if (topic === undefined) return usageError('matrix needs a topic')
-      const study = await loadStudy(env.io, cfg, topic)
-      if (study === undefined) return { code: 1, output: `study ${topic} does not exist` }
-      return { code: 0, output: renderMatrix(buildMatrix(study, await loadFindings(env.io, cfg, topic), env.today)) }
+      const loaded = await loadValidStudy(ctx, topic)
+      if (!loaded.ok) return { code: 1, output: loaded.errors.join('\n') }
+      return { code: 0, output: renderMatrix(buildMatrix(loaded.value, await loadFindings(env.io, cfg, topic), env.today)) }
     }
     case 'reverify': {
       const output = renderReport(await reverify(ctx, { dueOnly: flags.has('due') }))
@@ -124,6 +127,14 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
       const { pins, moved, drifted } = out.value
       const lines = [...pins.map(pin => `pinned ${pin.url} at ${pin.sha}`), `moved: ${moved.join(', ') || 'none'}`, `drifted: ${drifted.join(', ') || 'none'}`]
       return { code: 0, output: lines.join('\n') }
+    }
+    case 'decide': {
+      const topic = positional[0]
+      if (topic === undefined) return usageError('decide needs a topic')
+      const cites = (valueOf('cites') ?? '').split(',').map(id => id.trim()).filter(id => id !== '')
+      const out = await decide(ctx, { study: topic, chosen: valueOf('chosen') ?? '', cites, revisit_when: valueOf('revisit') ?? '' })
+      if (!out.ok) return { code: 1, output: out.errors.join('\n') }
+      return { code: 0, output: `decided ${topic}: ${out.value.chosen} (cites ${out.value.cites.join(', ')})` }
     }
     default:
       return usageError(`unknown command ${command}`)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { FINDINGS, ROOT, world } from './world.ts'
+import { FINDINGS, ROOT, clocks, world } from './world.ts'
 
 const START = { cwd: ROOT, surface: 'terminal' as const, isInteractive: true }
 
@@ -60,5 +60,23 @@ describe('tools', () => {
     const ui = await $.ui.mount({ plugin: 'research-kit', surface: 'terminal', component: 'Pane', props, requestId: 'research-study' })
     expect(await ui.find({ type: 'Text', text: /rounding/ })).toBeDefined()
     await ui.unmount()
+  })
+})
+
+describe('network', () => {
+  test('add_finding gives up on a page that never answers', async ($, on) => {
+    world(on, {}, ['https://docs.stripe.com/tax'])
+    await $.session.start(START)
+    const call = $.tool.call({
+      tool: 'mcp__research-kit__add_finding',
+      study: 'tax',
+      ref: 'stripe',
+      dimension: 'rounding',
+      answer: 'per_line',
+      evidence: [{ kind: 'docs', url: 'https://docs.stripe.com/tax', quote: 'Tax is rounded per line item.' }],
+    })
+    for (let step = 0; step < 20; step++) await clocks.current?.advance(5_000)
+    const out = await call
+    expect(String(out.result)).toContain('https://docs.stripe.com/tax answered nothing')
   })
 })

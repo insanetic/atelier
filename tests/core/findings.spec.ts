@@ -5,7 +5,7 @@ import { addFinding, renderOp, setScore, verifyFinding } from '../../core/findin
 import type { AddFindingInput } from '../../core/findings.ts'
 import { KeyedLock } from '../../core/lock.ts'
 import { files } from '../../core/paths.ts'
-import { loadAssessment, loadFindings } from '../../core/store.ts'
+import { loadAssessment, loadFindings, saveFindings } from '../../core/store.ts'
 import { toYaml } from '../../core/yaml.ts'
 import { fakeIo } from './fake-io.ts'
 import { CFG, LAGO_FILE, LAGO_URL, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy, study } from './fixtures.ts'
@@ -32,7 +32,7 @@ const lagoInput: AddFindingInput = {
   evidence: [{ kind: 'code', repo: LAGO_URL, sha: SHA, path: 'app/services/taxes.rb', lines: '3', quote: 'round(total_tax)' }],
 }
 
-test('addFinding records a web finding, stamps retrieved and asks for an archive', async () => {
+test('addFinding records a web finding, stamps retrieved and looks up an archive without saving one', async () => {
   const { io, ctx } = seeded()
   const out = await addFinding(ctx, stripeInput)
   assert.equal(renderOp(out, out.ok ? `recorded ${out.value.id}` : ''), 'recorded stripe.rounding')
@@ -41,7 +41,8 @@ test('addFinding records a web finding, stamps retrieved and asks for an archive
   assert.equal(saved.method, 'docs')
   assert.equal(saved.confidence, 'unverified')
   assert.equal(saved.evidence[0].retrieved, TODAY)
-  assert.ok(io.fetched.includes(`https://web.archive.org/save/${STRIPE_TAX_URL}`))
+  assert.ok(io.fetched.includes(`https://archive.org/wayback/available?url=${encodeURIComponent(STRIPE_TAX_URL)}`))
+  assert.ok(!io.fetched.includes(`https://web.archive.org/save/${STRIPE_TAX_URL}`))
 })
 
 test('re-recording the same ref and dimension replaces the answer', async () => {
@@ -158,5 +159,70 @@ test('concurrent addFinding calls under the study lock all persist', async () =>
   const { io, ctx } = seeded()
   const lock = new KeyedLock()
   await Promise.all([lock.run('tax', () => addFinding(ctx, stripeInput)), lock.run('tax', () => addFinding(ctx, lagoInput))])
+  assert.deepEqual((await loadFindings(io, CFG, 'tax')).map(f => f.id).sort(), ['lago.rounding', 'stripe.rounding'])
+})
+
+test('a page that blocks automated clients is recorded with a browser warning', async () => {
+  const { io, ctx } = seeded()
+  io.pages.set(STRIPE_TAX_URL, { status: 403, text: 'Forbidden' })
+  const out = await addFinding(ctx, stripeInput)
+  assert.equal(out.ok, true)
+  assert.match(renderOp(out, 'recorded'), /warning: evidence\[0\]: .*answered 403.*the verifier must confirm it in a browser/)
+})
+
+test('a blocked page is checked against its archive copy', async () => {
+  const { io, ctx } = seeded()
+  const archive = 'https://web.archive.org/web/1/https://docs.stripe.com/tax'
+  io.pages.set(STRIPE_TAX_URL, { status: 403, text: '' })
+  io.pages.set(`https://archive.org/wayback/available?url=${encodeURIComponent(STRIPE_TAX_URL)}`, {
+    status: 200,
+    text: JSON.stringify({ archived_snapshots: { closest: { available: true, url: archive } } }),
+  })
+  io.pages.set(archive, { status: 200, text: '<p>Tax is rounded per line item.</p>' })
+  assert.equal(renderOp(await addFinding(ctx, stripeInput), 'recorded'), 'recorded')
+  assert.equal((await loadFindings(io, CFG, 'tax'))[0].evidence[0].archive, archive)
+})
+
+test('a page that is gone is rejected', async () => {
+  const { io, ctx } = seeded()
+  io.pages.set(STRIPE_TAX_URL, { status: 404, text: '' })
+  assert.match(renderOp(await addFinding(ctx, stripeInput), ''), /^rejected:\n- evidence\[0\]: .*answered 404/)
+})
+
+test("an explicit id must belong to the finding's own ref and dimension", async () => {
+  const { io, ctx } = seeded([docsFinding()])
+  const out = await addFinding(ctx, { ...lagoInput, id: 'stripe.rounding' })
+  assert.match(renderOp(out, ''), /id must be lago\.rounding or lago\.rounding\.<n>/)
+  assert.equal((await loadFindings(io, CFG, 'tax'))[0].ref, 'stripe')
+})
+
+test('verifyFinding refuses an unknown outcome', async () => {
+  const { io, ctx } = seeded([docsFinding()])
+  const out = await verifyFinding(ctx, { study: 'tax', id: 'stripe.rounding', outcome: 'rejected' as 'likely' })
+  assert.match(renderOp(out, ''), /outcome must be confirmed, likely or disputed/)
+  assert.equal((await loadFindings(io, CFG, 'tax'))[0].confidence, 'unverified')
+})
+
+test('study names that are not topics are refused before any file is touched', async () => {
+  const { ctx } = seeded()
+  const outs = [
+    await addFinding(ctx, { ...stripeInput, study: '../../x' }),
+    await verifyFinding(ctx, { study: '../x', id: 'a.b', outcome: 'likely' }),
+    await setScore(ctx, { study: '../x', ref: 'a', criterion: 'b', level: 1, because: [], agent: 'analyst' }),
+  ]
+  for (const out of outs) assert.match(renderOp(out, ''), /study must be a kebab-case topic/)
+})
+
+test('addFinding checks sources outside the study lock and writes under it', async () => {
+  const { io, ctx } = seeded()
+  const lock = new KeyedLock()
+  const occupant = lock.run('tax', async () => {
+    await new Promise(resolve => setTimeout(resolve, 40))
+    await saveFindings(io, CFG, 'tax', [codeFinding()])
+  })
+  const adding = addFinding(ctx, stripeInput, lock)
+  await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(io.fetched.includes(STRIPE_TAX_URL), 'the source check waited for the lock')
+  await Promise.all([occupant, adding])
   assert.deepEqual((await loadFindings(io, CFG, 'tax')).map(f => f.id).sort(), ['lago.rounding', 'stripe.rounding'])
 })
