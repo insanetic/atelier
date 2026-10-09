@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { appendToYamlList, parseYaml, toYaml } from '../../core/yaml.ts'
+import { appendToYamlList, deleteInYaml, parseYaml, toYaml } from '../../core/yaml.ts'
 
 test('sha-like and date strings survive a round trip as strings', () => {
   const value = { sha: '1234567e89', at: '2026-10-08', answer: 'per_line' }
@@ -21,4 +21,9 @@ test('appending to an empty flow list writes a readable block list', () => {
   assert.equal(out, '- id: meterflow\n  reason: too early\n')
   assert.equal(appendToYamlList(out, { id: 'lotus', reason: 'stale' }), '- id: meterflow\n  reason: too early\n- id: lotus\n  reason: stale\n')
   assert.equal(appendToYamlList('[ { id: a } ]\n', { id: 'b' }), '- id: a\n- id: b\n')
+})
+
+test('deleteInYaml removes a nested key and keeps comments', () => {
+  const text = '# frame\nreferences:\n  stripe: specialist # best docs\n  lago: code-read\n'
+  assert.equal(deleteInYaml(text, ['references', 'stripe']), '# frame\nreferences:\n  lago: code-read\n')
 })

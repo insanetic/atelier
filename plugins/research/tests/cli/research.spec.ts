@@ -112,3 +112,13 @@ test('finish closes a brief from the command line', async () => {
   assert.deepEqual(await main(['finish', 'tax'], env(io)), { code: 0, output: 'finished tax: the brief cites 1 findings' })
   assert.equal((await main(['finish', 'billing'], env(io))).code, 1)
 })
+
+test('drop takes a reference out of a study from the command line', async () => {
+  const io = fakeIo()
+  seedStudy(io, { findings: [docsFinding()] })
+  assert.deepEqual(await main(['drop', 'tax', 'stripe'], env(io)), {
+    code: 0,
+    output: 'dropped stripe from tax: 1 findings, 0 scores; rewrite the brief and run research finish tax',
+  })
+  assert.equal((await main(['drop', 'tax'], env(io))).code, 2)
+})

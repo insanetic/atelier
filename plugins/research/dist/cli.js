@@ -6373,6 +6373,11 @@ function setInYaml(text, values) {
   for (const [key, value] of Object.entries(values)) doc.set(key, doc.createNode(value));
   return doc.toString({ lineWidth: 0 });
 }
+function deleteInYaml(text, path) {
+  const doc = parseDocument(text);
+  doc.deleteIn(path);
+  return doc.toString({ lineWidth: 0 });
+}
 
 // core/paths.ts
 function join(...parts) {
@@ -7011,6 +7016,9 @@ function loadReferences(io, cfg) {
 function loadFindings(io, cfg, topic) {
   return readList(io, files.findings(cfg, topic));
 }
+function loadAssessment(io, cfg, topic) {
+  return readList(io, files.assessment(cfg, topic));
+}
 async function loadStudy(io, cfg, topic) {
   const path = files.study(cfg, topic);
   const loaded = await readYaml(io, path);
@@ -7025,6 +7033,9 @@ function saveReferences(io, cfg, references) {
 }
 function saveFindings(io, cfg, topic, findings) {
   return io.writeText(files.findings(cfg, topic), toYaml(findings));
+}
+function saveAssessment(io, cfg, topic, scores) {
+  return io.writeText(files.assessment(cfg, topic), toYaml(scores));
 }
 async function listTopics(io, cfg) {
   return (await io.listDirs(files.studies(cfg))).sort();
@@ -7176,6 +7187,17 @@ function cachedIo(io) {
     }
   };
 }
+
+// core/lock.ts
+var KeyedLock = class {
+  #tails = /* @__PURE__ */ new Map();
+  run(key, task) {
+    const previous = this.#tails.get(key) ?? Promise.resolve();
+    const current = previous.then(task, task);
+    this.#tails.set(key, current.catch(() => void 0));
+    return current;
+  }
+};
 
 // core/clone.ts
 async function headOf(ctx, dir) {
@@ -7497,6 +7519,23 @@ async function finish(ctx, topic) {
   return ok(finished);
 }
 
+// core/drop.ts
+async function drop(ctx, topic, ref, lock = new KeyedLock()) {
+  const loaded = await loadValidStudy(ctx, topic);
+  if (!loaded.ok) return loaded;
+  if (!(ref in loaded.value.references)) return fail(`${ref} is not a reference of study ${topic}`);
+  return lock.run(topic, async () => {
+    const findings = await loadFindings(ctx.io, ctx.cfg, topic);
+    const scores = await loadAssessment(ctx.io, ctx.cfg, topic);
+    const path = files.study(ctx.cfg, topic);
+    await ctx.io.writeText(path, deleteInYaml(await ctx.io.readText(path) ?? "", ["references", ref]));
+    await saveFindings(ctx.io, ctx.cfg, topic, findings.filter((finding) => finding.ref !== ref));
+    const kept = scores.filter((score) => score.ref !== ref);
+    await saveAssessment(ctx.io, ctx.cfg, topic, kept);
+    return ok({ findings: findings.filter((finding) => finding.ref === ref).map((finding) => finding.id), scores: scores.length - kept.length });
+  });
+}
+
 // cli/research.ts
 var USAGE = `usage: research <command>
 
@@ -7508,6 +7547,7 @@ var USAGE = `usage: research <command>
                              search findings across studies
   matrix <topic>             print a study's comparison matrix
   finish <topic>             check the brief and close it (status: brief)
+  drop <topic> <ref>         take a reference out of a study, with its findings and scores
   reverify [--due]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
@@ -7606,6 +7646,14 @@ async function main(argv, env) {
       const out = await finish(ctx, topic);
       if (!out.ok) return { code: 1, output: out.errors.join("\n") };
       return { code: 0, output: `finished ${topic}: the brief cites ${out.value.cites} findings` };
+    }
+    case "drop": {
+      const [topic, ref] = positional;
+      if (topic === void 0 || ref === void 0) return usageError("drop needs a topic and a reference id");
+      const out = await drop(ctx, topic, ref);
+      if (!out.ok) return { code: 1, output: out.errors.join("\n") };
+      const { findings, scores } = out.value;
+      return { code: 0, output: `dropped ${ref} from ${topic}: ${findings.length} findings, ${scores} scores; rewrite the brief and run research finish ${topic}` };
     }
     case "decide": {
       const topic = positional[0];

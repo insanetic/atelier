@@ -6341,6 +6341,11 @@ function appendToYamlList(text, item) {
   doc.add(doc.createNode(item));
   return doc.toString({ lineWidth: 0 });
 }
+function deleteInYaml(text, path) {
+  const doc = parseDocument(text);
+  doc.deleteIn(path);
+  return doc.toString({ lineWidth: 0 });
+}
 
 // core/paths.ts
 function join(...parts) {
@@ -7659,6 +7664,23 @@ async function finish(ctx, topic) {
   await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "brief", finished }));
   return ok(finished);
 }
+
+// core/drop.ts
+async function drop(ctx, topic, ref, lock = new KeyedLock()) {
+  const loaded = await loadValidStudy(ctx, topic);
+  if (!loaded.ok) return loaded;
+  if (!(ref in loaded.value.references)) return fail(`${ref} is not a reference of study ${topic}`);
+  return lock.run(topic, async () => {
+    const findings = await loadFindings(ctx.io, ctx.cfg, topic);
+    const scores = await loadAssessment(ctx.io, ctx.cfg, topic);
+    const path = files.study(ctx.cfg, topic);
+    await ctx.io.writeText(path, deleteInYaml(await ctx.io.readText(path) ?? "", ["references", ref]));
+    await saveFindings(ctx.io, ctx.cfg, topic, findings.filter((finding) => finding.ref !== ref));
+    const kept = scores.filter((score) => score.ref !== ref);
+    await saveAssessment(ctx.io, ctx.cfg, topic, kept);
+    return ok({ findings: findings.filter((finding) => finding.ref === ref).map((finding) => finding.id), scores: scores.length - kept.length });
+  });
+}
 export {
   BRIEF_SECTIONS,
   CELL_STATES,
@@ -7714,7 +7736,9 @@ export {
   decide,
   decidedGate,
   decodeEntities,
+  deleteInYaml,
   describeFinding,
+  drop,
   ensureTree,
   evidenceIssues,
   fail,

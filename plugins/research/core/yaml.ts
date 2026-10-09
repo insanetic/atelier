@@ -30,3 +30,10 @@ export function appendToYamlList(text: string, item: unknown): string {
   doc.add(doc.createNode(item))
   return doc.toString({ lineWidth: 0 })
 }
+
+/** Removes a nested key from a hand-edited YAML mapping, keeping its comments and layout. */
+export function deleteInYaml(text: string, path: readonly string[]): string {
+  const doc = parseDocument(text)
+  doc.deleteIn(path)
+  return doc.toString({ lineWidth: 0 })
+}

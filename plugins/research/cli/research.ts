@@ -6,6 +6,7 @@ import {
   cloneRef,
   createStudy,
   decide,
+  drop,
   finish,
   files,
   loadConfig,
@@ -34,6 +35,7 @@ export const USAGE = `usage: research <command>
                              search findings across studies
   matrix <topic>             print a study's comparison matrix
   finish <topic>             check the brief and close it (status: brief)
+  drop <topic> <ref>         take a reference out of a study, with its findings and scores
   reverify [--due]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
@@ -134,6 +136,14 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
       const out = await finish(ctx, topic)
       if (!out.ok) return { code: 1, output: out.errors.join('\n') }
       return { code: 0, output: `finished ${topic}: the brief cites ${out.value.cites} findings` }
+    }
+    case 'drop': {
+      const [topic, ref] = positional
+      if (topic === undefined || ref === undefined) return usageError('drop needs a topic and a reference id')
+      const out = await drop(ctx, topic, ref)
+      if (!out.ok) return { code: 1, output: out.errors.join('\n') }
+      const { findings, scores } = out.value
+      return { code: 0, output: `dropped ${ref} from ${topic}: ${findings.length} findings, ${scores} scores; rewrite the brief and run research finish ${topic}` }
     }
     case 'decide': {
       const topic = positional[0]
