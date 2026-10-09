@@ -4,10 +4,12 @@ export const VOLATILITIES = ['fast', 'medium', 'slow'] as const
 export type Volatility = (typeof VOLATILITIES)[number]
 export const DIMENSION_TYPES = ['enum', 'number', 'duration', 'bool', 'text'] as const
 export type DimensionType = (typeof DIMENSION_TYPES)[number]
-export const STUDY_STATUSES = ['quick', 'draft', 'decided', 'superseded'] as const
+export const STUDY_STATUSES = ['draft', 'quick', 'brief', 'decided', 'superseded'] as const
 export type StudyStatus = (typeof STUDY_STATUSES)[number]
-export const STUDY_MODES = ['quick', 'full'] as const
+export const STUDY_MODES = ['quick', 'brief', 'deep'] as const
 export type StudyMode = (typeof STUDY_MODES)[number]
+/** Dimension ids taken by findings that belong to no dimension: <ref>.pain.<n>, <ref>.reuse.<n>. */
+export const RESERVED_DIMENSIONS = ['pain', 'reuse'] as const
 export const EVIDENCE_KINDS = ['code', 'api_spec', 'spec', 'docs', 'tested', 'blog', 'issue', 'marketing'] as const
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number]
 /** Strongest first. */
@@ -68,15 +70,23 @@ export type Decision = {
   snapshot?: Record<string, { verified_at: string; confidence: Confidence }>
 }
 
+/** What research finish recorded when it closed a brief. */
+export type Finished = { at: string; cites: number }
+
 export type Study = {
   topic: string
   question: string
-  decision_needed: string
+  /** Deep only: the decision this study feeds. */
+  decision_needed?: string
   status: StudyStatus
   mode: StudyMode
+  /** Nothing of ours exists yet: the study compares others only. */
+  greenfield?: boolean
   references: Record<string, Role | Role[]>
   dimensions: Dimension[]
-  criteria: Criterion[]
+  /** Deep only: scoring axes with written levels. */
+  criteria?: Criterion[]
+  finished?: Finished
   decision?: Decision
 }
 

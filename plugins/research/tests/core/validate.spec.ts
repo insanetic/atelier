@@ -166,3 +166,41 @@ test('a 0.1 study with categories or excluded is told to drop them', () => {
   assert.match(out, /categories is gone in research 0\.2: studies pick their references per task; remove it/)
   assert.match(out, /excluded is gone in research 0\.2/)
 })
+
+test('modes are quick, brief and deep; 0.1 full is named deep now', () => {
+  assert.match(text(validateStudy(study({ mode: 'full' as 'deep' }), 'tax', REF_IDS, 'f')), /mode full is now deep; set mode: deep/)
+})
+
+test('a brief needs a question but no decision_needed or criteria', () => {
+  const brief = study({ mode: 'brief', decision_needed: undefined, criteria: undefined })
+  assert.deepEqual(validateStudy(brief, 'tax', REF_IDS, 'f'), [])
+  assert.deepEqual(validateStudy({ ...brief, mode: 'quick', status: 'quick' }, 'tax', REF_IDS, 'f'), [])
+  assert.match(text(validateStudy({ ...brief, mode: 'quick', status: 'quick', question: '' }, 'tax', REF_IDS, 'f')), /question is required once the study leaves draft/)
+})
+
+test('a deep study needs decision_needed and criteria once it leaves draft', () => {
+  const out = text(validateStudy(study({ status: 'superseded', decision_needed: '', criteria: [] }), 'tax', REF_IDS, 'f'))
+  assert.match(out, /decision_needed is required for a deep study once it leaves draft/)
+  assert.match(out, /a deep study needs at least one criterion once it leaves draft/)
+})
+
+test('status brief needs mode brief and a finished record', () => {
+  assert.match(text(validateStudy(study({ mode: 'brief', status: 'brief' }), 'tax', REF_IDS, 'f')), /finished is missing; finish a brief with research finish/)
+  assert.match(text(validateStudy(study({ status: 'brief', finished: { at: '2026-10-08', cites: 3 } }), 'tax', REF_IDS, 'f')), /status brief needs mode brief/)
+  assert.deepEqual(validateStudy(study({ mode: 'brief', status: 'brief', finished: { at: '2026-10-08', cites: 3 } }), 'tax', REF_IDS, 'f'), [])
+})
+
+test('only a deep study can be decided', () => {
+  const decision = { chosen: 'a', decided_at: '2026-10-08', cites: ['stripe.rounding'], revisit_when: 'x', snapshot: {} }
+  assert.match(text(validateStudy(study({ mode: 'brief', status: 'decided', decision }), 'tax', REF_IDS, 'f')), /only a deep study is decided/)
+})
+
+test('greenfield silences the ours warning and must be a boolean', () => {
+  assert.deepEqual(validateStudy(study({ references: { stripe: 'competitor' }, greenfield: true }), 'tax', REF_IDS, 'f'), [])
+  assert.match(text(validateStudy(study({ greenfield: 'yes' as unknown as boolean }), 'tax', REF_IDS, 'f')), /greenfield must be true or false/)
+})
+
+test('the dimension ids pain and reuse are reserved', () => {
+  const s = study({ dimensions: [{ id: 'reuse', ask: 'x', type: 'bool', volatility: 'slow' }] })
+  assert.match(text(validateStudy(s, 'tax', REF_IDS, 'f')), /dimensions\[0\]\.id reuse is reserved for findings not tied to a dimension/)
+})

@@ -22,6 +22,7 @@ export async function decide(ctx: Ctx, input: DecideInput): Promise<OpResult<Dec
   if (problems.length > 0) return fail(...problems)
   const loaded = await loadValidStudy(ctx, input.study)
   if (!loaded.ok) return loaded
+  if (loaded.value.mode !== 'deep') return fail(`only a deep study records a decision; study ${input.study} is mode ${loaded.value.mode}`)
   const byId = new Map((await loadFindings(ctx.io, ctx.cfg, input.study)).map(finding => [finding.id, finding]))
   const snapshot: NonNullable<Decision['snapshot']> = {}
   for (const id of input.cites) {

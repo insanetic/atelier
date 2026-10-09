@@ -35,8 +35,9 @@ function stalePins(references, today) {
 var ROLES = ["competitor", "specialist", "code-read", "standard", "alternative", "anti", "ours"];
 var VOLATILITIES = ["fast", "medium", "slow"];
 var DIMENSION_TYPES = ["enum", "number", "duration", "bool", "text"];
-var STUDY_STATUSES = ["quick", "draft", "decided", "superseded"];
-var STUDY_MODES = ["quick", "full"];
+var STUDY_STATUSES = ["draft", "quick", "brief", "decided", "superseded"];
+var STUDY_MODES = ["quick", "brief", "deep"];
+var RESERVED_DIMENSIONS = ["pain", "reuse"];
 var EVIDENCE_KINDS = ["code", "api_spec", "spec", "docs", "tested", "blog", "issue", "marketing"];
 var METHODS = ["tested", "source", "docs", "third_party", "claimed"];
 var CONFIDENCES = ["confirmed", "likely", "unverified"];
@@ -6641,6 +6642,7 @@ function dimensionIssues(dimensions, file) {
     const at = `dimensions[${index}]`;
     const dim = isMapping(raw) ? raw : {};
     if (typeof dim.id !== "string" || !SNAKE_ID.test(dim.id)) out.push(error(file, `${at}.id must be snake_case`));
+    else if (RESERVED_DIMENSIONS.includes(dim.id)) out.push(error(file, `${at}.id ${dim.id} is reserved for findings not tied to a dimension`));
     else if (ids.has(dim.id)) out.push(error(file, `${at}.id ${dim.id} is duplicated`));
     else ids.add(dim.id);
     if (!isText(dim.ask)) out.push(error(file, `${at}.ask is required`));
@@ -6663,11 +6665,15 @@ function validateStudy(data, topic, refIds, file) {
   const out = [];
   if (study.topic !== topic) out.push(error(file, `topic must be "${topic}" (the directory name)`));
   if (!isOneOf(STUDY_STATUSES, study.status)) out.push(error(file, `status must be one of ${STUDY_STATUSES.join(", ")}`));
-  if (!isOneOf(STUDY_MODES, study.mode)) out.push(error(file, `mode must be one of ${STUDY_MODES.join(", ")}`));
-  if (study.status !== "draft") {
-    if (!isText(study.question)) out.push(error(file, "question is required once the study leaves draft"));
-    if (!isText(study.decision_needed)) out.push(error(file, "decision_needed is required once the study leaves draft"));
+  if (study.mode === "full") out.push(error(file, "mode full is now deep; set mode: deep"));
+  else if (!isOneOf(STUDY_MODES, study.mode)) out.push(error(file, `mode must be one of ${STUDY_MODES.join(", ")}`));
+  const isDraft = study.status === "draft";
+  if (!isDraft && !isText(study.question)) out.push(error(file, "question is required once the study leaves draft"));
+  if (study.mode === "deep" && !isDraft) {
+    if (!isText(study.decision_needed)) out.push(error(file, "decision_needed is required for a deep study once it leaves draft"));
+    if (!Array.isArray(study.criteria) || study.criteria.length === 0) out.push(error(file, "a deep study needs at least one criterion once it leaves draft"));
   }
+  if (study.greenfield !== void 0 && typeof study.greenfield !== "boolean") out.push(error(file, "greenfield must be true or false"));
   let hasOurs = false;
   if (!isMapping(study.references)) out.push(error(file, "references must map reference ids to roles"));
   else {
@@ -6680,9 +6686,17 @@ function validateStudy(data, topic, refIds, file) {
   }
   if (!Array.isArray(study.dimensions)) out.push(error(file, "dimensions must be a list"));
   else out.push(...dimensionIssues(study.dimensions, file));
-  if (!Array.isArray(study.criteria)) out.push(error(file, "criteria must be a list"));
-  else out.push(...criterionIssues(study.criteria, file));
+  if (study.criteria !== void 0) {
+    if (!Array.isArray(study.criteria)) out.push(error(file, "criteria must be a list"));
+    else out.push(...criterionIssues(study.criteria, file));
+  }
+  if (study.status === "brief") {
+    if (study.mode !== "brief") out.push(error(file, "status brief needs mode brief"));
+    const finished = study.finished;
+    if (!isMapping(finished) || !isDate(finished.at) || typeof finished.cites !== "number") out.push(error(file, "finished is missing; finish a brief with research finish"));
+  }
   if (study.status === "decided") {
+    if (study.mode !== "deep") out.push(error(file, "only a deep study is decided; set mode: deep and record the decision with research decide"));
     const decision = study.decision;
     if (!isMapping(decision)) out.push(error(file, "decision is required when status is decided"));
     else {
@@ -6696,8 +6710,8 @@ function validateStudy(data, topic, refIds, file) {
   for (const key of ["categories", "excluded"]) {
     if (key in study) out.push(error(file, `${key} is gone in research 0.2: studies pick their references per task; remove it`));
   }
-  if (!hasOurs && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
-    out.push(warn2(file, "no reference has the ours role; our design is not compared"));
+  if (!hasOurs && study.greenfield !== true && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
+    out.push(warn2(file, "no reference has the ours role; our design is not compared (set greenfield: true when nothing of ours exists yet)"));
   }
   return out;
 }
@@ -6764,7 +6778,7 @@ function validateScore(raw, study, findingIds, file) {
   const score = raw;
   const out = [];
   if (typeof score.ref !== "string" || !(score.ref in study.references)) out.push(`ref ${String(score.ref)} is not a reference of study ${study.topic}`);
-  if (!study.criteria.some((criterion) => criterion.id === score.criterion)) out.push(`criterion ${String(score.criterion)} is not a criterion of study ${study.topic}`);
+  if (!(study.criteria ?? []).some((criterion) => criterion.id === score.criterion)) out.push(`criterion ${String(score.criterion)} is not a criterion of study ${study.topic}`);
   const isLevel = score.level === "unknown" || typeof score.level === "number" && Number.isInteger(score.level) && score.level >= 1 && score.level <= 5;
   if (!isLevel) out.push("level must be 1-5 or unknown");
   const because = Array.isArray(score.because) ? score.because : [];
@@ -6870,6 +6884,17 @@ function describeFinding(finding) {
   ];
 }
 
+// core/notes.ts
+var BRIEF_SECTIONS = ["Answer", "Who solved it", "Approaches", "What to reuse", "Pitfalls", "Ours against theirs", "Recommendation", "Open questions"];
+var DEEP_SECTIONS = ["Question and decision", "Paradigms found", "Trade-offs", "Pain", "Where ours stands", "Candidates", "Decision"];
+function notesTemplate(topic, mode) {
+  const sections = mode === "deep" ? DEEP_SECTIONS : BRIEF_SECTIONS;
+  return `# ${topic}
+
+${sections.map((section) => `## ${section}
+`).join("\n")}`;
+}
+
 // core/store.ts
 var TOPIC = /^[a-z0-9][a-z0-9-]*$/;
 var TOPIC_RULE = "study must be a kebab-case topic such as tax or plan-change";
@@ -6912,13 +6937,6 @@ function saveFindings(io, cfg, topic, findings) {
 async function listTopics(io, cfg) {
   return (await io.listDirs(files.studies(cfg))).sort();
 }
-function notesTemplate(topic) {
-  const sections = ["Question and decision", "Paradigms found", "Trade-offs", "Pain", "Where ours stands", "Candidates", "Decision"];
-  return `# ${topic}
-
-${sections.map((section) => `## ${section}
-`).join("\n")}`;
-}
 async function loadValidStudy(ctx, topic) {
   if (!isTopic(topic)) return fail(TOPIC_RULE);
   const study = await loadStudy(ctx.io, ctx.cfg, topic);
@@ -6936,12 +6954,12 @@ async function createStudy(ctx, topic, mode) {
     if (existing === void 0) return fail(`${studyFile}: study.yaml is empty or not a mapping; fix it by hand`);
     return ok({ study: existing, created: false });
   }
-  const study = { topic, question: "", decision_needed: "", status: "draft", mode, references: {}, dimensions: [], criteria: [] };
+  const study = mode === "deep" ? { topic, question: "", decision_needed: "", status: "draft", mode, references: {}, dimensions: [], criteria: [] } : { topic, question: "", status: "draft", mode, references: {}, dimensions: [] };
   const starters = [
     [studyFile, toYaml(study)],
     [files.findings(ctx.cfg, topic), toYaml([])],
     [files.assessment(ctx.cfg, topic), toYaml([])],
-    [files.notes(ctx.cfg, topic), notesTemplate(topic)],
+    [files.notes(ctx.cfg, topic), notesTemplate(topic, mode)],
     [files.references(ctx.cfg), toYaml([])]
   ];
   for (const [path, text] of starters) if (await ctx.io.readText(path) === void 0) await ctx.io.writeText(path, text);
@@ -7321,6 +7339,7 @@ async function decide(ctx, input) {
   if (problems.length > 0) return fail(...problems);
   const loaded = await loadValidStudy(ctx, input.study);
   if (!loaded.ok) return loaded;
+  if (loaded.value.mode !== "deep") return fail(`only a deep study records a decision; study ${input.study} is mode ${loaded.value.mode}`);
   const byId = new Map((await loadFindings(ctx.io, ctx.cfg, input.study)).map((finding) => [finding.id, finding]));
   const snapshot = {};
   for (const id of input.cites) {
@@ -7344,7 +7363,8 @@ async function decide(ctx, input) {
 // cli/research.ts
 var USAGE = `usage: research <command>
 
-  init <topic> [--quick]     create a study skeleton
+  init <topic> [--quick|--deep]
+                             create a study skeleton (default: a brief)
   check                      validate every record; exit 1 on errors
   stale                      list stale, drifted and pin-stale findings
   query [--ref R] [--dimension D] [--study S] [--state X] [--text T]
@@ -7392,7 +7412,8 @@ async function main(argv, env) {
     case "init": {
       const topic = positional[0];
       if (topic === void 0) return usageError("init needs a topic");
-      const made = await createStudy(ctx, topic, flags.has("quick") ? "quick" : "full");
+      const mode = flags.has("quick") ? "quick" : flags.has("deep") ? "deep" : "brief";
+      const made = await createStudy(ctx, topic, mode);
       if (!made.ok) return { code: 1, output: made.errors.join("\n") };
       return { code: 0, output: `${made.value.created ? "created" : "exists"} ${files.studyDir(cfg, topic)}` };
     }

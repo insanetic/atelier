@@ -15,12 +15,12 @@ test('createStudy writes a draft skeleton once', async () => {
   assert.equal(io.files.get(files.assessment(CFG, 'tax')), '[]\n')
   assert.equal(io.files.get(files.references(CFG)), '[]\n')
   assert.match(io.files.get(files.notes(CFG, 'tax')) ?? '', /^# tax\n/)
-  const second = await createStudy(ctx, 'tax', 'full')
+  const second = await createStudy(ctx, 'tax', 'deep')
   assert.equal(second.ok && second.value.created, false)
 })
 
 test('createStudy rejects topics that are not kebab-case', async () => {
-  const out = await createStudy({ io: fakeIo(), cfg: CFG, today: TODAY }, 'Tax Study', 'full')
+  const out = await createStudy({ io: fakeIo(), cfg: CFG, today: TODAY }, 'Tax Study', 'deep')
   assert.equal(out.ok, false)
 })
 
@@ -41,7 +41,7 @@ test('createStudy refuses to rebuild a study whose study.yaml is empty', async (
   const io = fakeIo()
   seedStudy(io, { findings: [docsFinding()], notes: '# tax\nhand-written synthesis\n' })
   io.files.set(files.study(CFG, 'tax'), '# rewriting the frame\n')
-  const out = await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'full')
+  const out = await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'deep')
   assert.match(out.ok ? '' : out.errors[0], /study\.yaml is empty or not a mapping/)
   assert.deepEqual(await loadFindings(io, CFG, 'tax'), [docsFinding()])
   assert.equal(io.files.get(files.notes(CFG, 'tax')), '# tax\nhand-written synthesis\n')
@@ -49,7 +49,7 @@ test('createStudy refuses to rebuild a study whose study.yaml is empty', async (
 
 test('createStudy creates only the files that are missing', async () => {
   const io = fakeIo({ [files.notes(CFG, 'tax')]: '# tax\nnotes first\n' })
-  const out = await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'full')
+  const out = await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'deep')
   assert.equal(out.ok && out.value.created, true)
   assert.equal(io.files.get(files.notes(CFG, 'tax')), '# tax\nnotes first\n')
 })
@@ -60,4 +60,18 @@ test('references.yaml sits at the top of the research dir and no registry is cre
   assert.equal(files.references(CFG), '/repo/research/references.yaml')
   assert.equal(io.files.get('/repo/research/references.yaml'), '[]\n')
   assert.deepEqual([...io.files.keys()].filter(path => path.includes('/registry/')), [])
+})
+
+test('a brief skeleton has no decision fields and gets the brief headings; a deep one gets the deep headings', async () => {
+  const io = fakeIo()
+  const ctx = { io, cfg: CFG, today: TODAY }
+  await createStudy(ctx, 'tax', 'brief')
+  const saved = await loadStudy(io, CFG, 'tax')
+  assert.equal(saved?.mode, 'brief')
+  assert.equal(saved?.decision_needed, undefined)
+  assert.equal(saved?.criteria, undefined)
+  assert.match(io.files.get(files.notes(CFG, 'tax')) ?? '', /^# tax\n\n## Answer\n\n## Who solved it\n[\s\S]*## Ours against theirs\n[\s\S]*## Open questions\n$/)
+  await createStudy(ctx, 'plan-change', 'deep')
+  assert.equal((await loadStudy(io, CFG, 'plan-change'))?.decision_needed, '')
+  assert.match(io.files.get(files.notes(CFG, 'plan-change')) ?? '', /## Candidates\n/)
 })

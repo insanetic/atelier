@@ -22,7 +22,7 @@ export function study(over: Partial<Study> = {}): Study {
     question: 'How should Subneo compute tax?',
     decision_needed: 'in-house vs engine',
     status: 'draft',
-    mode: 'full',
+    mode: 'deep',
     references: { lago: ['competitor', 'code-read'], stripe: 'competitor', subneo: 'ours' },
     dimensions: [
       { id: 'rounding', ask: 'Where is tax rounded?', type: 'enum', options: ['per_line', 'per_invoice'], volatility: 'slow' },

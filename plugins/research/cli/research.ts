@@ -25,7 +25,8 @@ export type CliResult = { code: number; output: string }
 
 export const USAGE = `usage: research <command>
 
-  init <topic> [--quick]     create a study skeleton
+  init <topic> [--quick|--deep]
+                             create a study skeleton (default: a brief)
   check                      validate every record; exit 1 on errors
   stale                      list stale, drifted and pin-stale findings
   query [--ref R] [--dimension D] [--study S] [--state X] [--text T]
@@ -75,7 +76,8 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
     case 'init': {
       const topic = positional[0]
       if (topic === undefined) return usageError('init needs a topic')
-      const made = await createStudy(ctx, topic, flags.has('quick') ? 'quick' : 'full')
+      const mode = flags.has('quick') ? 'quick' : flags.has('deep') ? 'deep' : 'brief'
+      const made = await createStudy(ctx, topic, mode)
       if (!made.ok) return { code: 1, output: made.errors.join('\n') }
       return { code: 0, output: `${made.value.created ? 'created' : 'exists'} ${files.studyDir(cfg, topic)}` }
     }

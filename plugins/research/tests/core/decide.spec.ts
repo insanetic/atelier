@@ -7,7 +7,7 @@ import { verifyFinding } from '../../core/findings.ts'
 import { files } from '../../core/paths.ts'
 import { loadStudy } from '../../core/store.ts'
 import { fakeIo } from './fake-io.ts'
-import { CFG, TODAY, docsFinding, seedStudy } from './fixtures.ts'
+import { CFG, TODAY, docsFinding, seedStudy, study } from './fixtures.ts'
 
 const verified = (over: Partial<Finding> = {}) =>
   docsFinding({ confidence: 'confirmed', verified: { by: 'verifier', at: '2026-10-01', via: 'fetch' }, ...over })
@@ -70,4 +70,11 @@ test('after a decision, a disputed citation warns to revisit and never fails che
   const issues = await runCheck(ctx)
   assert.equal(issues.some(issue => issue.level === 'error'), false)
   assert.match(renderIssues(issues), /revisit the decision/)
+})
+
+test('decide refuses a study that is not deep', async () => {
+  const io = fakeIo()
+  seedStudy(io, { study: study({ mode: 'brief' }), findings: [verified()] })
+  const out = await decide({ io, cfg: CFG, today: TODAY }, input)
+  assert.match(out.ok ? '' : out.errors.join('\n'), /only a deep study records a decision; study tax is mode brief/)
 })

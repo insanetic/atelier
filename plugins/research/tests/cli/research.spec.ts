@@ -95,3 +95,11 @@ test('the registry commands are gone; they live in the market plugin', async () 
     assert.match(out.output, new RegExp(`unknown command ${command}`))
   }
 })
+
+test('init makes a brief by default and takes --quick or --deep', async () => {
+  const io = fakeIo()
+  await main(['init', 'tax'], env(io))
+  assert.match(io.files.get(files.study(CFG, 'tax')) ?? '', /mode: brief/)
+  await main(['init', 'plan-change', '--deep'], env(io))
+  assert.match(io.files.get(files.study(CFG, 'plan-change')) ?? '', /mode: deep/)
+})

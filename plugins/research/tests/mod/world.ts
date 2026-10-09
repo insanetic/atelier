@@ -9,7 +9,7 @@ const STUDY = `topic: tax
 question: How should we compute tax?
 decision_needed: in-house vs engine
 status: draft
-mode: full
+mode: deep
 references:
   stripe: competitor
 dimensions:

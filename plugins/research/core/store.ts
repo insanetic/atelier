@@ -3,6 +3,7 @@ import type { Config, Finding, Reference, Score, Study, StudyMode } from './type
 import { files } from './paths.ts'
 import { parseYaml, toYaml } from './yaml.ts'
 import { validateStudy } from './validate.ts'
+import { notesTemplate } from './notes.ts'
 import { fail, ok } from './result.ts'
 import type { OpResult } from './result.ts'
 
@@ -67,11 +68,6 @@ export async function listTopics(io: Io, cfg: Config): Promise<string[]> {
   return (await io.listDirs(files.studies(cfg))).sort()
 }
 
-function notesTemplate(topic: string): string {
-  const sections = ['Question and decision', 'Paradigms found', 'Trade-offs', 'Pain', 'Where ours stands', 'Candidates', 'Decision']
-  return `# ${topic}\n\n${sections.map(section => `## ${section}\n`).join('\n')}`
-}
-
 /** A study whose study.yaml passes validation: the only kind tools build on. */
 export async function loadValidStudy(ctx: Ctx, topic: string): Promise<OpResult<Study>> {
   if (!isTopic(topic)) return fail(TOPIC_RULE)
@@ -92,12 +88,15 @@ export async function createStudy(ctx: Ctx, topic: string, mode: StudyMode): Pro
     if (existing === undefined) return fail(`${studyFile}: study.yaml is empty or not a mapping; fix it by hand`)
     return ok({ study: existing, created: false })
   }
-  const study: Study = { topic, question: '', decision_needed: '', status: 'draft', mode, references: {}, dimensions: [], criteria: [] }
+  const study: Study =
+    mode === 'deep'
+      ? { topic, question: '', decision_needed: '', status: 'draft', mode, references: {}, dimensions: [], criteria: [] }
+      : { topic, question: '', status: 'draft', mode, references: {}, dimensions: [] }
   const starters: [string, string][] = [
     [studyFile, toYaml(study)],
     [files.findings(ctx.cfg, topic), toYaml([])],
     [files.assessment(ctx.cfg, topic), toYaml([])],
-    [files.notes(ctx.cfg, topic), notesTemplate(topic)],
+    [files.notes(ctx.cfg, topic), notesTemplate(topic, mode)],
     [files.references(ctx.cfg), toYaml([])],
   ]
   for (const [path, text] of starters) if ((await ctx.io.readText(path)) === undefined) await ctx.io.writeText(path, text)

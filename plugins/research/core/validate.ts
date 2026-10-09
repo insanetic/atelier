@@ -1,4 +1,4 @@
-import { CONFIDENCES, DIMENSION_TYPES, EVIDENCE_KINDS, FINDING_KINDS, FINDING_STATUSES, KANO, METHODS, REFERENCE_KINDS, ROLES, STUDY_MODES, STUDY_STATUSES, VIAS, VOLATILITIES, WARDLEY } from './types.ts'
+import { CONFIDENCES, DIMENSION_TYPES, EVIDENCE_KINDS, FINDING_KINDS, FINDING_STATUSES, KANO, METHODS, REFERENCE_KINDS, RESERVED_DIMENSIONS, ROLES, STUDY_MODES, STUDY_STATUSES, VIAS, VOLATILITIES, WARDLEY } from './types.ts'
 import type { Answer, Criterion, Dimension, Evidence, EvidenceKind, Finding, Issue, Method, Reference, Score, Study } from './types.ts'
 import { normalizeText, numbersIn } from './normalize.ts'
 import { parseRepoUrl } from './paths.ts'
@@ -185,6 +185,7 @@ function dimensionIssues(dimensions: unknown[], file: string): Issue[] {
     const at = `dimensions[${index}]`
     const dim = (isMapping(raw) ? raw : {}) as Partial<Dimension>
     if (typeof dim.id !== 'string' || !SNAKE_ID.test(dim.id)) out.push(error(file, `${at}.id must be snake_case`))
+    else if ((RESERVED_DIMENSIONS as readonly string[]).includes(dim.id)) out.push(error(file, `${at}.id ${dim.id} is reserved for findings not tied to a dimension`))
     else if (ids.has(dim.id)) out.push(error(file, `${at}.id ${dim.id} is duplicated`))
     else ids.add(dim.id)
     if (!isText(dim.ask)) out.push(error(file, `${at}.ask is required`))
@@ -208,11 +209,15 @@ export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<
   const out: Issue[] = []
   if (study.topic !== topic) out.push(error(file, `topic must be "${topic}" (the directory name)`))
   if (!isOneOf(STUDY_STATUSES, study.status)) out.push(error(file, `status must be one of ${STUDY_STATUSES.join(', ')}`))
-  if (!isOneOf(STUDY_MODES, study.mode)) out.push(error(file, `mode must be one of ${STUDY_MODES.join(', ')}`))
-  if (study.status !== 'draft') {
-    if (!isText(study.question)) out.push(error(file, 'question is required once the study leaves draft'))
-    if (!isText(study.decision_needed)) out.push(error(file, 'decision_needed is required once the study leaves draft'))
+  if ((study.mode as string) === 'full') out.push(error(file, 'mode full is now deep; set mode: deep'))
+  else if (!isOneOf(STUDY_MODES, study.mode)) out.push(error(file, `mode must be one of ${STUDY_MODES.join(', ')}`))
+  const isDraft = study.status === 'draft'
+  if (!isDraft && !isText(study.question)) out.push(error(file, 'question is required once the study leaves draft'))
+  if (study.mode === 'deep' && !isDraft) {
+    if (!isText(study.decision_needed)) out.push(error(file, 'decision_needed is required for a deep study once it leaves draft'))
+    if (!Array.isArray(study.criteria) || study.criteria.length === 0) out.push(error(file, 'a deep study needs at least one criterion once it leaves draft'))
   }
+  if (study.greenfield !== undefined && typeof study.greenfield !== 'boolean') out.push(error(file, 'greenfield must be true or false'))
   let hasOurs = false
   if (!isMapping(study.references)) out.push(error(file, 'references must map reference ids to roles'))
   else {
@@ -225,9 +230,17 @@ export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<
   }
   if (!Array.isArray(study.dimensions)) out.push(error(file, 'dimensions must be a list'))
   else out.push(...dimensionIssues(study.dimensions, file))
-  if (!Array.isArray(study.criteria)) out.push(error(file, 'criteria must be a list'))
-  else out.push(...criterionIssues(study.criteria, file))
+  if (study.criteria !== undefined) {
+    if (!Array.isArray(study.criteria)) out.push(error(file, 'criteria must be a list'))
+    else out.push(...criterionIssues(study.criteria, file))
+  }
+  if (study.status === 'brief') {
+    if (study.mode !== 'brief') out.push(error(file, 'status brief needs mode brief'))
+    const finished = study.finished as unknown
+    if (!isMapping(finished) || !isDate(finished.at) || typeof finished.cites !== 'number') out.push(error(file, 'finished is missing; finish a brief with research finish'))
+  }
   if (study.status === 'decided') {
+    if (study.mode !== 'deep') out.push(error(file, 'only a deep study is decided; set mode: deep and record the decision with research decide'))
     const decision = study.decision
     if (!isMapping(decision)) out.push(error(file, 'decision is required when status is decided'))
     else {
@@ -241,8 +254,8 @@ export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<
   for (const key of ['categories', 'excluded']) {
     if (key in study) out.push(error(file, `${key} is gone in research 0.2: studies pick their references per task; remove it`))
   }
-  if (!hasOurs && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
-    out.push(warn(file, 'no reference has the ours role; our design is not compared'))
+  if (!hasOurs && study.greenfield !== true && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
+    out.push(warn(file, 'no reference has the ours role; our design is not compared (set greenfield: true when nothing of ours exists yet)'))
   }
   return out
 }
@@ -312,7 +325,7 @@ export function validateScore(raw: unknown, study: Study, findingIds: ReadonlySe
   const score = raw as Partial<Score>
   const out: string[] = []
   if (typeof score.ref !== 'string' || !(score.ref in study.references)) out.push(`ref ${String(score.ref)} is not a reference of study ${study.topic}`)
-  if (!study.criteria.some(criterion => criterion.id === score.criterion)) out.push(`criterion ${String(score.criterion)} is not a criterion of study ${study.topic}`)
+  if (!(study.criteria ?? []).some(criterion => criterion.id === score.criterion)) out.push(`criterion ${String(score.criterion)} is not a criterion of study ${study.topic}`)
   const isLevel = score.level === 'unknown' || (typeof score.level === 'number' && Number.isInteger(score.level) && score.level >= 1 && score.level <= 5)
   if (!isLevel) out.push('level must be 1-5 or unknown')
   const because: unknown[] = Array.isArray(score.because) ? score.because : []
