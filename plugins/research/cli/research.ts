@@ -6,6 +6,7 @@ import {
   cloneRef,
   createStudy,
   decide,
+  finish,
   files,
   loadConfig,
   loadFindings,
@@ -32,6 +33,7 @@ export const USAGE = `usage: research <command>
   query [--ref R] [--dimension D] [--study S] [--state X] [--text T]
                              search findings across studies
   matrix <topic>             print a study's comparison matrix
+  finish <topic>             check the brief and close it (status: brief)
   reverify [--due]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
@@ -125,6 +127,13 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
       const { pins, moved, drifted } = out.value
       const lines = [...pins.map(pin => `pinned ${pin.url} at ${pin.sha}`), `moved: ${moved.join(', ') || 'none'}`, `drifted: ${drifted.join(', ') || 'none'}`]
       return { code: 0, output: lines.join('\n') }
+    }
+    case 'finish': {
+      const topic = positional[0]
+      if (topic === undefined) return usageError('finish needs a topic')
+      const out = await finish(ctx, topic)
+      if (!out.ok) return { code: 1, output: out.errors.join('\n') }
+      return { code: 0, output: `finished ${topic}: the brief cites ${out.value.cites} findings` }
     }
     case 'decide': {
       const topic = positional[0]

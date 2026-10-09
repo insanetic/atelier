@@ -33,6 +33,15 @@ function stalePins(references, today) {
     )
   );
 }
+function citableProblem(id, finding, dimension, today) {
+  if (finding === void 0) return `${id} does not exist`;
+  if (finding.status === "disputed") return `${id} is disputed`;
+  if (finding.status === "drifted") return `${id} has drifted; re-research it first`;
+  if (finding.status !== "current") return `${id} is ${finding.status}`;
+  if (finding.verified === void 0 || finding.confidence === "unverified") return `${id} is not verified`;
+  if (isStale(finding, dimension, today)) return `${id} is past its ${volatilityOf(dimension)} TTL; re-verify it first`;
+  return void 0;
+}
 
 // core/types.ts
 var ROLES = ["competitor", "specialist", "code-read", "standard", "alternative", "anti", "ours"];
@@ -6516,6 +6525,35 @@ function licenseGuard(license, evidence) {
   return `license ${license} is not in any quote; quote the licence file or the package page, or use unknown`;
 }
 
+// core/notes.ts
+var BRIEF_SECTIONS = ["Answer", "Who solved it", "Approaches", "What to reuse", "Pitfalls", "Ours against theirs", "Recommendation", "Open questions"];
+var GREENFIELD_SECTION = "Greenfield";
+var DEEP_SECTIONS = ["Question and decision", "Paradigms found", "Trade-offs", "Pain", "Where ours stands", "Candidates", "Decision"];
+var UNCITED_SECTIONS = ["Answer", "Who solved it", "Open questions", GREENFIELD_SECTION];
+function notesTemplate(topic, mode) {
+  const sections = mode === "deep" ? DEEP_SECTIONS : BRIEF_SECTIONS;
+  return `# ${topic}
+
+${sections.map((section) => `## ${section}
+`).join("\n")}`;
+}
+function citationsOf(text, topic) {
+  return [...text.matchAll(/\[f:(?:([a-z0-9-]+)\/)?([^\]\s]+)\]/g)].map((match) => ({ topic: match[1] ?? topic, id: match[2] ?? "", raw: match[0] }));
+}
+function sectionsOf(notes) {
+  const sections = [];
+  let isFenced = false;
+  for (const line of notes.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) isFenced = !isFenced;
+    const heading = isFenced ? null : /^## (.*\S)\s*$/.exec(line);
+    const last = sections.at(-1);
+    if (heading !== null) sections.push({ title: heading[1] ?? "", body: "" });
+    else if (last !== void 0) last.body += `${line}
+`;
+  }
+  return sections;
+}
+
 // core/validate.ts
 var CODE_KINDS = ["code", "api_spec", "spec"];
 var WEB_KINDS = ["docs", "blog", "issue", "marketing"];
@@ -6856,12 +6894,7 @@ function validateScores(data, study, findingIds, file) {
   return out;
 }
 function citationIssues(notes, topic, index, file) {
-  const out = [];
-  for (const match of notes.matchAll(/\[f:(?:([a-z0-9-]+)\/)?([^\]\s]+)\]/g)) {
-    const owner = match[1] ?? topic;
-    if (!index.get(owner)?.has(match[2] ?? "")) out.push(error(file, `citation ${match[0]} does not resolve`));
-  }
-  return out;
+  return citationsOf(notes, topic).filter((cite) => !index.get(cite.topic)?.has(cite.id)).map((cite) => error(file, `citation ${cite.raw} does not resolve`));
 }
 function decidedGate(study, findings, file) {
   if (study.status !== "decided" || study.decision === void 0) return [];
@@ -6877,6 +6910,20 @@ function decidedGate(study, findings, file) {
       const change = finding.status !== "current" ? `is ${finding.status}` : finding.verified === void 0 ? "was re-recorded and is unverified" : finding.confidence !== taken.confidence ? `is now ${finding.confidence}` : void 0;
       if (change !== void 0) out.push(warn2(file, `decision cites ${id}, which ${change} since ${decidedAt}; revisit the decision`, "freshness"));
     }
+  }
+  return out;
+}
+function briefGate(study, notes, findings, file) {
+  if (study.status !== "brief") return [];
+  const byId = new Map(findings.map((finding) => [finding.id, finding]));
+  const since = study.finished?.at ?? "it was finished";
+  const ids = new Set(citationsOf(notes, study.topic).filter((cite) => cite.topic === study.topic).map((cite) => cite.id));
+  const out = [];
+  for (const id of ids) {
+    const finding = byId.get(id);
+    if (finding === void 0) continue;
+    const change = finding.status !== "current" ? `is ${finding.status}` : finding.verified === void 0 ? "is unverified" : void 0;
+    if (change !== void 0) out.push(warn2(file, `the brief cites ${id}, which ${change} since ${since}; refresh the brief`, "freshness"));
   }
   return out;
 }
@@ -6938,17 +6985,6 @@ function describeFinding(finding) {
     ...finding.note === void 0 ? [] : [`note: ${finding.note}`],
     ...finding.evidence.map((item) => `- ${item.kind} ${sourceOf(item)}: "${clip(item.quote)}"`)
   ];
-}
-
-// core/notes.ts
-var BRIEF_SECTIONS = ["Answer", "Who solved it", "Approaches", "What to reuse", "Pitfalls", "Ours against theirs", "Recommendation", "Open questions"];
-var DEEP_SECTIONS = ["Question and decision", "Paradigms found", "Trade-offs", "Pain", "Where ours stands", "Candidates", "Decision"];
-function notesTemplate(topic, mode) {
-  const sections = mode === "deep" ? DEEP_SECTIONS : BRIEF_SECTIONS;
-  return `# ${topic}
-
-${sections.map((section) => `## ${section}
-`).join("\n")}`;
 }
 
 // core/store.ts
@@ -7287,7 +7323,9 @@ async function runCheck(ctx) {
     const scores = await readYaml(ctx.io, scoresFile);
     if (scores.error !== void 0) issues.push(error2(scoresFile, scores.error));
     else if (!scores.missing) issues.push(...validateScores(scores.data, study, index.get(topic) ?? /* @__PURE__ */ new Set(), scoresFile));
-    issues.push(...citationIssues(await loadNotes(ctx.io, ctx.cfg, topic), topic, index, files.notes(ctx.cfg, topic)));
+    const notes = await loadNotes(ctx.io, ctx.cfg, topic);
+    issues.push(...citationIssues(notes, topic, index, files.notes(ctx.cfg, topic)));
+    issues.push(...briefGate(study, notes, findings, files.notes(ctx.cfg, topic)));
     issues.push(...decidedGate(study, findings, files.study(ctx.cfg, topic)));
     issues.push(...freshness(study, findings, ctx.today, files.findings(ctx.cfg, topic)));
   }
@@ -7401,19 +7439,62 @@ async function decide(ctx, input) {
   for (const id of input.cites) {
     const finding = byId.get(id);
     const dimension = loaded.value.dimensions.find((dim) => dim.id === finding?.dimension);
-    if (finding === void 0) problems.push(`${id} does not exist`);
-    else if (finding.status === "disputed") problems.push(`${id} is disputed`);
-    else if (finding.status === "drifted") problems.push(`${id} has drifted; re-research it first`);
-    else if (finding.status !== "current") problems.push(`${id} is ${finding.status}`);
-    else if (finding.verified === void 0 || finding.confidence === "unverified") problems.push(`${id} is not verified`);
-    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${volatilityOf(dimension)} TTL; re-verify it first`);
-    else snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence };
+    const problem = citableProblem(id, finding, dimension, ctx.today);
+    if (problem !== void 0) problems.push(problem);
+    else if (finding?.verified !== void 0) snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence };
   }
   if (problems.length > 0) return fail(...problems);
   const decision = { chosen: input.chosen, decided_at: ctx.today, cites: input.cites, revisit_when: input.revisit_when, snapshot };
   const path = files.study(ctx.cfg, input.study);
   await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "decided", decision }));
   return ok(decision);
+}
+
+// core/finish.ts
+async function finish(ctx, topic) {
+  const loaded = await loadValidStudy(ctx, topic);
+  if (!loaded.ok) return loaded;
+  const study = loaded.value;
+  if (study.mode !== "brief") return fail(`study ${topic} is mode ${study.mode}; finish closes a brief`);
+  const expected = BRIEF_SECTIONS.map((title) => title === "Ours against theirs" && study.greenfield === true ? GREENFIELD_SECTION : title);
+  const sections = sectionsOf(await loadNotes(ctx.io, ctx.cfg, topic));
+  const titles = sections.map((section) => section.title);
+  const problems = [];
+  if (titles.join("\n") !== expected.join("\n")) {
+    problems.push(`study.md needs exactly these sections, in order: ${expected.join(", ")}; it has ${titles.join(", ") || "none"}`);
+  }
+  const topics = new Set(await listTopics(ctx.io, ctx.cfg));
+  const owners = /* @__PURE__ */ new Map();
+  const ownerOf = async (owner) => {
+    const known = owners.get(owner);
+    if (known !== void 0) return known;
+    const found = topics.has(owner) ? {
+      study: owner === topic ? study : await loadStudy(ctx.io, ctx.cfg, owner),
+      findings: new Map((await loadFindings(ctx.io, ctx.cfg, owner)).map((finding) => [finding.id, finding]))
+    } : { study: void 0, findings: /* @__PURE__ */ new Map() };
+    owners.set(owner, found);
+    return found;
+  };
+  const cited = /* @__PURE__ */ new Set();
+  for (const section of sections) {
+    const cites = citationsOf(section.body, topic);
+    if (cites.length === 0 && !UNCITED_SECTIONS.includes(section.title)) problems.push(`section ${section.title} cites no finding`);
+    for (const cite of cites) {
+      const key = cite.topic === topic ? cite.id : `${cite.topic}/${cite.id}`;
+      if (cited.has(key)) continue;
+      cited.add(key);
+      const owned = await ownerOf(cite.topic);
+      const finding = owned.findings.get(cite.id);
+      const dimension = owned.study?.dimensions.find((dim) => dim.id === finding?.dimension);
+      const problem = citableProblem(key, finding, dimension, ctx.today);
+      if (problem !== void 0) problems.push(problem);
+    }
+  }
+  if (problems.length > 0) return fail(...problems);
+  const finished = { at: ctx.today, cites: cited.size };
+  const path = files.study(ctx.cfg, topic);
+  await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "brief", finished }));
+  return ok(finished);
 }
 
 // cli/research.ts
@@ -7426,6 +7507,7 @@ var USAGE = `usage: research <command>
   query [--ref R] [--dimension D] [--study S] [--state X] [--text T]
                              search findings across studies
   matrix <topic>             print a study's comparison matrix
+  finish <topic>             check the brief and close it (status: brief)
   reverify [--due]
                              re-check evidence (--due: only findings past their TTL)
   clone <ref>                check out a reference's pinned repositories
@@ -7517,6 +7599,13 @@ async function main(argv, env) {
       const { pins, moved, drifted } = out.value;
       const lines = [...pins.map((pin) => `pinned ${pin.url} at ${pin.sha}`), `moved: ${moved.join(", ") || "none"}`, `drifted: ${drifted.join(", ") || "none"}`];
       return { code: 0, output: lines.join("\n") };
+    }
+    case "finish": {
+      const topic = positional[0];
+      if (topic === void 0) return usageError("finish needs a topic");
+      const out = await finish(ctx, topic);
+      if (!out.ok) return { code: 1, output: out.errors.join("\n") };
+      return { code: 0, output: `finished ${topic}: the brief cites ${out.value.cites} findings` };
     }
     case "decide": {
       const topic = positional[0];

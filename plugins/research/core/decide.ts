@@ -1,7 +1,7 @@
 import type { Ctx } from './io.ts'
 import type { Decision } from './types.ts'
 import { files } from './paths.ts'
-import { isStale, volatilityOf } from './fresh.ts'
+import { citableProblem } from './fresh.ts'
 import { loadFindings, loadValidStudy } from './store.ts'
 import { setInYaml } from './yaml.ts'
 import { fail, ok } from './result.ts'
@@ -28,13 +28,9 @@ export async function decide(ctx: Ctx, input: DecideInput): Promise<OpResult<Dec
   for (const id of input.cites) {
     const finding = byId.get(id)
     const dimension = loaded.value.dimensions.find(dim => dim.id === finding?.dimension)
-    if (finding === undefined) problems.push(`${id} does not exist`)
-    else if (finding.status === 'disputed') problems.push(`${id} is disputed`)
-    else if (finding.status === 'drifted') problems.push(`${id} has drifted; re-research it first`)
-    else if (finding.status !== 'current') problems.push(`${id} is ${finding.status}`)
-    else if (finding.verified === undefined || finding.confidence === 'unverified') problems.push(`${id} is not verified`)
-    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${volatilityOf(dimension)} TTL; re-verify it first`)
-    else snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence }
+    const problem = citableProblem(id, finding, dimension, ctx.today)
+    if (problem !== undefined) problems.push(problem)
+    else if (finding?.verified !== undefined) snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence }
   }
   if (problems.length > 0) return fail(...problems)
   const decision: Decision = { chosen: input.chosen, decided_at: ctx.today, cites: input.cites, revisit_when: input.revisit_when, snapshot }

@@ -103,3 +103,12 @@ test('init makes a brief by default and takes --quick or --deep', async () => {
   await main(['init', 'plan-change', '--deep'], env(io))
   assert.match(io.files.get(files.study(CFG, 'plan-change')) ?? '', /mode: deep/)
 })
+
+test('finish closes a brief from the command line', async () => {
+  const io = fakeIo()
+  const sections = ['Answer', 'Who solved it', 'Approaches', 'What to reuse', 'Pitfalls', 'Ours against theirs', 'Recommendation', 'Open questions']
+  const notes = `# tax\n\n${sections.map(title => `## ${title}\nx [f:stripe.rounding]\n`).join('\n')}`
+  seedStudy(io, { study: study({ mode: 'brief' }), findings: [docsFinding({ confidence: 'confirmed', verified: { by: 'verifier', at: TODAY, via: 'fetch' } })], notes })
+  assert.deepEqual(await main(['finish', 'tax'], env(io)), { code: 0, output: 'finished tax: the brief cites 1 findings' })
+  assert.equal((await main(['finish', 'billing'], env(io))).code, 1)
+})

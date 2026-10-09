@@ -2,7 +2,7 @@ import type { Ctx } from './io.ts'
 import type { Finding, Issue, Reference, Study } from './types.ts'
 import { files } from './paths.ts'
 import { listTopics, loadNotes, readYaml } from './store.ts'
-import { citationIssues, decidedGate, validateFinding, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
+import { briefGate, citationIssues, decidedGate, validateFinding, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
 import { isStale, stalePins, volatilityOf } from './fresh.ts'
 
 type Bundle = { topic: string; study: Study; findings: Finding[]; ids: Set<string> }
@@ -53,7 +53,9 @@ export async function runCheck(ctx: Ctx): Promise<Issue[]> {
     const scores = await readYaml(ctx.io, scoresFile)
     if (scores.error !== undefined) issues.push(error(scoresFile, scores.error))
     else if (!scores.missing) issues.push(...validateScores(scores.data, study, index.get(topic) ?? new Set<string>(), scoresFile))
-    issues.push(...citationIssues(await loadNotes(ctx.io, ctx.cfg, topic), topic, index, files.notes(ctx.cfg, topic)))
+    const notes = await loadNotes(ctx.io, ctx.cfg, topic)
+    issues.push(...citationIssues(notes, topic, index, files.notes(ctx.cfg, topic)))
+    issues.push(...briefGate(study, notes, findings, files.notes(ctx.cfg, topic)))
     issues.push(...decidedGate(study, findings, files.study(ctx.cfg, topic)))
     issues.push(...freshness(study, findings, ctx.today, files.findings(ctx.cfg, topic)))
   }

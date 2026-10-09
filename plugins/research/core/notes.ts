@@ -12,3 +12,26 @@ export function notesTemplate(topic: string, mode: StudyMode): string {
   const sections: readonly string[] = mode === 'deep' ? DEEP_SECTIONS : BRIEF_SECTIONS
   return `# ${topic}\n\n${sections.map(section => `## ${section}\n`).join('\n')}`
 }
+
+export type Citation = { topic: string; id: string; raw: string }
+
+/** Every [f:<id>] and [f:<topic>/<id>] in a text; a bare id belongs to `topic`. */
+export function citationsOf(text: string, topic: string): Citation[] {
+  return [...text.matchAll(/\[f:(?:([a-z0-9-]+)\/)?([^\]\s]+)\]/g)].map(match => ({ topic: match[1] ?? topic, id: match[2] ?? '', raw: match[0] }))
+}
+
+export type Section = { title: string; body: string }
+
+/** The level-two sections of a study.md, in order. Text above the first one is not a section; headings inside code fences do not count. */
+export function sectionsOf(notes: string): Section[] {
+  const sections: Section[] = []
+  let isFenced = false
+  for (const line of notes.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) isFenced = !isFenced
+    const heading = isFenced ? null : /^## (.*\S)\s*$/.exec(line)
+    const last = sections.at(-1)
+    if (heading !== null) sections.push({ title: heading[1] ?? '', body: '' })
+    else if (last !== undefined) last.body += `${line}\n`
+  }
+  return sections
+}

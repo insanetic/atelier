@@ -47,3 +47,14 @@ export function stalePins(references: readonly Reference[], today: string): Stal
     ),
   )
 }
+
+/** Why a finding cannot carry a claim today, or undefined when it can. */
+export function citableProblem(id: string, finding: Finding | undefined, dimension: Dimension | undefined, today: string): string | undefined {
+  if (finding === undefined) return `${id} does not exist`
+  if (finding.status === 'disputed') return `${id} is disputed`
+  if (finding.status === 'drifted') return `${id} has drifted; re-research it first`
+  if (finding.status !== 'current') return `${id} is ${finding.status}`
+  if (finding.verified === undefined || finding.confidence === 'unverified') return `${id} is not verified`
+  if (isStale(finding, dimension, today)) return `${id} is past its ${volatilityOf(dimension)} TTL; re-verify it first`
+  return undefined
+}

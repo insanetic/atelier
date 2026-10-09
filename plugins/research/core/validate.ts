@@ -4,6 +4,7 @@ import { normalizeText, numbersIn } from './normalize.ts'
 import { parseRepoUrl } from './paths.ts'
 import { isDate } from './fresh.ts'
 import { licenseGuard } from './license.ts'
+import { citationsOf } from './notes.ts'
 
 export const CODE_KINDS: readonly EvidenceKind[] = ['code', 'api_spec', 'spec']
 export const WEB_KINDS: readonly EvidenceKind[] = ['docs', 'blog', 'issue', 'marketing']
@@ -377,12 +378,9 @@ export function validateScores(data: unknown, study: Study, findingIds: Readonly
 }
 
 export function citationIssues(notes: string, topic: string, index: ReadonlyMap<string, ReadonlySet<string>>, file: string): Issue[] {
-  const out: Issue[] = []
-  for (const match of notes.matchAll(/\[f:(?:([a-z0-9-]+)\/)?([^\]\s]+)\]/g)) {
-    const owner = match[1] ?? topic
-    if (!index.get(owner)?.has(match[2] ?? '')) out.push(error(file, `citation ${match[0]} does not resolve`))
-  }
-  return out
+  return citationsOf(notes, topic)
+    .filter(cite => !index.get(cite.topic)?.has(cite.id))
+    .map(cite => error(file, `citation ${cite.raw} does not resolve`))
 }
 
 /**
@@ -411,6 +409,25 @@ export function decidedGate(study: Study, findings: readonly Finding[], file: st
               : undefined
       if (change !== undefined) out.push(warn(file, `decision cites ${id}, which ${change} since ${decidedAt}; revisit the decision`, 'freshness'))
     }
+  }
+  return out
+}
+
+/**
+ * research finish checks a brief's citations once. Afterwards a cited finding
+ * that lost its footing asks for a refresh and never fails a later check.
+ */
+export function briefGate(study: Study, notes: string, findings: readonly Finding[], file: string): Issue[] {
+  if (study.status !== 'brief') return []
+  const byId = new Map(findings.map(finding => [finding.id, finding]))
+  const since = study.finished?.at ?? 'it was finished'
+  const ids = new Set(citationsOf(notes, study.topic).filter(cite => cite.topic === study.topic).map(cite => cite.id))
+  const out: Issue[] = []
+  for (const id of ids) {
+    const finding = byId.get(id)
+    if (finding === undefined) continue
+    const change = finding.status !== 'current' ? `is ${finding.status}` : finding.verified === undefined ? 'is unverified' : undefined
+    if (change !== undefined) out.push(warn(file, `the brief cites ${id}, which ${change} since ${since}; refresh the brief`, 'freshness'))
   }
   return out
 }
