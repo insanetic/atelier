@@ -31,6 +31,5 @@ test('treeDir places one checkout per sha under the cache', () => {
 test('files names every study file under the research dir', () => {
   assert.equal(files.findings(CFG, 'tax'), '/repo/research/studies/tax/findings.yaml')
   assert.equal(files.notes(CFG, 'tax'), '/repo/research/studies/tax/study.md')
-  assert.equal(files.references(CFG), '/repo/research/registry/references.yaml')
-  assert.equal(files.candidates(CFG), '/repo/research/registry/candidates.yaml')
+  assert.equal(files.references(CFG), '/repo/research/references.yaml')
 })

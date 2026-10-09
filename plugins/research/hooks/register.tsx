@@ -149,35 +149,6 @@ const TOOLS: ToolSpec[] = [
     },
   },
   {
-    name: 'refs',
-    isDeferred: false,
-    description:
-      'List the registered references (research/registry/references.yaml): every known competitor, benchmark product and standard. Filter by taxonomy category, stance tier (1, 2, watch), kind, or a capability the landscape study verified. Start every study and every discovery from this list.',
-    inputSchema: {
-      type: 'object',
-      properties: { category: { type: 'string' }, tier: { type: 'string' }, capability: { type: 'string' }, kind: { type: 'string' } },
-    },
-  },
-  {
-    name: 'propose_candidate',
-    isDeferred: false,
-    description:
-      "Discoverer only. Propose a product the registry does not know yet, for a human to approve. Give its domains and a verbatim quote from its own site that says what it does; found_by names the discovery channel. Products already registered or rejected are refused (by id, name, alias or domain); a product another channel already proposed is merged, adding the channel.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'kebab-case, e.g. flexprice' },
-        name: { type: 'string' },
-        domains: { type: 'array', items: { type: 'string' } },
-        categories: { type: 'array', items: { type: 'string' }, description: 'Taxonomy category ids only.' },
-        found_by: { type: 'array', items: { type: 'string' } },
-        evidence: { type: 'array', items: EVIDENCE },
-        note: { type: 'string' },
-      },
-      required: ['id', 'name', 'domains', 'categories', 'found_by', 'evidence'],
-    },
-  },
-  {
     name: 'matrix',
     isDeferred: false,
     description: "Show a study's comparison matrix (dimensions by references, each cell with its answer and state) and make it the active study in the pane.",
@@ -279,27 +250,6 @@ export const register: Register = on => {
     try {
       const hits = await core.query(await contextOf($), argsOf(e) as core.QueryInput)
       return { result: core.renderHits(hits) }
-    } catch (problem) {
-      return failure(problem)
-    }
-  })
-
-  on('tool.call', { tool: 'mcp__research__refs' }, async ($, e) => {
-    try {
-      const rows = await core.listReferences(await contextOf($), argsOf(e) as core.ReferenceFilter)
-      return { result: core.renderReferences(rows) }
-    } catch (problem) {
-      return failure(problem)
-    }
-  })
-
-  on('tool.call', { tool: 'mcp__research__propose_candidate' }, async ($, e) => {
-    try {
-      const out = await core.proposeCandidate(await contextOf($), argsOf(e) as unknown as core.CandidateInput, studyLock)
-      if (!out.ok) return { result: core.renderOp(out, '') }
-      const { candidate, merged } = out.value
-      const channels = `(found by ${candidate.found_by.join(', ')})`
-      return { result: core.renderOp(out, merged ? `merged into candidate ${candidate.id} ${channels}` : `proposed ${candidate.id} ${channels}`) }
     } catch (problem) {
       return failure(problem)
     }

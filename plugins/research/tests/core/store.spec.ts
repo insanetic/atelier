@@ -53,3 +53,11 @@ test('createStudy creates only the files that are missing', async () => {
   assert.equal(out.ok && out.value.created, true)
   assert.equal(io.files.get(files.notes(CFG, 'tax')), '# tax\nnotes first\n')
 })
+
+test('references.yaml sits at the top of the research dir and no registry is created', async () => {
+  const io = fakeIo()
+  await createStudy({ io, cfg: CFG, today: TODAY }, 'tax', 'quick')
+  assert.equal(files.references(CFG), '/repo/research/references.yaml')
+  assert.equal(io.files.get('/repo/research/references.yaml'), '[]\n')
+  assert.deepEqual([...io.files.keys()].filter(path => path.includes('/registry/')), [])
+})

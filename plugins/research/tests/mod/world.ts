@@ -22,8 +22,7 @@ criteria: []
 `
 
 const SEED: Record<string, string> = {
-  [`${ROOT}/research/registry/references.yaml`]: '- id: stripe\n  name: Stripe\n  categories: [subscription-billing]\n',
-  [`${ROOT}/research/registry/taxonomy.yaml`]: 'categories:\n  subscription-billing: Recurring plans and invoices\ncapabilities: {}\n',
+  [`${ROOT}/research/references.yaml`]: '- id: stripe\n  name: Stripe\n  kind: product\n',
   [`${ROOT}/research/studies/tax/study.yaml`]: STUDY,
   [FINDINGS]: '[]\n',
   [`${ROOT}/research/studies/tax/assessment.yaml`]: '[]\n',
@@ -34,6 +33,8 @@ const SEED: Record<string, string> = {
 export const clocks: { current?: MockClock } = {}
 /** Pane ids opened through $.ui.open in the most recent world. */
 export const opened: string[] = []
+/** Tool names registered through $.tool.register in the most recent world. */
+export const registered: string[] = []
 
 export function world(on: On, pages: Record<string, string> = {}, hang: readonly string[] = []): Map<string, string> {
   const files = new Map(Object.entries(SEED))
@@ -44,7 +45,11 @@ export function world(on: On, pages: Record<string, string> = {}, hang: readonly
   clocks.current = mock.clock(on, { now: Date.UTC(2026, 9, 8) })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.root', () => ({ value: ROOT }))
-  on('tool.register', ($, e) => ({ value: { tool: `mcp__research__${e.name}` } }))
+  registered.length = 0
+  on('tool.register', ($, e) => {
+    registered.push(e.name)
+    return { value: { tool: `mcp__research__${e.name}` } }
+  })
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   opened.length = 0
   on('ui.open', ($, e) => {

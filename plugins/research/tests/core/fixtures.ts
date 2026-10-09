@@ -1,4 +1,4 @@
-import type { Config, Finding, Reference, Score, Study, Taxonomy } from '../../core/types.ts'
+import type { Config, Finding, Reference, Score, Study } from '../../core/types.ts'
 import { files, treeDir } from '../../core/paths.ts'
 import { toYaml } from '../../core/yaml.ts'
 import type { FakeIo } from './fake-io.ts'
@@ -10,39 +10,9 @@ export const NEW_SHA = 'b'.repeat(40)
 export const LAGO_URL = 'https://github.com/getlago/lago-api'
 export const STRIPE_TAX_URL = 'https://docs.stripe.com/tax'
 
-export const TAXONOMY: Taxonomy = {
-  categories: {
-    'subscription-billing': 'Recurring plans, invoices and the subscription lifecycle',
-    'usage-billing': 'Billing on metered consumption',
-    entitlements: 'Feature access and limits decoupled from billing',
-  },
-  capabilities: {
-    public_api: 'A documented public API customers integrate against',
-    self_hosted: 'Customers can run it on their own infrastructure',
-  },
-}
-
 export const REFERENCES: Reference[] = [
-  {
-    id: 'lago',
-    name: 'Lago',
-    kind: 'product',
-    domains: ['getlago.com'],
-    categories: ['usage-billing', 'subscription-billing'],
-    source_model: 'open_source',
-    status: 'active',
-    repos: [{ url: LAGO_URL, pin: SHA, pinned_at: '2026-10-01' }],
-    stance: { tier: 1, overlap: { 'usage-billing': 'direct' }, reviewed: '2026-10-01' },
-  },
-  {
-    id: 'stripe',
-    name: 'Stripe',
-    kind: 'product',
-    domains: ['stripe.com'],
-    categories: ['subscription-billing'],
-    docs: 'https://docs.stripe.com',
-    stance: { tier: 1, overlap: { 'subscription-billing': 'direct' }, reviewed: '2026-10-01' },
-  },
+  { id: 'lago', name: 'Lago', kind: 'product', repos: [{ url: LAGO_URL, pin: SHA, pinned_at: '2026-10-01' }], license: 'AGPL-3.0' },
+  { id: 'stripe', name: 'Stripe', kind: 'product', docs: 'https://docs.stripe.com' },
   { id: 'subneo', name: 'Subneo', kind: 'ours', repos: [{ url: 'self' }] },
 ]
 
@@ -102,7 +72,6 @@ export function lagoFilePath(sha = SHA): string {
 export function seedStudy(io: FakeIo, options: { study?: Study; findings?: Finding[]; scores?: Score[]; notes?: string; references?: Reference[] } = {}): void {
   const s = options.study ?? study()
   io.files.set(files.references(CFG), toYaml(options.references ?? REFERENCES))
-  io.files.set(files.taxonomy(CFG), toYaml(TAXONOMY))
   io.files.set(files.study(CFG, s.topic), toYaml(s))
   io.files.set(files.findings(CFG, s.topic), toYaml(options.findings ?? []))
   io.files.set(files.assessment(CFG, s.topic), toYaml(options.scores ?? []))

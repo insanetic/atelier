@@ -37,11 +37,7 @@ export function treeDir(cfg: Config, repoUrl: string, sha: string): string {
 }
 
 export const files = {
-  registry: (cfg: Config) => join(cfg.dir, 'registry'),
-  references: (cfg: Config) => join(cfg.dir, 'registry', 'references.yaml'),
-  taxonomy: (cfg: Config) => join(cfg.dir, 'registry', 'taxonomy.yaml'),
-  candidates: (cfg: Config) => join(cfg.dir, 'registry', 'candidates.yaml'),
-  rejected: (cfg: Config) => join(cfg.dir, 'registry', 'rejected.yaml'),
+  references: (cfg: Config) => join(cfg.dir, 'references.yaml'),
   studies: (cfg: Config) => join(cfg.dir, 'studies'),
   studyDir: (cfg: Config, topic: string) => join(cfg.dir, 'studies', topic),
   study: (cfg: Config, topic: string) => join(cfg.dir, 'studies', topic, 'study.yaml'),

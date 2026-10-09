@@ -28,66 +28,24 @@ export type Wardley = (typeof WARDLEY)[number]
 
 export type RepoRef = { url: string; pin?: string; pinned_at?: string }
 
-export const REFERENCE_KINDS = ['product', 'standard', 'approach', 'ours'] as const
+export const REFERENCE_KINDS = ['product', 'library', 'standard', 'writeup', 'approach', 'ours'] as const
 export type ReferenceKind = (typeof REFERENCE_KINDS)[number]
-export const SOURCE_MODELS = ['open_source', 'source_available', 'proprietary'] as const
-export type SourceModel = (typeof SOURCE_MODELS)[number]
-export const DELIVERIES = ['saas', 'self_hosted', 'library'] as const
-export type Delivery = (typeof DELIVERIES)[number]
-export const REFERENCE_STATUSES = ['active', 'acquired', 'sunset', 'dead'] as const
-export type ReferenceStatus = (typeof REFERENCE_STATUSES)[number]
-export const OVERLAPS = ['direct', 'adjacent'] as const
-export type Overlap = (typeof OVERLAPS)[number]
-
-/** Our view of a reference, which is opinion: dated, and absent for anything that is not a competitor. */
-export type Stance = { tier: 1 | 2 | 'watch'; overlap: Record<string, Overlap>; basis?: string; reviewed: string }
 
 /**
- * One registered product, standard or approach. Facts about it (kind, categories,
- * source model, status, owner) are the same for every observer; `stance` is ours;
- * the role it plays in a study lives in that study.
+ * Facts about something a study learns from: the same for every observer. The
+ * role it plays lives in each study; market facts and our stance live in the
+ * market plugin's files.
  */
 export type Reference = {
   id: string
   name: string
   kind?: ReferenceKind
-  vendor?: string
-  owned_by?: string
-  successor?: string
-  aliases?: string[]
-  domains?: string[]
-  categories?: string[]
-  source_model?: SourceModel
-  license?: string
-  delivery?: Delivery[]
-  status?: ReferenceStatus
   docs?: string
   api_spec?: string
   repos?: RepoRef[]
-  stance?: Stance
+  license?: string
   note?: string
 }
-
-/** The controlled vocabulary: market categories (kebab-case) and capabilities (snake_case), each defined. */
-export type Taxonomy = {
-  categories: Record<string, string>
-  capabilities: Record<string, string>
-  /** What belongs in the registry at all: every discovery agent applies these rules before proposing. */
-  scope?: { include?: string[]; exclude?: string[] }
-}
-
-export type Candidate = {
-  id: string
-  name: string
-  domains: string[]
-  categories: string[]
-  found_by: string[]
-  evidence: Evidence[]
-  note?: string
-  proposed_at: string
-}
-
-export type Rejection = { id: string; name: string; domains?: string[]; reason: string; rejected_at: string }
 
 export type Dimension = {
   id: string
@@ -119,9 +77,6 @@ export type Study = {
   references: Record<string, Role | Role[]>
   dimensions: Dimension[]
   criteria: Criterion[]
-  /** The taxonomy categories this study covers: every competitor overlapping them must be included or excluded. */
-  categories?: string[]
-  excluded?: Record<string, string>
   decision?: Decision
 }
 

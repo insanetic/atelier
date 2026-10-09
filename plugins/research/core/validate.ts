@@ -1,24 +1,5 @@
-import {
-  CONFIDENCES,
-  DELIVERIES,
-  DIMENSION_TYPES,
-  EVIDENCE_KINDS,
-  FINDING_KINDS,
-  FINDING_STATUSES,
-  KANO,
-  METHODS,
-  OVERLAPS,
-  REFERENCE_KINDS,
-  REFERENCE_STATUSES,
-  ROLES,
-  SOURCE_MODELS,
-  STUDY_MODES,
-  STUDY_STATUSES,
-  VIAS,
-  VOLATILITIES,
-  WARDLEY,
-} from './types.ts'
-import type { Answer, Criterion, Dimension, Evidence, EvidenceKind, Finding, Issue, Method, Reference, Rejection, Score, Study, Taxonomy } from './types.ts'
+import { CONFIDENCES, DIMENSION_TYPES, EVIDENCE_KINDS, FINDING_KINDS, FINDING_STATUSES, KANO, METHODS, REFERENCE_KINDS, ROLES, STUDY_MODES, STUDY_STATUSES, VIAS, VOLATILITIES, WARDLEY } from './types.ts'
+import type { Answer, Criterion, Dimension, Evidence, EvidenceKind, Finding, Issue, Method, Reference, Score, Study } from './types.ts'
 import { normalizeText, numbersIn } from './normalize.ts'
 import { parseRepoUrl } from './paths.ts'
 import { isDate } from './fresh.ts'
@@ -134,11 +115,12 @@ export function evidenceIssues(item: Evidence, index: number): string[] {
   return out
 }
 
-export function validateReferences(data: unknown, file: string, taxonomy?: Taxonomy): Issue[] {
+const REFERENCE_KEYS: ReadonlySet<string> = new Set(['id', 'name', 'kind', 'docs', 'api_spec', 'repos', 'license', 'note'])
+
+export function validateReferences(data: unknown, file: string): Issue[] {
   if (!Array.isArray(data)) return [error(file, 'references.yaml must be a list')]
   const out: Issue[] = []
   const seen = new Set<string>()
-  const domainOwner = new Map<string, string>()
   data.forEach((raw: unknown, index) => {
     const at = `references[${index}]`
     if (!isMapping(raw)) {
@@ -150,6 +132,10 @@ export function validateReferences(data: unknown, file: string, taxonomy?: Taxon
     else if (seen.has(ref.id)) out.push(error(file, `${at}.id ${ref.id} is duplicated`))
     else seen.add(ref.id)
     if (!isText(ref.name)) out.push(error(file, `${at}.name is required`))
+    if (ref.kind !== undefined && !isOneOf(REFERENCE_KINDS, ref.kind)) out.push(error(file, `${at}.kind must be one of ${REFERENCE_KINDS.join(', ')}`))
+    for (const key of Object.keys(raw)) {
+      if (!REFERENCE_KEYS.has(key)) out.push(error(file, `${at}.${key} is not a reference fact; market data belongs in research/market/ (the market plugin)`))
+    }
     if (ref.repos !== undefined && !Array.isArray(ref.repos)) out.push(error(file, `${at}.repos must be a list`))
     const repos: unknown[] = Array.isArray(ref.repos) ? ref.repos : []
     repos.forEach((repoRaw, i) => {
@@ -166,158 +152,7 @@ export function validateReferences(data: unknown, file: string, taxonomy?: Taxon
       if (repo.pin !== undefined && !isSha(repo.pin)) out.push(error(file, `${where}.pin must be a full 40-character sha`))
       if (repo.pin !== undefined && !isDate(repo.pinned_at)) out.push(error(file, `${where}.pinned_at must be YYYY-MM-DD when pin is set`))
     })
-    out.push(...factIssues(ref, at, taxonomy).map(message => error(file, message)))
-    for (const raw of Array.isArray(ref.domains) ? ref.domains : []) {
-      if (typeof raw !== 'string' || typeof ref.id !== 'string') continue
-      const domain = normalizeDomain(raw)
-      const owner = domainOwner.get(domain)
-      if (owner !== undefined && owner !== ref.id) out.push(error(file, `domain ${domain} is used by ${owner} and ${ref.id}`))
-      else domainOwner.set(domain, ref.id)
-    }
   })
-  data.forEach((raw: unknown, index) => {
-    if (!isMapping(raw)) return
-    for (const link of ['owned_by', 'successor'] as const) {
-      const target = raw[link]
-      if (target !== undefined && (typeof target !== 'string' || !seen.has(target))) {
-        out.push(error(file, `references[${index}].${link} ${String(target)} is not a registered reference`))
-      }
-    }
-  })
-  return out
-}
-
-/** Hosts compare without scheme, www. or path: https://www.flexprice.io/ and flexprice.io are one domain. */
-export function normalizeDomain(value: string): string {
-  return value.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/^www\./, '').replace(/[/?#].*$/, '')
-}
-
-const categoryIssue = (taxonomy: Taxonomy | undefined, value: unknown) =>
-  taxonomy !== undefined && (typeof value !== 'string' || !(value in (taxonomy.categories ?? {}))) ? `${String(value)} is not in taxonomy.yaml` : undefined
-
-function listIssues(value: unknown, at: string): string[] {
-  return value !== undefined && (!Array.isArray(value) || !value.every(isText)) ? [`${at} must be a list of text`] : []
-}
-
-function factIssues(ref: Partial<Reference>, at: string, taxonomy: Taxonomy | undefined): string[] {
-  const out: string[] = []
-  if (ref.kind !== undefined && !isOneOf(REFERENCE_KINDS, ref.kind)) out.push(`${at}.kind must be one of ${REFERENCE_KINDS.join(', ')}`)
-  for (const field of ['aliases', 'domains', 'categories', 'delivery'] as const) out.push(...listIssues(ref[field], `${at}.${field}`))
-  for (const category of Array.isArray(ref.categories) ? ref.categories : []) {
-    const problem = categoryIssue(taxonomy, category)
-    if (problem) out.push(`${at}.categories: ${problem}`)
-  }
-  if (ref.source_model !== undefined && !isOneOf(SOURCE_MODELS, ref.source_model)) out.push(`${at}.source_model must be one of ${SOURCE_MODELS.join(', ')}`)
-  if (Array.isArray(ref.delivery) && !ref.delivery.every(item => isOneOf(DELIVERIES, item))) out.push(`${at}.delivery must use ${DELIVERIES.join(', ')}`)
-  if (ref.status !== undefined && !isOneOf(REFERENCE_STATUSES, ref.status)) out.push(`${at}.status must be one of ${REFERENCE_STATUSES.join(', ')}`)
-  if (ref.stance !== undefined) {
-    const stance = (isMapping(ref.stance) ? ref.stance : {}) as Record<string, unknown>
-    if (stance.tier !== 1 && stance.tier !== 2 && stance.tier !== 'watch') out.push(`${at}.stance.tier must be 1, 2 or watch`)
-    if (!isMapping(stance.overlap)) out.push(`${at}.stance.overlap must map categories to direct or adjacent`)
-    else {
-      for (const [category, level] of Object.entries(stance.overlap)) {
-        const problem = categoryIssue(taxonomy, category)
-        if (problem) out.push(`${at}.stance.overlap.${category}: ${problem}`)
-        if (!isOneOf(OVERLAPS, level)) out.push(`${at}.stance.overlap.${category} must be direct or adjacent`)
-      }
-    }
-    if (!isDate(stance.reviewed)) out.push(`${at}.stance.reviewed must be YYYY-MM-DD`)
-  }
-  return out
-}
-
-export function validateTaxonomy(data: unknown, file: string): Issue[] {
-  if (!isMapping(data)) return [error(file, 'taxonomy.yaml must map categories and capabilities to definitions')]
-  const out: Issue[] = []
-  const sections = [
-    ['categories', REF_ID, 'kebab-case'],
-    ['capabilities', SNAKE_ID, 'snake_case'],
-  ] as const
-  for (const [section, pattern, shape] of sections) {
-    const entries = data[section]
-    if (entries === undefined || entries === null) continue
-    if (!isMapping(entries)) {
-      out.push(error(file, `${section} must map ids to definitions`))
-      continue
-    }
-    for (const [id, definition] of Object.entries(entries)) {
-      if (!pattern.test(id)) out.push(error(file, `${section}.${id} must be ${shape}`))
-      if (!isText(definition)) out.push(error(file, `${section}.${id} needs a definition`))
-    }
-  }
-  if (data.scope !== undefined) {
-    if (!isMapping(data.scope)) out.push(error(file, 'scope must have include and exclude rules'))
-    else {
-      for (const key of ['include', 'exclude'] as const) {
-        const rules = data.scope[key]
-        if (rules !== undefined && (!Array.isArray(rules) || !rules.every(isText))) out.push(error(file, `scope.${key} must be a list of rules`))
-      }
-    }
-  }
-  return out
-}
-
-/** Candidates wait for a human; one that is already registered or rejected must not wait twice. */
-export function validateCandidates(data: unknown, references: readonly Reference[], rejected: readonly Rejection[], taxonomy: Taxonomy | undefined, file: string): Issue[] {
-  if (!Array.isArray(data)) return [error(file, 'candidates.yaml must be a list')]
-  const registeredDomain = new Map(references.flatMap(ref => (ref.domains ?? []).map(domain => [normalizeDomain(domain), ref.id] as const)))
-  const rejectedDomain = new Set(rejected.flatMap(item => (item.domains ?? []).map(normalizeDomain)))
-  const refIds = new Set(references.map(ref => ref.id))
-  const out: Issue[] = []
-  data.forEach((raw: unknown, index) => {
-    if (!isMapping(raw)) {
-      out.push(error(file, `candidates[${index}] must be a mapping`))
-      return
-    }
-    const at = `candidate ${typeof raw.id === 'string' ? raw.id : `[${index}]`}`
-    const problems: string[] = []
-    if (typeof raw.id !== 'string' || !REF_ID.test(raw.id)) problems.push('id must be kebab-case')
-    else if (refIds.has(raw.id)) problems.push(`id ${raw.id} is already registered`)
-    if (!isText(raw.name)) problems.push('name is required')
-    if (!Array.isArray(raw.domains) || raw.domains.length === 0 || !raw.domains.every(isText)) problems.push('domains must list at least one domain')
-    for (const category of Array.isArray(raw.categories) ? raw.categories : []) {
-      const problem = categoryIssue(taxonomy, category)
-      if (problem) problems.push(`categories: ${problem}`)
-    }
-    if (!Array.isArray(raw.found_by) || raw.found_by.length === 0 || !raw.found_by.every(isText)) problems.push('found_by must name the discovery channels')
-    if (!Array.isArray(raw.evidence) || raw.evidence.length === 0) problems.push('evidence must show the product exists')
-    else (raw.evidence as Evidence[]).forEach((item, i) => problems.push(...evidenceIssues(item, i)))
-    if (!isDate(raw.proposed_at)) problems.push('proposed_at must be YYYY-MM-DD')
-    for (const domain of Array.isArray(raw.domains) ? raw.domains.filter(isText).map(normalizeDomain) : []) {
-      const owner = registeredDomain.get(domain)
-      if (owner !== undefined) problems.push(`domain ${domain} is already registered as ${owner}`)
-      if (rejectedDomain.has(domain)) problems.push(`domain ${domain} was rejected before`)
-    }
-    out.push(...problems.map(message => error(file, `${at}: ${message}`)))
-  })
-  return out
-}
-
-export function validateRejected(data: unknown, file: string): Issue[] {
-  if (!Array.isArray(data)) return [error(file, 'rejected.yaml must be a list')]
-  return data.flatMap((raw: unknown, index) => {
-    const item = (isMapping(raw) ? raw : {}) as Partial<Rejection>
-    const at = `rejected[${index}]`
-    const problems: string[] = []
-    if (!isText(item.id)) problems.push(`${at}.id is required`)
-    if (!isText(item.name)) problems.push(`${at}.name is required`)
-    if (!isText(item.reason)) problems.push(`${at}.reason is required`)
-    if (!isDate(item.rejected_at)) problems.push(`${at}.rejected_at must be YYYY-MM-DD`)
-    return problems.map(message => error(file, message))
-  })
-}
-
-/** Nobody gets forgotten: every competitor overlapping a study's categories is included or excluded with a reason. */
-export function coverageIssues(study: Study, references: readonly Reference[], file: string): Issue[] {
-  const categories = Array.isArray(study.categories) ? study.categories : []
-  if (categories.length === 0) return []
-  const out: Issue[] = []
-  for (const ref of references) {
-    const overlap = isMapping(ref.stance?.overlap) ? ref.stance.overlap : {}
-    const hit = categories.find(category => category in overlap)
-    if (hit === undefined || ref.id in study.references || (study.excluded ?? {})[ref.id] !== undefined) continue
-    out.push(warn(file, `${ref.id} overlaps ${hit}: include it or add it to excluded with a reason`))
-  }
   return out
 }
 
@@ -367,7 +202,7 @@ function dimensionIssues(dimensions: unknown[], file: string): Issue[] {
   return out
 }
 
-export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<string>, file: string, taxonomy?: Taxonomy): Issue[] {
+export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<string>, file: string): Issue[] {
   if (!isMapping(data)) return [error(file, 'study.yaml must be a mapping')]
   const study = data as Partial<Study>
   const out: Issue[] = []
@@ -403,24 +238,8 @@ export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<
       if (!isMapping(decision.snapshot)) out.push(error(file, 'decision.snapshot is missing; record decisions with research decide'))
     }
   }
-  if (study.categories !== undefined) {
-    if (!Array.isArray(study.categories)) out.push(error(file, 'categories must be a list of taxonomy categories'))
-    else {
-      for (const category of study.categories) {
-        const problem = categoryIssue(taxonomy, category)
-        if (problem) out.push(error(file, `categories: ${problem}`))
-      }
-    }
-  }
-  if (study.excluded !== undefined) {
-    if (!isMapping(study.excluded)) out.push(error(file, 'excluded must map reference ids to reasons'))
-    else {
-      for (const [id, reason] of Object.entries(study.excluded)) {
-        if (!refIds.has(id)) out.push(error(file, `excluded.${id} is not in references.yaml`))
-        if (!isText(reason)) out.push(error(file, `excluded.${id} needs a reason`))
-        if (isMapping(study.references) && id in study.references) out.push(error(file, `${id} is both referenced and excluded`))
-      }
-    }
+  for (const key of ['categories', 'excluded']) {
+    if (key in study) out.push(error(file, `${key} is gone in research 0.2: studies pick their references per task; remove it`))
   }
   if (!hasOurs && Array.isArray(study.dimensions) && study.dimensions.length > 0) {
     out.push(warn(file, 'no reference has the ours role; our design is not compared'))

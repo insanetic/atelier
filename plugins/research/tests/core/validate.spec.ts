@@ -146,3 +146,23 @@ test('code evidence paths stay inside the checkout', () => {
   const f = codeFinding({ evidence: [{ ...codeFinding().evidence[0], path: '../../../../.ssh/id_rsa' }] })
   assert.match(text(validateFinding(f, study(), 'f')), /path must be relative to the repository root/)
 })
+
+test('references hold facts only: market fields are errors that point to the market plugin', () => {
+  const legacy = [{ id: 'lago', name: 'Lago', kind: 'product', categories: ['usage-billing'], stance: { tier: 1 } }]
+  const out = text(validateReferences(legacy, 'references.yaml'))
+  assert.match(out, /references\[0\]\.categories is not a reference fact; market data belongs in research\/market\/ \(the market plugin\)/)
+  assert.match(out, /references\[0\]\.stance is not a reference fact/)
+})
+
+test('reference kinds cover libraries and write-ups', () => {
+  const kinds = ['product', 'library', 'standard', 'writeup', 'approach', 'ours'].map((kind, i) => ({ id: `r${i}`, name: `R${i}`, kind }))
+  assert.deepEqual(validateReferences(kinds, 'f'), [])
+  assert.match(text(validateReferences([{ id: 'x', name: 'X', kind: 'company' }], 'f')), /kind must be one of product, library, standard, writeup, approach, ours/)
+})
+
+test('a 0.1 study with categories or excluded is told to drop them', () => {
+  const legacy = { ...study(), categories: ['usage-billing'], excluded: { lago: 'no tax' } }
+  const out = text(validateStudy(legacy, 'tax', REF_IDS, 'f'))
+  assert.match(out, /categories is gone in research 0\.2: studies pick their references per task; remove it/)
+  assert.match(out, /excluded is gone in research 0\.2/)
+})
