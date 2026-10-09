@@ -6,7 +6,7 @@
     {
       "name": "research",
       "source": "./plugins/research",
-      "description": "Evidence-anchored technical prior-art studies: how others solve a problem, verified, against our design"
+      "description": "Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares - every claim verified"
     },
     {
       "name": "premortem",

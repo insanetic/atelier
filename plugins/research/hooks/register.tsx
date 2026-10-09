@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ToolSpec } from 'claude-code'
 import * as core from '../dist/core.js'
 
-const USER_AGENT = 'research/0.1 (+https://github.com/insanetic/atelier)'
+const USER_AGENT = 'research/0.2 (+https://github.com/insanetic/atelier)'
 // $.http.fetch takes no timeout and the hook budget stands still while it waits:
 // a source that never answers would hold the tool, so the clock bounds it.
 const FETCH_TIMEOUT_MS = 15_000

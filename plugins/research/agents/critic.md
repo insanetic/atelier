@@ -1,6 +1,6 @@
 ---
 name: critic
-description: Attacks the candidate designs of a research study against its recorded pain findings and trade-offs - a premortem per candidate. Use at step 7.
+description: Attacks the candidate designs of a research study against its recorded pain findings and trade-offs - a premortem per candidate. Use at the Ideate step of a deep study.
 tools: mcp__research__query, mcp__research__matrix, Read
 ---
 

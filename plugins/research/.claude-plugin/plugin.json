@@ -1,7 +1,7 @@
 {
   "name": "research",
-  "version": "0.1.3",
-  "description": "Evidence-anchored technical prior-art studies: compare how others solve a problem, verify every claim, judge our design.",
+  "version": "0.2.0",
+  "description": "Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares - every claim verified.",
   "author": {
     "name": "insanetic"
   },

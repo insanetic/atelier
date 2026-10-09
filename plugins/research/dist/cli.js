@@ -7672,7 +7672,7 @@ async function main(argv, env) {
 import { execFile } from "node:child_process";
 import { access, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-var USER_AGENT = "research/0.1 (+https://github.com/insanetic/atelier)";
+var USER_AGENT = "research/0.2 (+https://github.com/insanetic/atelier)";
 var FETCH_TIMEOUT_MS = 3e4;
 var isMissing = (problem) => problem.code === "ENOENT";
 function nodeIo() {
