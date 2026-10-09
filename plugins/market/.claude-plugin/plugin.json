@@ -1,0 +1,9 @@
+{
+  "name": "market",
+  "version": "0.1.0",
+  "description": "Competitor tracking for research: the registry of every known competitor, discovery that keeps it complete, and the capability landscape.",
+  "author": {
+    "name": "insanetic"
+  },
+  "dependencies": ["research"]
+}
