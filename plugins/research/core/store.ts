@@ -52,10 +52,6 @@ export async function loadNotes(io: Io, cfg: Config, topic: string): Promise<str
   return (await io.readText(files.notes(cfg, topic))) ?? ''
 }
 
-export function saveReferences(io: Io, cfg: Config, references: Reference[]): Promise<void> {
-  return io.writeText(files.references(cfg), toYaml(references))
-}
-
 export function saveFindings(io: Io, cfg: Config, topic: string, findings: Finding[]): Promise<void> {
   return io.writeText(files.findings(cfg, topic), toYaml(findings))
 }

@@ -1,5 +1,5 @@
 import { KeyedLock, WEB_KINDS, appendToYamlList, checkEvidence, createStudy, fail, files, loadFindings, loadReferences, loadStudy, ok, setInYaml, stateOf } from '../../research/core/index.ts'
-import type { CellState, Ctx, Evidence, OpResult, Reference, Role } from '../../research/core/index.ts'
+import type { CellState, Ctx, Dimension, Evidence, OpResult, Reference, Role } from '../../research/core/index.ts'
 import { marketFiles } from './paths.ts'
 import { loadCandidates, loadRegistry, loadRejected, loadTaxonomy, saveCandidates } from './store.ts'
 import { normalizeDomain, validateCandidates } from './validate.ts'
@@ -142,20 +142,34 @@ function landscapeRole(ref: Reference, entry: Entry | undefined): Role {
 /**
  * Keeps the standing landscape study in step with the registry: one yes/no
  * question per taxonomy capability; every active tracked reference, plus ours.
- * Its findings carry the evidence behind "who has a public API"; hand-written
- * comments survive.
+ * A reference or capability that has left the registry but already has
+ * findings is kept (and reported), so research check stays clean; a kept
+ * reference is taken out deliberately with research drop. Hand-written comments survive.
  */
-export async function syncLandscape(ctx: Ctx): Promise<OpResult<{ dimensions: number; references: number }>> {
+export async function syncLandscape(ctx: Ctx): Promise<OpResult<{ dimensions: number; references: number; kept: string[] }>> {
   const taxonomy = await loadTaxonomy(ctx.io, ctx.cfg)
   const registry = await loadRegistry(ctx.io, ctx.cfg)
   const references = (await loadReferences(ctx.io, ctx.cfg)).filter(ref => {
     const entry = registry[ref.id]
     return ref.kind === 'ours' || (entry !== undefined && (entry.status ?? 'active') === 'active')
   })
+  const previous = await loadStudy(ctx.io, ctx.cfg, LANDSCAPE)
+  const findings = previous === undefined ? [] : await loadFindings(ctx.io, ctx.cfg, LANDSCAPE)
   const made = await createStudy(ctx, LANDSCAPE, 'deep')
   if (!made.ok) return made
-  const dimensions = Object.entries(taxonomy.capabilities).map(([id, ask]) => ({ id, ask, type: 'bool', volatility: 'medium' }))
-  const roles = Object.fromEntries(references.map(ref => [ref.id, landscapeRole(ref, registry[ref.id])]))
+  const dimensions: Dimension[] = Object.entries(taxonomy.capabilities).map(([id, ask]) => ({ id, ask, type: 'bool', volatility: 'medium' }))
+  const roles: Record<string, Role | Role[]> = Object.fromEntries(references.map(ref => [ref.id, landscapeRole(ref, registry[ref.id])]))
+  const kept: string[] = []
+  for (const [id, role] of Object.entries(previous?.references ?? {})) {
+    if (id in roles || !findings.some(finding => finding.ref === id)) continue
+    roles[id] = role
+    kept.push(id)
+  }
+  for (const dimension of previous?.dimensions ?? []) {
+    if (dimensions.some(dim => dim.id === dimension.id) || !findings.some(finding => finding.dimension === dimension.id)) continue
+    dimensions.push(dimension)
+    kept.push(dimension.id)
+  }
   const path = files.study(ctx.cfg, LANDSCAPE)
   const updated = setInYaml((await ctx.io.readText(path)) ?? '', {
     question: 'Which capabilities does each tracked reference have?',
@@ -164,5 +178,5 @@ export async function syncLandscape(ctx: Ctx): Promise<OpResult<{ dimensions: nu
     dimensions,
   })
   await ctx.io.writeText(path, updated)
-  return ok({ dimensions: dimensions.length, references: references.length })
+  return ok({ dimensions: dimensions.length, references: Object.keys(roles).length, kept })
 }

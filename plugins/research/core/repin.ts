@@ -3,7 +3,9 @@ import { join, parseRepoUrl, treeDir } from './paths.ts'
 import { locateQuote } from './normalize.ts'
 import { lineRange } from './evidence.ts'
 import { ensureTree } from './clone.ts'
-import { listTopics, loadFindings, loadReferences, saveFindings, saveReferences } from './store.ts'
+import { listTopics, loadFindings, loadReferences, saveFindings } from './store.ts'
+import { files } from './paths.ts'
+import { setPathsInYaml } from './yaml.ts'
 import { CODE_KINDS, isSha } from './validate.ts'
 import { fail, ok } from './result.ts'
 import type { OpResult } from './result.ts'
@@ -66,6 +68,16 @@ export async function repin(ctx: Ctx, refId: string, toSha?: string): Promise<Op
     repo.pinned_at = ctx.today
     result.pins.push({ url: repo.url, sha })
   }
-  await saveReferences(ctx.io, ctx.cfg, references)
+  // references.yaml is edited by hand: set the pins in place so its comments and layout survive.
+  const at = references.indexOf(ref)
+  const updates = repos.flatMap(repo => {
+    const index = (ref.repos ?? []).indexOf(repo)
+    return [
+      [[at, 'repos', index, 'pin'], repo.pin],
+      [[at, 'repos', index, 'pinned_at'], repo.pinned_at],
+    ] as const
+  })
+  const path = files.references(ctx.cfg)
+  await ctx.io.writeText(path, setPathsInYaml((await ctx.io.readText(path)) ?? '', updates))
   return ok(result)
 }

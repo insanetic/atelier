@@ -110,3 +110,10 @@ test('after finishing, a cited finding that is later disputed only warns', async
   assert.deepEqual(issues.map(issue => `${issue.level}/${issue.kind}`), ['warn/freshness'])
   assert.match(issues[0]?.message ?? '', /the brief cites stripe\.rounding, which is disputed since 2026-10-08; refresh the brief/)
 })
+
+test('a citation above the first section is checked too', async () => {
+  const { io, ctx } = seeded(brief().replace('Cost: 410k tokens, 24 min', 'Cost: 410k tokens, 24 min, see [f:stripe.vat]'))
+  const before = io.files.get(files.study(CFG, 'tax'))
+  assert.match(errorsOf(await finish(ctx, 'tax')), /stripe\.vat does not exist/)
+  assert.equal(io.files.get(files.study(CFG, 'tax')), before)
+})

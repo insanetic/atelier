@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { repin } from '../../core/repin.ts'
 import { loadFindings, loadReferences } from '../../core/store.ts'
+import { files } from '../../core/paths.ts'
 import { fakeIo } from './fake-io.ts'
 import { gitFake } from './git-fake.ts'
 import { CFG, LAGO_FILE, LAGO_URL, NEW_SHA, SHA, TODAY, codeFinding, lagoFilePath, seedStudy } from './fixtures.ts'
@@ -40,4 +41,15 @@ test('repin refuses a repository url git could read as an option, before running
   const out = await repin({ io, cfg: CFG, today: TODAY }, 'lago')
   assert.match(out.ok ? '' : out.errors[0], /unsupported repository url/)
   assert.deepEqual(io.runs, [])
+})
+
+test('repin keeps the comments and layout of a hand-edited references.yaml', async () => {
+  const io = fakeIo({ [lagoFilePath()]: LAGO_FILE, [lagoFilePath(NEW_SHA)]: LAGO_FILE })
+  seedStudy(io)
+  const text = `# facts only\n- id: lago # open source, AGPL\n  name: Lago\n  repos:\n    - url: ${LAGO_URL}\n      pin: ${SHA}\n      pinned_at: 2026-10-01\n# --- standards ---\n- id: stripe\n  name: Stripe\n- id: subneo\n  name: Subneo\n`
+  io.files.set(files.references(CFG), text)
+  gitFake(io)
+  assert.equal((await repin({ io, cfg: CFG, today: TODAY }, 'lago')).ok, true)
+  const after = io.files.get(files.references(CFG)) ?? ''
+  assert.equal(after, text.replace(SHA, NEW_SHA).replace('2026-10-01', TODAY))
 })

@@ -70,3 +70,10 @@ test('repos that is not a list is an error, not a crash', async () => {
   seedStudy(io, { references: [{ id: 'lago', name: 'Lago', repos }, { id: 'stripe', name: 'Stripe' }, { id: 'subneo', name: 'Subneo' }] })
   assert.match(renderIssues(await runCheck(ctxOf(io))), /references\[0\]\.repos must be a list/)
 })
+
+test('a 0.1 registry layout is named with what to do', async () => {
+  const io = fakeIo()
+  seedStudy(io)
+  io.files.set('/repo/research/registry/references.yaml', '- id: lago\n  name: Lago\n')
+  assert.match(renderIssues(await runCheck(ctxOf(io))), /error \/repo\/research\/registry\/references\.yaml: research\/registry\/ is the research 0\.1 layout: move the reference facts to research\/references\.yaml and the market data to research\/market\/ \(market plugin\)/)
+})

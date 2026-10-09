@@ -86,6 +86,11 @@ Findings age:
 
 `research reverify --due` re-checks old findings without the model, and `research stale` lists what needs work.
 
+**Upgrading from 0.1:** `research check` reports a `research/registry/` folder as the old layout.
+- Move the reference facts (`id`, `name`, `kind`, `docs`, `api_spec`, `repos`, `license`, `note`) to `research/references.yaml`.
+- Move everything else (stance, categories, domains, candidates, the taxonomy) to `research/market/`, which the [market](../market) plugin manages.
+- Rename `mode: full` to `mode: deep`.
+
 ---
 
 ## Competitor tracking

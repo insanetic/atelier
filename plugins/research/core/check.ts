@@ -1,6 +1,6 @@
 import type { Ctx } from './io.ts'
 import type { Finding, Issue, Reference, Study } from './types.ts'
-import { files } from './paths.ts'
+import { files, join } from './paths.ts'
 import { listTopics, loadNotes, readYaml } from './store.ts'
 import { briefGate, citationIssues, decidedGate, validateFinding, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
 import { isStale, stalePins, volatilityOf } from './fresh.ts'
@@ -15,6 +15,10 @@ const isMapping = (item: unknown): item is Record<string, unknown> => item !== n
 /** Every schema, integrity and freshness rule, offline: no fetches and no git. */
 export async function runCheck(ctx: Ctx): Promise<Issue[]> {
   const issues: Issue[] = []
+  const legacyFile = join(ctx.cfg.dir, 'registry', 'references.yaml')
+  if (await ctx.io.exists(legacyFile)) {
+    issues.push(error(legacyFile, 'research/registry/ is the research 0.1 layout: move the reference facts to research/references.yaml and the market data to research/market/ (market plugin)'))
+  }
   const refsFile = files.references(ctx.cfg)
   const refs = await readYaml(ctx.io, refsFile)
   if (refs.error !== undefined) issues.push(error(refsFile, refs.error))

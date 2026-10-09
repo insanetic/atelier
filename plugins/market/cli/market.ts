@@ -77,7 +77,9 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
     case 'landscape': {
       const out = await syncLandscape(ctx)
       if (!out.ok) return { code: 1, output: out.errors.join('\n') }
-      return { code: 0, output: `landscape: ${out.value.dimensions} capabilities, ${out.value.references} references` }
+      const { dimensions, references, kept } = out.value
+      const note = kept.length === 0 ? '' : `; kept because they have findings: ${kept.join(', ')}`
+      return { code: 0, output: `landscape: ${dimensions} capabilities, ${references} references${note}` }
     }
     case 'check': {
       const issues = await runMarketCheck(ctx)

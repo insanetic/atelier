@@ -68,7 +68,7 @@ Run every step without asking the user anything, and report at the end.
 4. **Verify.** Dispatch one `research:verifier` per reference, all in one message. Give each only that reference's finding ids, which `research query --study <topic> --ref <ref>` lists.
    - A verifier may report a finding as needing a browser. For each one, open the page with your browser tools and read the quote.
    - Then call `verify_finding` with `browser_confirmed: true`, or with `outcome: disputed` and a note.
-5. **Write the brief.** Call `matrix`. Put the cost on the line under the `# <topic>` title (`Cost: <tokens> tokens, <minutes> min`).
+5. **Write the brief.** Call `matrix` for the answers, and `query` with `kind: reuse` and `kind: pain` for the reuse findings and pitfalls (the matrix shows answers only). Put the cost on the line under the `# <topic>` title (`Cost: <tokens> tokens, <minutes> min`).
    - Then fill in exactly these `##` sections, in this order:
      1. `## Answer`: three sentences. Has it been done? Which approach dominates? What should we do? "Nothing close exists" is a valid answer when it lists what was searched.
      2. `## Who solved it`: each reference, its kind, and why it was picked.

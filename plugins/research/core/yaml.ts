@@ -37,3 +37,10 @@ export function deleteInYaml(text: string, path: readonly string[]): string {
   doc.deleteIn(path)
   return doc.toString({ lineWidth: 0 })
 }
+
+/** Sets nested values in a hand-edited YAML document, keeping its comments and layout. */
+export function setPathsInYaml(text: string, entries: readonly (readonly [readonly (string | number)[], unknown])[]): string {
+  const doc = parseDocument(text)
+  for (const [path, value] of entries) doc.setIn(path, value)
+  return doc.toString({ lineWidth: 0 })
+}

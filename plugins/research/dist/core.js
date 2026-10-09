@@ -6346,6 +6346,11 @@ function deleteInYaml(text, path) {
   doc.deleteIn(path);
   return doc.toString({ lineWidth: 0 });
 }
+function setPathsInYaml(text, entries) {
+  const doc = parseDocument(text);
+  for (const [path, value] of entries) doc.setIn(path, value);
+  return doc.toString({ lineWidth: 0 });
+}
 
 // core/paths.ts
 function join(...parts) {
@@ -7049,9 +7054,6 @@ async function loadStudy(io, cfg, topic) {
 async function loadNotes(io, cfg, topic) {
   return await io.readText(files.notes(cfg, topic)) ?? "";
 }
-function saveReferences(io, cfg, references) {
-  return io.writeText(files.references(cfg), toYaml(references));
-}
 function saveFindings(io, cfg, topic, findings) {
   return io.writeText(files.findings(cfg, topic), toYaml(findings));
 }
@@ -7443,7 +7445,16 @@ async function repin(ctx, refId, toSha) {
     repo.pinned_at = ctx.today;
     result.pins.push({ url: repo.url, sha });
   }
-  await saveReferences(ctx.io, ctx.cfg, references);
+  const at = references.indexOf(ref);
+  const updates = repos.flatMap((repo) => {
+    const index = (ref.repos ?? []).indexOf(repo);
+    return [
+      [[at, "repos", index, "pin"], repo.pin],
+      [[at, "repos", index, "pinned_at"], repo.pinned_at]
+    ];
+  });
+  const path = files.references(ctx.cfg);
+  await ctx.io.writeText(path, setPathsInYaml(await ctx.io.readText(path) ?? "", updates));
   return ok(result);
 }
 
@@ -7454,6 +7465,10 @@ var idOf = (item) => item !== null && typeof item === "object" ? item.id : void 
 var isMapping2 = (item) => item !== null && typeof item === "object" && !Array.isArray(item);
 async function runCheck(ctx) {
   const issues = [];
+  const legacyFile = join(ctx.cfg.dir, "registry", "references.yaml");
+  if (await ctx.io.exists(legacyFile)) {
+    issues.push(error2(legacyFile, "research/registry/ is the research 0.1 layout: move the reference facts to research/references.yaml and the market data to research/market/ (market plugin)"));
+  }
   const refsFile = files.references(ctx.cfg);
   const refs = await readYaml(ctx.io, refsFile);
   if (refs.error !== void 0) issues.push(error2(refsFile, refs.error));
@@ -7625,7 +7640,8 @@ async function finish(ctx, topic) {
   const study = loaded.value;
   if (study.mode !== "brief") return fail(`study ${topic} is mode ${study.mode}; finish closes a brief`);
   const expected = BRIEF_SECTIONS.map((title) => title === "Ours against theirs" && study.greenfield === true ? GREENFIELD_SECTION : title);
-  const sections = sectionsOf(await loadNotes(ctx.io, ctx.cfg, topic));
+  const notes = await loadNotes(ctx.io, ctx.cfg, topic);
+  const sections = sectionsOf(notes);
   const titles = sections.map((section) => section.title);
   const problems = [];
   if (titles.join("\n") !== expected.join("\n")) {
@@ -7643,20 +7659,19 @@ async function finish(ctx, topic) {
     owners.set(owner, found);
     return found;
   };
-  const cited = /* @__PURE__ */ new Set();
   for (const section of sections) {
-    const cites = citationsOf(section.body, topic);
-    if (cites.length === 0 && !UNCITED_SECTIONS.includes(section.title)) problems.push(`section ${section.title} cites no finding`);
-    for (const cite of cites) {
-      const key = cite.topic === topic ? cite.id : `${cite.topic}/${cite.id}`;
-      if (cited.has(key)) continue;
-      cited.add(key);
-      const owned = await ownerOf(cite.topic);
-      const finding = owned.findings.get(cite.id);
-      const dimension = owned.study?.dimensions.find((dim) => dim.id === finding?.dimension);
-      const problem = citableProblem(key, finding, dimension, ctx.today);
-      if (problem !== void 0) problems.push(problem);
-    }
+    if (citationsOf(section.body, topic).length === 0 && !UNCITED_SECTIONS.includes(section.title)) problems.push(`section ${section.title} cites no finding`);
+  }
+  const cited = /* @__PURE__ */ new Set();
+  for (const cite of citationsOf(notes, topic)) {
+    const key = cite.topic === topic ? cite.id : `${cite.topic}/${cite.id}`;
+    if (cited.has(key)) continue;
+    cited.add(key);
+    const owned = await ownerOf(cite.topic);
+    const finding = owned.findings.get(cite.id);
+    const dimension = owned.study?.dimensions.find((dim) => dim.id === finding?.dimension);
+    const problem = citableProblem(key, finding, dimension, ctx.today);
+    if (problem !== void 0) problems.push(problem);
   }
   if (problems.length > 0) return fail(...problems);
   const finished = { at: ctx.today, cites: cited.size };
@@ -7787,9 +7802,9 @@ export {
   runCheck,
   saveAssessment,
   saveFindings,
-  saveReferences,
   sectionsOf,
   setInYaml,
+  setPathsInYaml,
   setScore,
   stalePins,
   stateOf,

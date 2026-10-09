@@ -22,7 +22,8 @@ export async function finish(ctx: Ctx, topic: string): Promise<OpResult<Finished
   const study = loaded.value
   if (study.mode !== 'brief') return fail(`study ${topic} is mode ${study.mode}; finish closes a brief`)
   const expected = BRIEF_SECTIONS.map(title => (title === 'Ours against theirs' && study.greenfield === true ? GREENFIELD_SECTION : title))
-  const sections = sectionsOf(await loadNotes(ctx.io, ctx.cfg, topic))
+  const notes = await loadNotes(ctx.io, ctx.cfg, topic)
+  const sections = sectionsOf(notes)
   const titles = sections.map(section => section.title)
   const problems: string[] = []
   if (titles.join('\n') !== expected.join('\n')) {
@@ -42,20 +43,20 @@ export async function finish(ctx: Ctx, topic: string): Promise<OpResult<Finished
     owners.set(owner, found)
     return found
   }
-  const cited = new Set<string>()
   for (const section of sections) {
-    const cites = citationsOf(section.body, topic)
-    if (cites.length === 0 && !UNCITED_SECTIONS.includes(section.title)) problems.push(`section ${section.title} cites no finding`)
-    for (const cite of cites) {
-      const key = cite.topic === topic ? cite.id : `${cite.topic}/${cite.id}`
-      if (cited.has(key)) continue
-      cited.add(key)
-      const owned = await ownerOf(cite.topic)
-      const finding = owned.findings.get(cite.id)
-      const dimension = owned.study?.dimensions.find(dim => dim.id === finding?.dimension)
-      const problem = citableProblem(key, finding, dimension, ctx.today)
-      if (problem !== undefined) problems.push(problem)
-    }
+    if (citationsOf(section.body, topic).length === 0 && !UNCITED_SECTIONS.includes(section.title)) problems.push(`section ${section.title} cites no finding`)
+  }
+  // Every citation counts, including any above the first section (the cost line, an intro).
+  const cited = new Set<string>()
+  for (const cite of citationsOf(notes, topic)) {
+    const key = cite.topic === topic ? cite.id : `${cite.topic}/${cite.id}`
+    if (cited.has(key)) continue
+    cited.add(key)
+    const owned = await ownerOf(cite.topic)
+    const finding = owned.findings.get(cite.id)
+    const dimension = owned.study?.dimensions.find(dim => dim.id === finding?.dimension)
+    const problem = citableProblem(key, finding, dimension, ctx.today)
+    if (problem !== undefined) problems.push(problem)
   }
   if (problems.length > 0) return fail(...problems)
   const finished: Finished = { at: ctx.today, cites: cited.size }

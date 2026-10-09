@@ -6972,10 +6972,23 @@ async function syncLandscape(ctx) {
     const entry = registry[ref.id];
     return ref.kind === "ours" || entry !== void 0 && (entry.status ?? "active") === "active";
   });
+  const previous = await loadStudy(ctx.io, ctx.cfg, LANDSCAPE);
+  const findings = previous === void 0 ? [] : await loadFindings(ctx.io, ctx.cfg, LANDSCAPE);
   const made = await createStudy(ctx, LANDSCAPE, "deep");
   if (!made.ok) return made;
   const dimensions = Object.entries(taxonomy.capabilities).map(([id, ask]) => ({ id, ask, type: "bool", volatility: "medium" }));
   const roles = Object.fromEntries(references.map((ref) => [ref.id, landscapeRole(ref, registry[ref.id])]));
+  const kept = [];
+  for (const [id, role] of Object.entries(previous?.references ?? {})) {
+    if (id in roles || !findings.some((finding) => finding.ref === id)) continue;
+    roles[id] = role;
+    kept.push(id);
+  }
+  for (const dimension of previous?.dimensions ?? []) {
+    if (dimensions.some((dim) => dim.id === dimension.id) || !findings.some((finding) => finding.dimension === dimension.id)) continue;
+    dimensions.push(dimension);
+    kept.push(dimension.id);
+  }
   const path = files.study(ctx.cfg, LANDSCAPE);
   const updated = setInYaml(await ctx.io.readText(path) ?? "", {
     question: "Which capabilities does each tracked reference have?",
@@ -6984,7 +6997,7 @@ async function syncLandscape(ctx) {
     dimensions
   });
   await ctx.io.writeText(path, updated);
-  return ok({ dimensions: dimensions.length, references: references.length });
+  return ok({ dimensions: dimensions.length, references: Object.keys(roles).length, kept });
 }
 
 // core/check.ts

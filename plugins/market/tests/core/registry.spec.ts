@@ -8,7 +8,7 @@ import { approveCandidate, listReferences, proposeCandidate, rejectCandidate, re
 import type { CandidateInput } from '../../core/registry.ts'
 import { marketFiles } from '../../core/paths.ts'
 import { loadCandidates, loadRegistry, loadRejected } from '../../core/store.ts'
-import { CFG, TODAY, seedMarket } from './fixtures.ts'
+import { CFG, REGISTRY, TAXONOMY, TODAY, seedMarket } from './fixtures.ts'
 
 const ctxOf = (io: FakeIo) => ({ io, cfg: CFG, today: TODAY })
 
@@ -110,5 +110,21 @@ test('syncLandscape keeps one deep study: one question per capability, every act
   io.files.set(files.study(CFG, 'landscape'), `# kept\n${io.files.get(files.study(CFG, 'landscape'))}`)
   await syncLandscape(ctx)
   assert.match(io.files.get(files.study(CFG, 'landscape')) ?? '', /^# kept\n/)
+  assert.deepEqual(await runCheck(ctx), [])
+})
+
+test('syncLandscape keeps a reference or capability that already has findings, so research check stays clean', async () => {
+  const { io, ctx } = seeded()
+  await syncLandscape(ctx)
+  const finding = (ref: string, dimension: string) =>
+    docsFinding({ id: `${ref}.${dimension}`, ref, dimension, answer: true, evidence: [{ kind: 'docs', url: 'https://docs.stripe.com/api', quote: 'The Stripe API is organized around REST.', retrieved: TODAY }] })
+  io.files.set(files.findings(CFG, 'landscape'), toYaml([finding('lago', 'public_api'), finding('stripe', 'self_hosted')]))
+  io.files.set(marketFiles.registry(CFG), toYaml({ ...REGISTRY, lago: { ...REGISTRY.lago, status: 'acquired' } }))
+  io.files.set(marketFiles.taxonomy(CFG), toYaml({ ...TAXONOMY, capabilities: { public_api: TAXONOMY.capabilities.public_api ?? '' } }))
+  const out = await syncLandscape(ctx)
+  assert.deepEqual(out.ok ? out.value.kept : out.errors, ['lago', 'self_hosted'])
+  const landscape = await loadStudy(io, CFG, 'landscape')
+  assert.deepEqual(Object.keys(landscape?.references ?? {}), ['stripe', 'subneo', 'lago'])
+  assert.deepEqual(landscape?.dimensions.map(dim => dim.id), ['public_api', 'self_hosted'])
   assert.deepEqual(await runCheck(ctx), [])
 })
