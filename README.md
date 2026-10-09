@@ -6,6 +6,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 # In Claude Code:
 /plugin marketplace add insanetic/atelier
 /plugin install research@atelier
+/plugin install market@atelier
 /plugin install premortem@atelier
 ```
 
@@ -15,7 +16,8 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 
 | Plugin | Invoke | What it does |
 |---|---|---|
-| [research](plugins/research) | `/study <topic>`, `/discover <category>` | Technical prior-art studies and benchmarks: how other products, open-source projects and standards solve a problem, verified quote by quote and compared with our own design; plus the list of every known competitor, kept complete by discovery. |
+| [research](plugins/research) | `/study <task>` | Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares, every claim verified quote by quote. |
+| [market](plugins/market) | `/discover <category>` | Competitor tracking on top of research: the registry of every known competitor, discovery that keeps it complete, and the capability landscape. |
 | [premortem](plugins/premortem) | `/premortem <plan>` | A premortem before anything costly or hard to reverse: assume it already failed, work backward to the causes from every vantage point, rank them, and change the plan before going ahead. |
 
 ---
@@ -27,6 +29,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 ```bash
 /plugin marketplace add insanetic/atelier     # from GitHub
 /plugin install research@atelier
+/plugin install market@atelier
 /plugin install premortem@atelier
 # or, from a local clone:
 /plugin marketplace add ./path/to/atelier
@@ -39,6 +42,7 @@ The same from a terminal: `claude plugin marketplace add insanetic/atelier && cl
 ```bash
 claude plugin marketplace add insanetic/atelier --scope project
 claude plugin install research@atelier --scope project
+claude plugin install market@atelier --scope project
 claude plugin install premortem@atelier --scope project
 ```
 
@@ -54,6 +58,7 @@ Update later with `/plugin marketplace update atelier`; enable or disable with `
 │   └── marketplace.json          # the atelier marketplace: one entry per plugin
 └── plugins/
     ├── research/                 # self-contained plugin: manifest, skill, agents, hooks, CLI, tests
+    ├── market/                   # competitor tracking: registry, discovery, landscape (depends on research)
     └── premortem/                # skill-only plugin: manifest and the premortem skill
 ```
 

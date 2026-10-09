@@ -9,6 +9,11 @@
       "description": "Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares - every claim verified"
     },
     {
+      "name": "market",
+      "source": "./plugins/market",
+      "description": "Competitor tracking on top of research: the registry of every known competitor, discovery that keeps it complete, and the capability landscape"
+    },
+    {
       "name": "premortem",
       "source": "./plugins/premortem",
       "description": "Premortems before costly or one-way calls: assume it already failed, find why, change the plan now"
