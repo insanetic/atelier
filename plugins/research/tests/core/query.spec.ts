@@ -40,3 +40,10 @@ test('query refuses a study name that is not a topic', async () => {
   io.files.set('/repo/research/other/findings.yaml', toYaml([docsFinding()]))
   assert.deepEqual(await query({ io, cfg: CFG, today: TODAY }, { study: '../other' }), [])
 })
+
+test('a finding without a dimension is labelled by its kind', async () => {
+  const io = fakeIo()
+  const pain = docsFinding({ id: 'stripe.pain.1', dimension: undefined, kind: 'pain', answer: 'Rounding drift', detail: 'Per-line rounding drifts from the invoice total' })
+  seedStudy(io, { findings: [pain] })
+  assert.match(renderHits(await query({ io, cfg: CFG, today: TODAY }, {})), /^tax\/stripe\.pain\.1 \[unverified\] stripe pain = Rounding drift$/m)
+})

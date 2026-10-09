@@ -1,5 +1,5 @@
 import type { Ctx } from './io.ts'
-import type { Answer, Evidence, Finding, FindingKind, Score, Via } from './types.ts'
+import type { Answer, Evidence, Finding, FindingKind, Reuse, Score, Via } from './types.ts'
 import { files } from './paths.ts'
 import { TOPIC_RULE, isTopic, loadAssessment, loadFindings, loadValidStudy, saveAssessment, saveFindings } from './store.ts'
 import { WEB_KINDS, canConfirm, methodOf, validateFinding, validateScore } from './validate.ts'
@@ -11,12 +11,13 @@ import type { OpResult } from './result.ts'
 export type AddFindingInput = {
   study: string
   ref: string
-  dimension: string
+  dimension?: string
   kind?: FindingKind
   answer: Answer
   detail?: string
   searched?: string[]
   evidence: Evidence[]
+  reuse?: Reuse
   id?: string
 }
 
@@ -48,11 +49,11 @@ function upsert<T>(list: readonly T[], isSame: (item: T) => boolean, item: T): T
   return index === -1 ? [...list, item] : list.map((existing, i) => (i === index ? item : existing))
 }
 
-function nextId(findings: readonly Finding[], ref: string, dimension: string, kind: FindingKind): string {
-  const base = `${ref}.${dimension}`
+function nextId(findings: readonly Finding[], ref: string, segment: string, kind: FindingKind, first: number): string {
+  const base = `${ref}.${segment}`
   if (kind === 'answer') return base
   const taken = new Set(findings.map(finding => finding.id))
-  let n = 2
+  let n = first
   while (taken.has(`${base}.${n}`)) n++
   return `${base}.${n}`
 }
@@ -70,13 +71,16 @@ export async function addFinding(ctx: Ctx, input: AddFindingInput, lock = new Ke
   const loaded = await loadValidStudy(ctx, input.study)
   if (!loaded.ok) return loaded
   const kind = input.kind ?? 'answer'
+  // A pain or reuse finding without a dimension is numbered from 1 under its kind; one under a dimension starts at 2, after the answer.
+  const segment = input.dimension ?? kind
+  const first = input.dimension === undefined ? 1 : 2
   const evidence: Evidence[] = input.evidence.map(item =>
     WEB_KINDS.includes(item.kind) && item.retrieved === undefined ? { ...item, retrieved: ctx.today } : { ...item },
   )
   const draft: Finding = {
-    id: input.id ?? (kind === 'answer' ? `${input.ref}.${input.dimension}` : `${input.ref}.${input.dimension}.2`),
+    id: input.id ?? (kind === 'answer' ? `${input.ref}.${segment}` : `${input.ref}.${segment}.${first}`),
     ref: input.ref,
-    dimension: input.dimension,
+    ...(input.dimension === undefined ? {} : { dimension: input.dimension }),
     kind,
     answer: input.answer,
     evidence,
@@ -85,6 +89,7 @@ export async function addFinding(ctx: Ctx, input: AddFindingInput, lock = new Ke
     status: 'current',
   }
   if (input.detail !== undefined) draft.detail = input.detail
+  if (input.reuse !== undefined) draft.reuse = input.reuse
   if (input.searched !== undefined) draft.searched = input.searched
   const invalid = validateFinding(draft, loaded.value, files.findings(ctx.cfg, input.study))
   if (invalid.length > 0) return fail(...invalid.map(issue => issue.message))
@@ -105,7 +110,7 @@ export async function addFinding(ctx: Ctx, input: AddFindingInput, lock = new Ke
   if (errors.length > 0) return fail(...errors)
   const finding = await lock.run(input.study, async () => {
     const findings = await loadFindings(ctx.io, ctx.cfg, input.study)
-    const stored: Finding = { ...draft, id: input.id ?? nextId(findings, input.ref, input.dimension, kind) }
+    const stored: Finding = { ...draft, id: input.id ?? nextId(findings, input.ref, segment, kind, first) }
     await saveFindings(ctx.io, ctx.cfg, input.study, upsert(findings, existing => existing.id === stored.id, stored))
     return stored
   })

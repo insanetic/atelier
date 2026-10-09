@@ -19,8 +19,12 @@ export const CONFIDENCES = ['confirmed', 'likely', 'unverified'] as const
 export type Confidence = (typeof CONFIDENCES)[number]
 export const FINDING_STATUSES = ['current', 'superseded', 'disputed', 'drifted'] as const
 export type FindingStatus = (typeof FINDING_STATUSES)[number]
-export const FINDING_KINDS = ['answer', 'pain'] as const
+export const FINDING_KINDS = ['answer', 'pain', 'reuse'] as const
 export type FindingKind = (typeof FINDING_KINDS)[number]
+export const REUSE_TYPES = ['library', 'spec', 'schema', 'code', 'test_suite'] as const
+export type ReuseType = (typeof REUSE_TYPES)[number]
+/** What a reuse finding points at: something we can depend on, follow or read. */
+export type Reuse = { type: ReuseType; url: string; license: string }
 export const VIAS = ['fetch', 'git', 'archive', 'browser', 'file'] as const
 export type Via = (typeof VIAS)[number]
 export const KANO = ['must', 'performance', 'attractive'] as const
@@ -110,10 +114,12 @@ export type Verified = { by: string; at: string; via: Via }
 export type Finding = {
   id: string
   ref: string
-  dimension: string
+  /** Absent for a pain or reuse finding that belongs to no dimension. */
+  dimension?: string
   kind: FindingKind
   answer: Answer
   detail?: string
+  reuse?: Reuse
   searched?: string[]
   evidence: Evidence[]
   method: Method

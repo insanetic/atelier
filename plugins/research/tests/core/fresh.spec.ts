@@ -28,3 +28,9 @@ test('stalePins reports pins older than 180 days', () => {
   assert.deepEqual(stalePins(REFERENCES, '2026-10-08'), [])
   assert.deepEqual(stalePins(REFERENCES, '2027-04-01'), [{ ref: 'lago', url: 'https://github.com/getlago/lago-api', pinned_at: '2026-10-01' }])
 })
+
+test('a finding not tied to a dimension ages on the medium TTL', () => {
+  const pain = docsFinding({ id: 'stripe.pain.1', dimension: undefined, kind: 'pain', verified: { by: 'v', at: '2026-01-01', via: 'fetch' } })
+  assert.equal(isStale(pain, undefined, '2026-06-29'), false)
+  assert.equal(isStale(pain, undefined, '2026-07-01'), true)
+})

@@ -3,7 +3,7 @@ import type { Finding, Issue, Reference, Study } from './types.ts'
 import { files } from './paths.ts'
 import { listTopics, loadNotes, readYaml } from './store.ts'
 import { citationIssues, decidedGate, validateFinding, validateFindings, validateReferences, validateScores, validateStudy } from './validate.ts'
-import { isStale, stalePins } from './fresh.ts'
+import { isStale, stalePins, volatilityOf } from './fresh.ts'
 
 type Bundle = { topic: string; study: Study; findings: Finding[]; ids: Set<string> }
 
@@ -73,7 +73,7 @@ function freshness(study: Study, findings: readonly Finding[], today: string, fi
     if (finding.status !== 'current' || finding.verified === undefined) continue
     const dimension = study.dimensions.find(dim => dim.id === finding.dimension)
     if (isStale(finding, dimension, today)) {
-      out.push(stale(file, `${finding.id}: verified ${finding.verified.at}, past its ${dimension?.volatility ?? 'fast'} TTL`))
+      out.push(stale(file, `${finding.id}: verified ${finding.verified.at}, past its ${volatilityOf(dimension)} TTL`))
     }
   }
   return out

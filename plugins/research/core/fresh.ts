@@ -1,6 +1,11 @@
 import type { Dimension, Finding, Reference, Volatility } from './types.ts'
 
 export const TTL_DAYS: Record<Volatility, number> = { fast: 90, medium: 180, slow: 365 }
+
+/** A finding that belongs to no dimension (a pain or reuse finding) ages like a feature. */
+export function volatilityOf(dimension: Dimension | undefined): Volatility {
+  return dimension?.volatility ?? 'medium'
+}
 export const PIN_MAX_DAYS = 180
 const DAY_MS = 86_400_000
 
@@ -20,7 +25,7 @@ export type CellState = (typeof CELL_STATES)[number]
 
 export function isStale(finding: Finding, dimension: Dimension | undefined, asOf: string): boolean {
   if (finding.verified === undefined || !isDate(finding.verified.at)) return false
-  return addDays(finding.verified.at, TTL_DAYS[dimension?.volatility ?? 'fast']) < asOf
+  return addDays(finding.verified.at, TTL_DAYS[volatilityOf(dimension)]) < asOf
 }
 
 export function stateOf(finding: Finding, dimension: Dimension | undefined, today: string): CellState {

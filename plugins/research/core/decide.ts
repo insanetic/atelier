@@ -1,7 +1,7 @@
 import type { Ctx } from './io.ts'
 import type { Decision } from './types.ts'
 import { files } from './paths.ts'
-import { isStale } from './fresh.ts'
+import { isStale, volatilityOf } from './fresh.ts'
 import { loadFindings, loadValidStudy } from './store.ts'
 import { setInYaml } from './yaml.ts'
 import { fail, ok } from './result.ts'
@@ -33,7 +33,7 @@ export async function decide(ctx: Ctx, input: DecideInput): Promise<OpResult<Dec
     else if (finding.status === 'drifted') problems.push(`${id} has drifted; re-research it first`)
     else if (finding.status !== 'current') problems.push(`${id} is ${finding.status}`)
     else if (finding.verified === undefined || finding.confidence === 'unverified') problems.push(`${id} is not verified`)
-    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${dimension?.volatility ?? 'fast'} TTL; re-verify it first`)
+    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${volatilityOf(dimension)} TTL; re-verify it first`)
     else snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence }
   }
   if (problems.length > 0) return fail(...problems)

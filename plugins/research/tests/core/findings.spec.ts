@@ -4,7 +4,7 @@ import type { Finding } from '../../core/types.ts'
 import { addFinding, renderOp, setScore, verifyFinding } from '../../core/findings.ts'
 import type { AddFindingInput } from '../../core/findings.ts'
 import { KeyedLock } from '../../core/lock.ts'
-import { files } from '../../core/paths.ts'
+import { files, treeDir } from '../../core/paths.ts'
 import { loadAssessment, loadFindings, saveFindings } from '../../core/store.ts'
 import { toYaml } from '../../core/yaml.ts'
 import { fakeIo } from './fake-io.ts'
@@ -225,4 +225,26 @@ test('addFinding checks sources outside the study lock and writes under it', asy
   assert.ok(io.fetched.includes(STRIPE_TAX_URL), 'the source check waited for the lock')
   await Promise.all([occupant, adding])
   assert.deepEqual((await loadFindings(io, CFG, 'tax')).map(f => f.id).sort(), ['lago.rounding', 'stripe.rounding'])
+})
+
+test('addFinding numbers pain and reuse findings without a dimension from 1', async () => {
+  const { io, ctx } = seeded()
+  io.files.set(`${treeDir(CFG, LAGO_URL, SHA)}/LICENSE`, 'GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007\n')
+  const reuse: AddFindingInput = {
+    study: 'tax',
+    ref: 'lago',
+    kind: 'reuse',
+    answer: 'lago tax service',
+    detail: 'Rounds once per invoice',
+    reuse: { type: 'code', url: LAGO_URL, license: 'AGPL-3.0' },
+    evidence: [{ kind: 'code', repo: LAGO_URL, sha: SHA, path: 'LICENSE', lines: '1-2', quote: 'GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3' }],
+  }
+  assert.equal(renderOp(await addFinding(ctx, reuse), 'ok'), 'ok')
+  assert.equal(renderOp(await addFinding(ctx, reuse), 'ok'), 'ok')
+  const pain: AddFindingInput = { ...stripeInput, dimension: undefined, kind: 'pain', answer: 'Rounding drift', detail: 'Per-line rounding drifts from the invoice total' }
+  assert.equal(renderOp(await addFinding(ctx, pain), 'ok'), 'ok')
+  const saved = await loadFindings(io, CFG, 'tax')
+  assert.deepEqual(saved.map(f => f.id), ['lago.reuse.1', 'lago.reuse.2', 'stripe.pain.1'])
+  assert.equal('dimension' in (saved[2] ?? {}), false)
+  assert.deepEqual(saved[0]?.reuse, { type: 'code', url: LAGO_URL, license: 'AGPL-3.0' })
 })

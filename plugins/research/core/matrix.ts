@@ -69,6 +69,7 @@ export function describeFinding(finding: Finding): string[] {
   return [
     `${finding.id}: ${String(finding.answer)} [${finding.confidence}, ${finding.status}${verified}]`,
     ...(finding.detail === undefined ? [] : [finding.detail]),
+    ...(finding.reuse === undefined ? [] : [`reuse: ${finding.reuse.type} ${finding.reuse.url} (${finding.reuse.license})`]),
     ...(finding.note === undefined ? [] : [`note: ${finding.note}`]),
     ...finding.evidence.map(item => `- ${item.kind} ${sourceOf(item)}: "${clip(item.quote)}"`),
   ]

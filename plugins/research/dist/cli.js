@@ -5,6 +5,9 @@ import { homedir } from "node:os";
 
 // core/fresh.ts
 var TTL_DAYS = { fast: 90, medium: 180, slow: 365 };
+function volatilityOf(dimension) {
+  return dimension?.volatility ?? "medium";
+}
 var PIN_MAX_DAYS = 180;
 var DAY_MS = 864e5;
 var isDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -14,7 +17,7 @@ function addDays(date, days) {
 var CELL_STATES = ["verified", "unverified", "stale", "drifted", "disputed", "unknown"];
 function isStale(finding, dimension, asOf) {
   if (finding.verified === void 0 || !isDate(finding.verified.at)) return false;
-  return addDays(finding.verified.at, TTL_DAYS[dimension?.volatility ?? "fast"]) < asOf;
+  return addDays(finding.verified.at, TTL_DAYS[volatilityOf(dimension)]) < asOf;
 }
 function stateOf(finding, dimension, today) {
   if (finding.status === "disputed") return "disputed";
@@ -42,7 +45,8 @@ var EVIDENCE_KINDS = ["code", "api_spec", "spec", "docs", "tested", "blog", "iss
 var METHODS = ["tested", "source", "docs", "third_party", "claimed"];
 var CONFIDENCES = ["confirmed", "likely", "unverified"];
 var FINDING_STATUSES = ["current", "superseded", "disputed", "drifted"];
-var FINDING_KINDS = ["answer", "pain"];
+var FINDING_KINDS = ["answer", "pain", "reuse"];
+var REUSE_TYPES = ["library", "spec", "schema", "code", "test_suite"];
 var VIAS = ["fetch", "git", "archive", "browser", "file"];
 var KANO = ["must", "performance", "attractive"];
 var WARDLEY = ["genesis", "custom", "product", "commodity"];
@@ -6485,6 +6489,33 @@ function numbersIn(text) {
   return (text.match(/\d+(?:[.,]\d+)*/g) ?? []).map((number) => number.replace(/,(?=\d{3}(?!\d))/g, ""));
 }
 
+// core/license.ts
+var LICENSE_NAMES = {
+  mit: ["mit", "mit license"],
+  "apache-2.0": ["apache-2.0", "apache license version 2.0", "apache license, version 2.0", "apache license 2.0"],
+  "bsd-2-clause": ["bsd-2-clause", "bsd 2-clause"],
+  "bsd-3-clause": ["bsd-3-clause", "bsd 3-clause"],
+  "mpl-2.0": ["mpl-2.0", "mozilla public license version 2.0", "mozilla public license, v. 2.0"],
+  "gpl-2.0": ["gpl-2.0", "gnu general public license version 2", "gnu general public license, version 2"],
+  "gpl-3.0": ["gpl-3.0", "gnu general public license version 3", "gnu general public license, version 3"],
+  "lgpl-2.1": ["lgpl-2.1", "gnu lesser general public license version 2.1"],
+  "lgpl-3.0": ["lgpl-3.0", "gnu lesser general public license version 3"],
+  "agpl-3.0": ["agpl-3.0", "gnu affero general public license version 3", "gnu affero general public license"],
+  isc: ["isc", "isc license"],
+  unlicense: ["unlicense", "this is free and unencumbered software released into the public domain"]
+};
+function hasPhrase(text, phrase) {
+  const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`).test(text);
+}
+function licenseGuard(license, evidence) {
+  if (license === "unknown") return void 0;
+  const names = LICENSE_NAMES[license.trim().toLowerCase()] ?? [normalizeText(license)];
+  const quotes = evidence.map((item) => normalizeText(item.quote ?? ""));
+  if (names.some((name) => quotes.some((quote) => hasPhrase(quote, name)))) return void 0;
+  return `license ${license} is not in any quote; quote the licence file or the package page, or use unknown`;
+}
+
 // core/validate.ts
 var CODE_KINDS = ["code", "api_spec", "spec"];
 var WEB_KINDS = ["docs", "blog", "issue", "marketing"];
@@ -6539,7 +6570,7 @@ function answerIssue(dimension, answer) {
 }
 function numberGuard(finding, dimension) {
   const claimed = /* @__PURE__ */ new Set();
-  if (dimension.type === "number" && typeof finding.answer === "number") claimed.add(String(finding.answer));
+  if (dimension?.type === "number" && typeof finding.answer === "number") claimed.add(String(finding.answer));
   for (const number of numbersIn(finding.detail ?? "")) claimed.add(number);
   if (claimed.size === 0) return void 0;
   const quoted = new Set(finding.evidence.flatMap((item) => numbersIn(normalizeText(item.quote ?? ""))));
@@ -6715,24 +6746,46 @@ function validateStudy(data, topic, refIds, file) {
   }
   return out;
 }
+var MAX_SHORT_ANSWER = 120;
+function reuseIssues(finding, evidence) {
+  const out = [];
+  if (!isText(finding.detail)) out.push("a reuse finding needs detail: why it is worth reusing");
+  const reuse = finding.reuse;
+  if (!isMapping(reuse)) return [...out, "a reuse finding needs reuse: type, url and license"];
+  if (!isOneOf(REUSE_TYPES, reuse.type)) out.push(`reuse.type must be one of ${REUSE_TYPES.join(", ")}`);
+  if (typeof reuse.url !== "string" || !/^https?:\/\//.test(reuse.url)) out.push("reuse.url must be an http(s) URL");
+  if (!isText(reuse.license)) out.push("reuse.license is required (or unknown)");
+  else {
+    const problem = licenseGuard(reuse.license, evidence);
+    if (problem) out.push(problem);
+  }
+  return out;
+}
 function validateFinding(raw, study, file) {
   if (!isMapping(raw)) return [error(file, "a finding must be a mapping")];
   const finding = raw;
   const out = [];
-  if (typeof finding.id !== "string" || !FINDING_ID.test(finding.id)) out.push("id must look like <ref>.<dimension>[.<n>]");
-  else if (typeof finding.ref === "string" && typeof finding.dimension === "string") {
-    const base = `${finding.ref}.${finding.dimension}`;
-    const isOwn = finding.id === base || finding.id.startsWith(`${base}.`) && /^\d+$/.test(finding.id.slice(base.length + 1));
-    if (!isOwn) out.push(`id must be ${base} or ${base}.<n>`);
+  const isLoose = finding.dimension === void 0;
+  if (!isOneOf(FINDING_KINDS, finding.kind)) out.push(`kind must be one of ${FINDING_KINDS.join(", ")}`);
+  else if (isLoose && finding.kind === "answer") out.push("an answer needs a dimension");
+  const segment = isLoose ? finding.kind : finding.dimension;
+  if (typeof finding.id !== "string" || !FINDING_ID.test(finding.id)) out.push("id must look like <ref>.<dimension>[.<n>] or <ref>.<pain|reuse>.<n>");
+  else if (typeof finding.ref === "string" && typeof segment === "string") {
+    const base = `${finding.ref}.${segment}`;
+    const suffix = finding.id.startsWith(`${base}.`) ? finding.id.slice(base.length + 1) : void 0;
+    const isNumbered = suffix !== void 0 && /^\d+$/.test(suffix);
+    if (isLoose && !isNumbered) out.push(`id must be ${base}.<n>`);
+    if (!isLoose && finding.id !== base && !isNumbered) out.push(`id must be ${base} or ${base}.<n>`);
   }
   if (typeof finding.ref !== "string" || !(finding.ref in study.references)) out.push(`ref ${String(finding.ref)} is not a reference of study ${study.topic}`);
-  const dimension = study.dimensions.find((dim) => dim.id === finding.dimension);
-  if (!dimension) out.push(`dimension ${String(finding.dimension)} is not a dimension of study ${study.topic}`);
-  if (!isOneOf(FINDING_KINDS, finding.kind)) out.push("kind must be answer or pain");
+  const dimension = isLoose ? void 0 : study.dimensions.find((dim) => dim.id === finding.dimension);
+  if (!isLoose && !dimension) out.push(`dimension ${String(finding.dimension)} is not a dimension of study ${study.topic}`);
   if (finding.answer === void 0) out.push("answer is required");
   else if (dimension) {
     const problem = answerIssue(dimension, finding.answer);
     if (problem) out.push(problem);
+  } else if (isLoose && finding.answer !== "unknown" && (!isText(finding.answer) || finding.answer.length > MAX_SHORT_ANSWER)) {
+    out.push(`answer must be a short text of at most ${MAX_SHORT_ANSWER} characters`);
   }
   const isUnknown = finding.answer === "unknown";
   const evidence = Array.isArray(finding.evidence) ? finding.evidence : void 0;
@@ -6742,6 +6795,8 @@ function validateFinding(raw, study, file) {
   }
   if (!isUnknown && evidence?.length === 0) out.push("at least one evidence item is required");
   if (finding.kind === "pain" && !isText(finding.detail)) out.push("a pain finding needs detail describing the pain");
+  if (finding.kind === "reuse") out.push(...reuseIssues(finding, evidence ?? []));
+  else if (finding.reuse !== void 0) out.push("reuse only applies to kind reuse");
   evidence?.forEach((item, index) => out.push(...evidenceIssues(item, index)));
   if (!isOneOf(METHODS, finding.method)) out.push(`method must be one of ${METHODS.join(", ")}`);
   else if (evidence && evidence.length > 0 && finding.method !== methodOf(evidence)) out.push(`method must be ${methodOf(evidence)} for this evidence`);
@@ -6753,7 +6808,7 @@ function validateFinding(raw, study, file) {
     out.push("verified needs by, at (YYYY-MM-DD) and via");
   }
   if (!isOneOf(FINDING_STATUSES, finding.status)) out.push(`status must be one of ${FINDING_STATUSES.join(", ")}`);
-  if (dimension && evidence && !isUnknown) {
+  if (evidence && !isUnknown) {
     const problem = numberGuard(finding, dimension);
     if (problem) out.push(problem);
   }
@@ -6879,6 +6934,7 @@ function describeFinding(finding) {
   return [
     `${finding.id}: ${String(finding.answer)} [${finding.confidence}, ${finding.status}${verified}]`,
     ...finding.detail === void 0 ? [] : [finding.detail],
+    ...finding.reuse === void 0 ? [] : [`reuse: ${finding.reuse.type} ${finding.reuse.url} (${finding.reuse.license})`],
     ...finding.note === void 0 ? [] : [`note: ${finding.note}`],
     ...finding.evidence.map((item) => `- ${item.kind} ${sourceOf(item)}: "${clip(item.quote)}"`)
   ];
@@ -6994,7 +7050,7 @@ async function query(ctx, input) {
 function renderHits(hits) {
   if (hits.length === 0) return "no findings match";
   return hits.map(({ study, finding, state }) => {
-    const header = `${study}/${finding.id} [${state}] ${finding.ref} ${finding.dimension} = ${String(finding.answer)}`;
+    const header = `${study}/${finding.id} [${state}] ${finding.ref} ${finding.dimension ?? finding.kind} = ${String(finding.answer)}`;
     return [header, ...describeFinding(finding).slice(1).map((line) => `  ${line}`)].join("\n");
   }).join("\n");
 }
@@ -7250,7 +7306,7 @@ function freshness(study, findings, today, file) {
     if (finding.status !== "current" || finding.verified === void 0) continue;
     const dimension = study.dimensions.find((dim) => dim.id === finding.dimension);
     if (isStale(finding, dimension, today)) {
-      out.push(stale(file, `${finding.id}: verified ${finding.verified.at}, past its ${dimension?.volatility ?? "fast"} TTL`));
+      out.push(stale(file, `${finding.id}: verified ${finding.verified.at}, past its ${volatilityOf(dimension)} TTL`));
     }
   }
   return out;
@@ -7350,7 +7406,7 @@ async function decide(ctx, input) {
     else if (finding.status === "drifted") problems.push(`${id} has drifted; re-research it first`);
     else if (finding.status !== "current") problems.push(`${id} is ${finding.status}`);
     else if (finding.verified === void 0 || finding.confidence === "unverified") problems.push(`${id} is not verified`);
-    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${dimension?.volatility ?? "fast"} TTL; re-verify it first`);
+    else if (isStale(finding, dimension, ctx.today)) problems.push(`${id} is past its ${volatilityOf(dimension)} TTL; re-verify it first`);
     else snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence };
   }
   if (problems.length > 0) return fail(...problems);

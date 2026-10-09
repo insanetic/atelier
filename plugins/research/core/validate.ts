@@ -1,8 +1,9 @@
-import { CONFIDENCES, DIMENSION_TYPES, EVIDENCE_KINDS, FINDING_KINDS, FINDING_STATUSES, KANO, METHODS, REFERENCE_KINDS, RESERVED_DIMENSIONS, ROLES, STUDY_MODES, STUDY_STATUSES, VIAS, VOLATILITIES, WARDLEY } from './types.ts'
+import { CONFIDENCES, DIMENSION_TYPES, EVIDENCE_KINDS, FINDING_KINDS, FINDING_STATUSES, KANO, METHODS, REFERENCE_KINDS, RESERVED_DIMENSIONS, REUSE_TYPES, ROLES, STUDY_MODES, STUDY_STATUSES, VIAS, VOLATILITIES, WARDLEY } from './types.ts'
 import type { Answer, Criterion, Dimension, Evidence, EvidenceKind, Finding, Issue, Method, Reference, Score, Study } from './types.ts'
 import { normalizeText, numbersIn } from './normalize.ts'
 import { parseRepoUrl } from './paths.ts'
 import { isDate } from './fresh.ts'
+import { licenseGuard } from './license.ts'
 
 export const CODE_KINDS: readonly EvidenceKind[] = ['code', 'api_spec', 'spec']
 export const WEB_KINDS: readonly EvidenceKind[] = ['docs', 'blog', 'issue', 'marketing']
@@ -75,9 +76,9 @@ export function answerIssue(dimension: Dimension, answer: Answer): string | unde
   }
 }
 
-export function numberGuard(finding: Finding, dimension: Dimension): string | undefined {
+export function numberGuard(finding: Finding, dimension: Dimension | undefined): string | undefined {
   const claimed = new Set<string>()
-  if (dimension.type === 'number' && typeof finding.answer === 'number') claimed.add(String(finding.answer))
+  if (dimension?.type === 'number' && typeof finding.answer === 'number') claimed.add(String(finding.answer))
   for (const number of numbersIn(finding.detail ?? '')) claimed.add(number)
   if (claimed.size === 0) return undefined
   const quoted = new Set(finding.evidence.flatMap(item => numbersIn(normalizeText(item.quote ?? ''))))
@@ -260,24 +261,48 @@ export function validateStudy(data: unknown, topic: string, refIds: ReadonlySet<
   return out
 }
 
+export const MAX_SHORT_ANSWER = 120
+
+function reuseIssues(finding: Partial<Finding>, evidence: readonly Evidence[]): string[] {
+  const out: string[] = []
+  if (!isText(finding.detail)) out.push('a reuse finding needs detail: why it is worth reusing')
+  const reuse: unknown = finding.reuse
+  if (!isMapping(reuse)) return [...out, 'a reuse finding needs reuse: type, url and license']
+  if (!isOneOf(REUSE_TYPES, reuse.type)) out.push(`reuse.type must be one of ${REUSE_TYPES.join(', ')}`)
+  if (typeof reuse.url !== 'string' || !/^https?:\/\//.test(reuse.url)) out.push('reuse.url must be an http(s) URL')
+  if (!isText(reuse.license)) out.push('reuse.license is required (or unknown)')
+  else {
+    const problem = licenseGuard(reuse.license, evidence)
+    if (problem) out.push(problem)
+  }
+  return out
+}
+
 export function validateFinding(raw: unknown, study: Study, file: string): Issue[] {
   if (!isMapping(raw)) return [error(file, 'a finding must be a mapping')]
   const finding = raw as Partial<Finding>
   const out: string[] = []
-  if (typeof finding.id !== 'string' || !FINDING_ID.test(finding.id)) out.push('id must look like <ref>.<dimension>[.<n>]')
-  else if (typeof finding.ref === 'string' && typeof finding.dimension === 'string') {
-    const base = `${finding.ref}.${finding.dimension}`
-    const isOwn = finding.id === base || (finding.id.startsWith(`${base}.`) && /^\d+$/.test(finding.id.slice(base.length + 1)))
-    if (!isOwn) out.push(`id must be ${base} or ${base}.<n>`)
+  const isLoose = finding.dimension === undefined
+  if (!isOneOf(FINDING_KINDS, finding.kind)) out.push(`kind must be one of ${FINDING_KINDS.join(', ')}`)
+  else if (isLoose && finding.kind === 'answer') out.push('an answer needs a dimension')
+  const segment = isLoose ? finding.kind : finding.dimension
+  if (typeof finding.id !== 'string' || !FINDING_ID.test(finding.id)) out.push('id must look like <ref>.<dimension>[.<n>] or <ref>.<pain|reuse>.<n>')
+  else if (typeof finding.ref === 'string' && typeof segment === 'string') {
+    const base = `${finding.ref}.${segment}`
+    const suffix = finding.id.startsWith(`${base}.`) ? finding.id.slice(base.length + 1) : undefined
+    const isNumbered = suffix !== undefined && /^\d+$/.test(suffix)
+    if (isLoose && !isNumbered) out.push(`id must be ${base}.<n>`)
+    if (!isLoose && finding.id !== base && !isNumbered) out.push(`id must be ${base} or ${base}.<n>`)
   }
   if (typeof finding.ref !== 'string' || !(finding.ref in study.references)) out.push(`ref ${String(finding.ref)} is not a reference of study ${study.topic}`)
-  const dimension = study.dimensions.find(dim => dim.id === finding.dimension)
-  if (!dimension) out.push(`dimension ${String(finding.dimension)} is not a dimension of study ${study.topic}`)
-  if (!isOneOf(FINDING_KINDS, finding.kind)) out.push('kind must be answer or pain')
+  const dimension = isLoose ? undefined : study.dimensions.find(dim => dim.id === finding.dimension)
+  if (!isLoose && !dimension) out.push(`dimension ${String(finding.dimension)} is not a dimension of study ${study.topic}`)
   if (finding.answer === undefined) out.push('answer is required')
   else if (dimension) {
     const problem = answerIssue(dimension, finding.answer)
     if (problem) out.push(problem)
+  } else if (isLoose && finding.answer !== 'unknown' && (!isText(finding.answer) || finding.answer.length > MAX_SHORT_ANSWER)) {
+    out.push(`answer must be a short text of at most ${MAX_SHORT_ANSWER} characters`)
   }
   const isUnknown = finding.answer === 'unknown'
   const evidence = Array.isArray(finding.evidence) ? (finding.evidence as Evidence[]) : undefined
@@ -287,6 +312,8 @@ export function validateFinding(raw: unknown, study: Study, file: string): Issue
   }
   if (!isUnknown && evidence?.length === 0) out.push('at least one evidence item is required')
   if (finding.kind === 'pain' && !isText(finding.detail)) out.push('a pain finding needs detail describing the pain')
+  if (finding.kind === 'reuse') out.push(...reuseIssues(finding, evidence ?? []))
+  else if (finding.reuse !== undefined) out.push('reuse only applies to kind reuse')
   evidence?.forEach((item, index) => out.push(...evidenceIssues(item, index)))
   if (!isOneOf(METHODS, finding.method)) out.push(`method must be one of ${METHODS.join(', ')}`)
   else if (evidence && evidence.length > 0 && finding.method !== methodOf(evidence)) out.push(`method must be ${methodOf(evidence)} for this evidence`)
@@ -298,7 +325,7 @@ export function validateFinding(raw: unknown, study: Study, file: string): Issue
     out.push('verified needs by, at (YYYY-MM-DD) and via')
   }
   if (!isOneOf(FINDING_STATUSES, finding.status)) out.push(`status must be one of ${FINDING_STATUSES.join(', ')}`)
-  if (dimension && evidence && !isUnknown) {
+  if (evidence && !isUnknown) {
     const problem = numberGuard(finding as Finding, dimension)
     if (problem) out.push(problem)
   }

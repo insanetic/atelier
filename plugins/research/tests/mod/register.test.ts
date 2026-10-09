@@ -62,6 +62,24 @@ describe('tools', () => {
     expect(await ui.find({ type: 'Text', text: /rounding/ })).toBeDefined()
     await ui.unmount()
   })
+
+  test('add_finding records a reuse finding whose licence is quoted and refuses one whose licence is not', async ($, on) => {
+    world(on, { 'https://github.com/stripe/openapi': '<p>OpenAPI specification for the Stripe API. License: MIT</p>' })
+    await $.session.start(START)
+    const reuse = {
+      tool: 'mcp__research__add_finding',
+      study: 'tax',
+      ref: 'stripe',
+      kind: 'reuse',
+      answer: 'Stripe OpenAPI spec',
+      detail: 'Machine-readable tax objects to follow',
+      reuse: { type: 'spec', url: 'https://github.com/stripe/openapi', license: 'MIT' },
+      evidence: [{ kind: 'docs', url: 'https://github.com/stripe/openapi', quote: 'OpenAPI specification for the Stripe API. License: MIT' }],
+    }
+    expect(String((await $.tool.call(reuse)).result)).toBe('recorded stripe.reuse.1 (docs, unverified)')
+    const wrong = await $.tool.call({ ...reuse, reuse: { ...reuse.reuse, license: 'Apache-2.0' } })
+    expect(String(wrong.result)).toContain('license Apache-2.0 is not in any quote')
+  })
 })
 
 describe('network', () => {

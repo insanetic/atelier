@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildMatrix, cellText, describeFinding, renderMatrix } from '../../core/matrix.ts'
-import { LAGO_URL, TODAY, codeFinding, docsFinding, study } from './fixtures.ts'
+import { LAGO_URL, TODAY, codeFinding, docsFinding, reuseFinding, study } from './fixtures.ts'
 
 test('buildMatrix places answers per dimension and reference with their state', () => {
   const verified = docsFinding({ confidence: 'confirmed', verified: { by: 'verifier', at: TODAY, via: 'fetch' } })
@@ -32,4 +32,8 @@ test('describeFinding shows the answer, state and each source', () => {
     'lago.rounding: per_invoice [unverified, current]',
     `- code ${LAGO_URL}@aaaaaaaaaaaa:app/services/taxes.rb#L2-3: "round(total_tax)"`,
   ])
+})
+
+test('describeFinding shows what a reuse finding points at', () => {
+  assert.equal(describeFinding(reuseFinding())[2], 'reuse: schema https://github.com/getlago/lago-openapi (AGPL-3.0)')
 })

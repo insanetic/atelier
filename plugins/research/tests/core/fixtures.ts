@@ -77,3 +77,19 @@ export function seedStudy(io: FakeIo, options: { study?: Study; findings?: Findi
   io.files.set(files.assessment(CFG, s.topic), toYaml(options.scores ?? []))
   if (options.notes !== undefined) io.files.set(files.notes(CFG, s.topic), options.notes)
 }
+
+export function reuseFinding(over: Partial<Finding> = {}): Finding {
+  return {
+    id: 'lago.reuse.1',
+    ref: 'lago',
+    kind: 'reuse',
+    answer: 'lago-openapi tax objects',
+    detail: 'Tax rates as first-class objects applied per fee',
+    reuse: { type: 'schema', url: 'https://github.com/getlago/lago-openapi', license: 'AGPL-3.0' },
+    evidence: [{ kind: 'code', repo: LAGO_URL, sha: SHA, path: 'LICENSE', lines: '1', quote: 'GNU AFFERO GENERAL PUBLIC LICENSE Version 3' }],
+    method: 'source',
+    confidence: 'unverified',
+    status: 'current',
+    ...over,
+  }
+}

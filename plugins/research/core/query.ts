@@ -40,7 +40,7 @@ export function renderHits(hits: readonly QueryHit[]): string {
   if (hits.length === 0) return 'no findings match'
   return hits
     .map(({ study, finding, state }) => {
-      const header = `${study}/${finding.id} [${state}] ${finding.ref} ${finding.dimension} = ${String(finding.answer)}`
+      const header = `${study}/${finding.id} [${state}] ${finding.ref} ${finding.dimension ?? finding.kind} = ${String(finding.answer)}`
       return [header, ...describeFinding(finding).slice(1).map(line => `  ${line}`)].join('\n')
     })
     .join('\n')

@@ -12,7 +12,7 @@ import {
   validateScore,
   validateStudy,
 } from '../../core/validate.ts'
-import { LAGO_URL, REFERENCES, codeFinding, docsFinding, study } from './fixtures.ts'
+import { LAGO_URL, REFERENCES, codeFinding, docsFinding, reuseFinding, study } from './fixtures.ts'
 
 const text = (issues: Issue[]) => issues.map(item => item.message).join('\n')
 const REF_IDS = new Set(REFERENCES.map(ref => ref.id))
@@ -203,4 +203,29 @@ test('greenfield silences the ours warning and must be a boolean', () => {
 test('the dimension ids pain and reuse are reserved', () => {
   const s = study({ dimensions: [{ id: 'reuse', ask: 'x', type: 'bool', volatility: 'slow' }] })
   assert.match(text(validateStudy(s, 'tax', REF_IDS, 'f')), /dimensions\[0\]\.id reuse is reserved for findings not tied to a dimension/)
+})
+
+test('a reuse finding needs no dimension but a short answer, detail and a reuse block', () => {
+  assert.deepEqual(validateFinding(reuseFinding(), study(), 'f'), [])
+  const out = text(validateFinding(reuseFinding({ answer: 'x'.repeat(121), detail: undefined, reuse: undefined }), study(), 'f'))
+  assert.match(out, /answer must be a short text of at most 120 characters/)
+  assert.match(out, /a reuse finding needs detail: why it is worth reusing/)
+  assert.match(out, /a reuse finding needs reuse: type, url and license/)
+  const odd = text(validateFinding(reuseFinding({ reuse: { type: 'sdk' as 'library', url: 'ftp://x', license: 'AGPL-3.0' } }), study(), 'f'))
+  assert.match(odd, /reuse\.type must be one of library, spec, schema, code, test_suite/)
+  assert.match(odd, /reuse\.url must be an http\(s\) URL/)
+})
+
+test('findings not tied to a dimension are numbered <ref>.<kind>.<n>; an answer always needs a dimension', () => {
+  assert.match(text(validateFinding(reuseFinding({ id: 'lago.reuse' }), study(), 'f')), /id must be lago\.reuse\.<n>/)
+  const pain = docsFinding({ id: 'stripe.pain.1', dimension: undefined, kind: 'pain', answer: 'Rounding drift', detail: 'Per-line rounding drifts from the invoice total' })
+  assert.deepEqual(validateFinding(pain, study(), 'f'), [])
+  assert.match(text(validateFinding(docsFinding({ id: 'stripe.answer.1', dimension: undefined }), study(), 'f')), /an answer needs a dimension/)
+  assert.match(text(validateFinding(docsFinding({ reuse: reuseFinding().reuse }), study(), 'f')), /reuse only applies to kind reuse/)
+})
+
+test('a reuse licence that no quote shows is refused; unknown is allowed', () => {
+  const url = 'https://github.com/getlago/lago-openapi'
+  assert.match(text(validateFinding(reuseFinding({ reuse: { type: 'schema', url, license: 'MIT' } }), study(), 'f')), /license MIT is not in any quote/)
+  assert.deepEqual(validateFinding(reuseFinding({ reuse: { type: 'schema', url, license: 'unknown' } }), study(), 'f'), [])
 })
