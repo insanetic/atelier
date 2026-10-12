@@ -1,0 +1,19 @@
+#!/bin/sh
+# Cheap checks on what is staged: manifests parse, and a plugin's own tests pass when it changed.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$staged" ] && exit 0
+root=$(git rev-parse --show-toplevel)
+
+for file in $(printf '%s\n' "$staged" | grep -E '(^|/)\.claude-plugin/[^/]+\.json$'); do
+  if ! git show ":$file" | python3 -c 'import json, sys; json.load(sys.stdin)' 2>/dev/null; then
+    echo "pre-commit: $file is not valid JSON" >&2
+    exit 1
+  fi
+done
+
+if printf '%s\n' "$staged" | grep -q '^plugins/atlas/'; then
+  if ! python3 -m unittest discover -s "$root/plugins/atlas/tests" >/dev/null 2>&1; then
+    echo "pre-commit: the atlas tests fail; run: python3 -m unittest discover -s plugins/atlas/tests" >&2
+    exit 1
+  fi
+fi

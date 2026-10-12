@@ -1,0 +1,28 @@
+#!/bin/sh
+# Conventional Commits: type(scope): subject
+# https://www.conventionalcommits.org/en/v1.0.0/
+header=$(sed -e '/^#/d' "$1" | head -n 1)
+
+case "$header" in
+  "Merge "* | "Revert "* | "fixup! "* | "squash! "* | "amend! "*) exit 0 ;;
+esac
+
+types='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+if ! printf '%s\n' "$header" | grep -Eq "^($types)(\([a-z0-9][a-z0-9,_-]*\))?!?: [^ ].*[^.]$"; then
+  cat >&2 <<MSG
+commit-msg: the first line is not a conventional commit:
+
+  $header
+
+Expected: type(scope): subject
+  type     one of: $(printf '%s' "$types" | tr '|' ' ')
+  scope    optional, lowercase, the plugin it touches: (atlas), (research,market)
+  subject  starts after ": ", no trailing period
+  !        before the colon marks a breaking change
+
+Examples:
+  feat(atlas): restore a note from the archive
+  fix(research): repin keeps comments
+MSG
+  exit 1
+fi

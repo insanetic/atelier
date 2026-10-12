@@ -1,0 +1,8 @@
+# research results: studies, findings and artifacts stay local
+/research/
+
+# local agent state
+/.superpowers/
+
+.DS_Store
+__pycache__/
