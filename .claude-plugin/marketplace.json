@@ -22,6 +22,11 @@
       "name": "rulebook",
       "source": "./plugins/rulebook",
       "description": "A numbered convention catalog for coding agents: every rule one checkable entry with a stable ID, a deterministic check of the catalog, and a review of a change against the entries only review can judge"
+    },
+    {
+      "name": "atlas",
+      "source": "./plugins/atlas",
+      "description": "A personal brain: markdown notes in your home directory, reachable from every session only when asked, readable in Obsidian, with a lint that finds what went stale"
     }
   ]
 }

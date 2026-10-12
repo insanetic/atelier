@@ -1,0 +1,8 @@
+{
+  "name": "atlas",
+  "version": "0.1.0",
+  "description": "A personal brain: one folder of markdown notes in your home directory, reachable from every session only when asked, readable in Obsidian, with a lint that finds what went stale.",
+  "author": {
+    "name": "insanetic"
+  }
+}
