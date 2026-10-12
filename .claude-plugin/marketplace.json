@@ -17,6 +17,11 @@
       "name": "premortem",
       "source": "./plugins/premortem",
       "description": "Premortems before costly or one-way calls: assume it already failed, find why, change the plan now"
+    },
+    {
+      "name": "rulebook",
+      "source": "./plugins/rulebook",
+      "description": "A numbered convention catalog for coding agents: every rule one checkable entry with a stable ID, a deterministic check of the catalog, and a review of a change against the entries only review can judge"
     }
   ]
 }

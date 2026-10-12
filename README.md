@@ -8,6 +8,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install research@atelier
 /plugin install market@atelier
 /plugin install premortem@atelier
+/plugin install rulebook@atelier
 ```
 
 ---
@@ -19,6 +20,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 | [research](plugins/research) | `/study <task>` | Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares, every claim verified quote by quote. |
 | [market](plugins/market) | `/discover <category>` | Competitor tracking on top of research: the registry of every known competitor, discovery that keeps it complete, and the capability landscape. |
 | [premortem](plugins/premortem) | `/premortem <plan>` | A premortem before anything costly or hard to reverse: assume it already failed, work backward to the causes from every vantage point, rank them, and change the plan before going ahead. |
+| [rulebook](plugins/rulebook) | `/rulebook:write <convention>`, `/rulebook:review <the ask>` | A numbered convention catalog in `.claude/rules/` for any stack: each rule one checkable entry with a stable ID, a CLI that checks the catalog and selects the entries a change falls under, and a forked, read-only review of a change against them and the ask. |
 
 ---
 
@@ -31,6 +33,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install research@atelier
 /plugin install market@atelier
 /plugin install premortem@atelier
+/plugin install rulebook@atelier
 # or, from a local clone:
 /plugin marketplace add ./path/to/atelier
 ```
@@ -44,6 +47,7 @@ claude plugin marketplace add insanetic/atelier --scope project
 claude plugin install research@atelier --scope project
 claude plugin install market@atelier --scope project
 claude plugin install premortem@atelier --scope project
+claude plugin install rulebook@atelier --scope project
 ```
 
 Update later with `/plugin marketplace update atelier`; enable or disable with `/plugin`.
@@ -59,7 +63,8 @@ Update later with `/plugin marketplace update atelier`; enable or disable with `
 └── plugins/
     ├── research/                 # self-contained plugin: manifest, skill, agents, hooks, CLI, tests
     ├── market/                   # competitor tracking: registry, discovery, landscape (depends on research)
-    └── premortem/                # skill-only plugin: manifest and the premortem skill
+    ├── premortem/                # skill-only plugin: manifest and the premortem skill
+    └── rulebook/                 # convention catalog: two skills, a reviewer agent, the rulebook CLI, an edit hook
 ```
 
 Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json` and has one entry in `.claude-plugin/marketplace.json`.

@@ -1,0 +1,8 @@
+{
+  "name": "rulebook",
+  "version": "0.1.0",
+  "description": "A numbered convention catalog for coding agents: every rule one checkable entry with a stable ID, a deterministic check of the catalog, and a review of a change against the entries only review can judge.",
+  "author": {
+    "name": "insanetic"
+  }
+}

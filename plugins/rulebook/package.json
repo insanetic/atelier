@@ -1,0 +1,23 @@
+{
+  "name": "rulebook",
+  "version": "0.1.0",
+  "description": "A numbered convention catalog for coding agents: the parser, the checks and the selection behind the rulebook skills",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "rulebook": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "./build.sh",
+    "test": "node --test 'tests/core/*.spec.ts' 'tests/cli/*.spec.ts'",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}
