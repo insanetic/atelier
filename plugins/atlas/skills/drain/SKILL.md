@@ -14,7 +14,7 @@ carry it out only after they agree.
 
 1. Run `atlas check`. If it reports nothing, say so and stop.
 2. Tell the user the counts per kind, then work through them in this order: `schema`, `duplicate`, `broken-link`,
-   `supersede`, `expired`, `overdue`, `misplaced`, `orphan`, `inbox`. If they named a kind, do only that one.
+   `supersede`, `expired`, `overdue`, `misplaced`, `orphan`, `inbox`, `uncommitted`. If they named a kind, do only that one.
 3. For each finding, read the note (`atlas get "<title>"`), then propose the one action that fits and wait for a yes.
    When several findings of a kind call for the same action, offer them as one batch.
 4. Run `atlas check` again at the end and report what is left.
@@ -27,16 +27,17 @@ carry it out only after they agree.
 | `duplicate` | Which note survives | Move the text worth keeping into the survivor, then `atlas merge "<dup>" --into "<survivor>"` |
 | `broken-link` | Create the missing note, point at an existing one, or drop the link | `atlas new …`, or edit the link |
 | `supersede` | Which note replaced it | `atlas set "<old>" "superseded_by=[[New]]"`, or `atlas supersede` if it was never closed |
-| `expired` | Is it still true | Still true: `atlas set "<title>" valid_to=`. Changed: write the new note, then `atlas supersede`. Simply over: `atlas archive` |
-| `overdue` | Is it still true | Yes: `atlas verify`. Changed: new note and `atlas supersede`. No longer matters: `atlas archive` |
+| `expired` | Is it still true | Still true: `atlas set "<title>" valid_to=`. Changed: as for `overdue`. Simply over: `atlas archive` |
+| `overdue` | Is it still true | Yes: `atlas verify`. Changed: a person, organisation or topic is edited in place and verified; a decision, price or plan gets a new note and `atlas supersede`. No longer matters: `atlas archive` |
 | `misplaced` | Live or closed | Active in the archive: `atlas restore` if it should be live, else `atlas archive` to mark it. Closed in `notes/`: `atlas archive` |
-| `orphan` | Where it belongs | Link it from a hub or a related note, or `atlas archive` if it is not worth keeping |
+| `orphan` | Where it belongs | `atlas link "<hub>" "<title>"` from a hub or a related note, or `atlas archive` if it is not worth keeping |
 | `inbox` | Note, or nothing | Turn it into a note (`atlas new`, after `atlas find`), or delete the capture |
+| `uncommitted` | Commit as it is | Show what changed (`git -C <brain> diff --stat`), then `atlas commit`, with `-m` for a message they give |
 
 ## Hold to
 
 - **Never decide for the user** whether something is still true. Show the note's description and its `verified`
   date, and ask.
 - **Never delete a note.** Archive it; git keeps the history either way. Inbox captures may be deleted once handled.
-- **Supersede, do not rewrite,** when a fact changed.
+- **Keep what was true before** when a fact changed: in the text of an edited note, or in the superseded one.
 - **Stop when the user stops.** A partly drained brain is fine; the next pass picks up the rest.

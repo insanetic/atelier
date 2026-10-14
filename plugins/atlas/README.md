@@ -1,6 +1,6 @@
 # atlas
 
-A [Claude Code](https://claude.com/claude-code) **plugin** for a **personal brain**: one folder of markdown notes in your home directory that holds what is worth knowing beyond a single task. It is the same in every project, it is consulted only when you ask, and it opens in Obsidian. Part of the [atelier](../../README.md) marketplace.
+A [Claude Code](https://claude.com/claude-code) **plugin** for a **personal brain**: one folder of markdown notes in your home directory that holds what is worth knowing beyond a single task. It is the same in every project, it is consulted when a question is about something you recorded, and it opens in Obsidian. Part of the [atelier](../../README.md) marketplace.
 
 ```bash
 # In Claude Code:
@@ -43,23 +43,24 @@ role: Head of data
 Runs the data team at [[Acme GmbH]]. Decided [[Use DuckDB for the warehouse]].
 ```
 
-- **Types** come from `atlas.json`: `note`, `person`, `organisation`, `decision`, `source`, `hub`. Add your own there.
+- **Types** come from `atlas.json`: `note`, `person`, `organisation`, `decision`, `source`, `hub`, `preference`. Add your own there.
 - **Links** are plain wikilinks. Backlinks are computed, never stored.
 - **Facts carry time:** `valid_from` and `valid_to` say when something is true, and `verified` says when it was last confirmed.
-- **A fact that changed is superseded, not overwritten.** The old note moves to `archive/` with a link to its replacement.
+- **What was true before is kept.** A person or organisation note is edited and says what changed and when; a decision, price or plan is superseded, and the old note moves to `archive/` with a link to its replacement.
 
-The folder is a git repository, and every change the command makes is its own commit.
+The folder is a git repository. Every change the command makes is its own commit, and so is every edit Claude makes in the brain with its edit tools. Run `atlas commit` for your own edits in Obsidian; `atlas check` reports what is left uncommitted.
 
 ---
 
 ## In a session
 
-Nothing from the brain is in a session until you ask. The only standing cost is the description of one skill.
+A session starts with a short hint that the brain exists, and your standing preferences (the `preference` notes), one line each. Nothing else from the brain is in the session until a question needs it.
 
 | You say | What happens |
 |---|---|
 | "What do I know about the warehouse migration?" | The `atlas` skill searches, opens the few notes that matter, and answers from them |
 | "Remember that we chose DuckDB because of cost" | It checks for an existing note, then writes or extends one |
+| "Remember that I prefer short answers" | It writes a `preference` note, shown at the start of every session from then on |
 | `/atlas:drain` | Walks the lint with you: re-verify, supersede, archive, merge or fix, one finding at a time |
 
 The drain never runs on its own, and it never decides for you whether something is still true.
@@ -71,7 +72,7 @@ The drain never runs on its own, and it never decides for you whether something 
 `atlas` is on the PATH while the plugin is enabled. It needs Python 3.9 or later and nothing else. There is no index: each call reads the files, so an edit in Obsidian is seen at once.
 
 ```bash
-atlas find --text "acme warehouse"                  # every word must appear; title matches first
+atlas find --text "acme warehouse"                  # every word must appear; title matches first; accents ignored
 atlas find --type person --where "org=Acme" --valid-on today
 atlas find --type decision --verified-before 2026-04-01
 atlas find --links-to "Jane Doe"
@@ -88,8 +89,10 @@ atlas check                                         # the lint
 |---|---|
 | `init` | Creates the brain |
 | `types` | Prints the catalog |
+| `hint` | What the session-start hook prints: the hint and the standing preferences |
 | `find`, `get`, `links` | Search, read, follow links |
-| `new`, `capture`, `inbox` | Write a note, drop a line into the inbox, list the inbox |
+| `new`, `link`, `capture`, `inbox` | Write a note (`--from` links it from a hub), link notes from a hub, drop a line into the inbox, list the inbox |
+| `commit` | Commit your own edits: the named notes, or everything changed |
 | `set`, `verify` | Change fields, mark as confirmed today |
 | `supersede`, `archive`, `restore` | Close a note in favour of a newer one, shelve it, bring it back |
 | `rename`, `merge` | Rename with relinking, fold a duplicate into another note |
@@ -103,13 +106,14 @@ atlas check                                         # the lint
 |---|---|---|
 | `schema` | error | Missing required field, unknown type, a date that is not a date |
 | `broken-link` | error | A link to a note that does not exist |
-| `duplicate` | error | Two notes share a title or an alias |
+| `duplicate` | error | Two active notes share a title or an alias, or an archived title is an active title |
 | `supersede` | error | Superseded without a replacement, or the replacement is missing |
 | `expired` | warning | `valid_to` has passed and the note is still active |
 | `overdue` | warning | Not verified within the age its type sets |
-| `orphan` | warning | Nothing links to it and it is not a hub |
+| `orphan` | warning | Nothing links to it and it is not a hub or a preference |
 | `misplaced` | warning | Status and folder disagree |
 | `inbox` | warning | A capture older than the inbox age |
+| `uncommitted` | warning | A file changed since the last commit |
 
 ---
 
@@ -117,7 +121,7 @@ atlas check                                         # the lint
 
 Open the brain's folder as a vault. Notes, links, backlinks, the graph and properties work as they are. Edit freely: the command reads the files on every call. Rename notes inside Obsidian (it updates the links) or with `atlas rename`, not in a file manager.
 
-Keep frontmatter flat: `key: value` or a list. The lint reports lines it cannot read.
+Keep frontmatter flat: `key: value` or a list. The lint reports lines it cannot read, and the command leaves them, and your comments, as they are when it changes a note. Claude's edits are committed for you; commit your own with `atlas commit`.
 
 ---
 
@@ -142,8 +146,10 @@ Update later with `/plugin marketplace update atelier`.
 | Skill | `/atlas` (`/atlas:atlas`) | Recall and remember: when to consult the brain and how to call the command |
 | Skill | `/atlas:drain` | Works through the lint with you; runs only when you call it |
 | Command | `atlas` | Everything that needs no judgment: search, write, lifecycle, lint |
+| Hook | SessionStart | Runs `atlas hint`; prints nothing when there is no brain |
+| Hook | PostToolUse | Commits an edit Claude makes inside the brain; ignores every other file |
 
-No hook, no MCP server, nothing added to CLAUDE.md.
+No MCP server, nothing added to CLAUDE.md.
 
 ---
 
@@ -154,6 +160,7 @@ plugins/atlas/
 ├── .claude-plugin/plugin.json    # plugin manifest
 ├── DESIGN.md                     # the design and what is left for later
 ├── bin/atlas                     # the command on the PATH
+├── hooks/hooks.json              # SessionStart: atlas hint; PostToolUse: atlas commit --hook
 ├── lib/atlas.py                  # its implementation, standard library only
 ├── skills/atlas/SKILL.md         # recall and remember
 ├── skills/drain/SKILL.md         # work through the lint

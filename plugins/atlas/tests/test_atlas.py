@@ -167,6 +167,45 @@ class NewAndFind(BrainCase):
         stale = self.run_ok("find", "--verified-before", "2026-06-01", "--paths")
         self.assertEqual(stale.strip(), "notes/Jane Doe.md")
 
+    def test_text_search_reads_values_and_text_not_field_names(self):
+        self.new("Jane Doe", "person", "--set", "role=Head of data", description="Contact at Acme")
+        self.new("Müller GmbH", "organisation", body="A start-up we met.")
+        self.assertEqual(self.run_ok("find", "--text", "active").strip(), "no matches")
+        self.assertEqual(self.run_ok("find", "--text", "person").strip(), "no matches")
+        self.assertIn("notes/Jane Doe.md", self.run_ok("find", "--text", "head data"))
+        self.assertIn("notes/Müller GmbH.md", self.run_ok("find", "--text", "muller"))
+        self.assertEqual(self.run_ok("find", "--text", "art").strip(), "no matches")
+        self.assertIn("notes/Müller GmbH.md", self.run_ok("find", "--text", "start"))
+
+    def test_an_active_note_wins_over_an_archived_one(self):
+        self.new("Acme", "organisation", "--alias", "Acme Corp")
+        self.new("Acme 2026", "organisation")
+        self.run_ok("supersede", "Acme", "--by", "Acme 2026")
+        self.run_ok("set", "Acme 2026", "aliases=Acme")
+        self.assertTrue(self.run_ok("get", "acme").startswith("# notes/Acme 2026.md\n"))
+        self.assertIn('# archive/Acme.md | superseded | superseded by "[[Acme 2026]]"'.replace('"', ""), self.run_ok("get", "archive/Acme.md"))
+        self.assertNotIn("duplicate", self.kinds())
+        self.run_ok("new", "Acme Corp", "--type", "organisation", "-d", "an archived alias is free again")
+        self.assertEqual(self.run_cli("new", "acme", "-d", "an archived title is not")[0], 2)
+
+    def test_values_are_kept_on_one_line(self):
+        self.run_ok("new", "Two lines", "-d", "first\nsecond", "--set", "role=a\n b")
+        text = self.read("notes/Two lines.md")
+        self.assertIn("description: first second\n", text)
+        self.assertIn("role: a b\n", text)
+        self.assertNotIn("schema", self.kinds())
+
+    def test_new_links_from_a_hub_or_says_nothing_links_to_it(self):
+        self.new("Acme", "hub", body="Topics:\n\n- [[Home]]")
+        code, out, err = self.run_cli("new", "Billing", "-d", "x", "--from", "Acme")
+        self.assertEqual((code, out.strip(), err), (0, "notes/Billing.md", ""))
+        self.assertTrue(self.read("notes/Acme.md").endswith("- [[Home]]\n- [[Billing]]\n"))
+        _, _, err = self.run_cli("new", "Loose", "-d", "x")
+        self.assertIn('atlas link "<hub>" "Loose"', err)
+        self.assertIn("linked Loose", self.run_ok("link", "Home", "Loose"))
+        self.assertIn("already links", self.run_ok("link", "Home", "Loose"))
+        self.assertNotIn("orphan", self.kinds())
+
     def test_get_resolves_title_alias_id_and_path_and_shows_backlinks(self):
         self.new("Acme GmbH", "organisation", "--alias", "Acme")
         self.new("Jane Doe", "person", body="Works at [[Acme GmbH]].")
@@ -181,7 +220,7 @@ class NewAndFind(BrainCase):
 class Lifecycle(BrainCase):
     def test_set_changes_and_clears_fields_and_keeps_the_text(self):
         self.new("Jane Doe", "person", body="Some text.\n\n- a list item")
-        self.run_ok("set", "Jane Doe", "role=CTO", "aliases=JD;Janie")
+        self.run_ok("set", "Jane Doe", "role=CTO", "aliases=JD", "aliases=Janie")
         text = self.read("notes/Jane Doe.md")
         self.assertIn("role: CTO", text)
         self.assertIn("aliases:\n  - JD\n  - Janie", text)
@@ -190,6 +229,32 @@ class Lifecycle(BrainCase):
         self.assertNotIn("role", self.read("notes/Jane Doe.md"))
         self.assertEqual(self.run_cli("set", "Jane Doe", "id=other")[0], 2)
         self.assertEqual(self.run_cli("set", "Jane Doe", "status=gone")[0], 2)
+
+    def test_a_semicolon_stays_in_the_value(self):
+        self.new("Jane Doe", "person", "--set", "role=Head of data; platform")
+        self.run_ok("set", "Jane Doe", "description=Head of data at Acme; contact")
+        text = self.read("notes/Jane Doe.md")
+        self.assertIn("description: Head of data at Acme; contact", text)
+        self.assertIn("role: Head of data; platform", text)
+        self.assertNotIn("schema", self.kinds())
+
+    def test_saving_keeps_comments_nested_lines_and_untouched_fields(self):
+        hand = (
+            "---\nid: 9\ntype: note\ndescription: by hand\n# keep me\nstatus: active\ncreated: 2026-10-01\n"
+            "tags: [a, b]\nmeta:\n  nested: 1\nverified: 2026-01-01\n---\nbody\n"
+        )
+        (self.home / "notes" / "Hand.md").write_text(hand, encoding="utf-8")
+        self.run_ok("verify", "Hand")
+        self.run_ok("set", "Hand", "role=x")
+        self.assertEqual(
+            self.read("notes/Hand.md"),
+            hand.replace("verified: 2026-01-01", "verified: 2026-10-12").replace("\n---\nbody", "\nrole: x\n---\nbody"),
+        )
+        self.run_ok("archive", "Hand")
+        archived = self.read("archive/Hand.md")
+        self.assertIn("# keep me\n", archived)
+        self.assertIn("meta:\n  nested: 1\n", archived)
+        self.assertIn("status: archived", archived)
 
     def test_supersede_closes_the_old_note_and_archives_it(self):
         self.new("Pricing 2025", body="Flat fee.")
@@ -250,6 +315,9 @@ class Lifecycle(BrainCase):
         self.assertTrue(out.startswith("inbox/2"))
         self.assertIn("0d | Jane moved to the platform team", self.run_ok("inbox"))
         self.assertEqual(self.run_cli("capture", "  ")[0], 2)
+        for _ in range(3):
+            self.run_ok("capture", "same words")
+        self.assertEqual(len(list((self.home / "inbox").glob("* same words*.md"))), 3)
 
     def test_changes_are_committed_one_by_one(self):
         if not (self.home / ".git").exists():
@@ -263,6 +331,47 @@ class Lifecycle(BrainCase):
         self.assertEqual(git("status", "--porcelain").strip(), "")
 
 
+class Commits(BrainCase):
+    def setUp(self):
+        super().setUp()
+        if not (self.home / ".git").exists():
+            self.skipTest("git is not available")
+
+    def git(self, *args):
+        return subprocess.run(["git", *args], cwd=self.home, capture_output=True, text=True).stdout.strip()
+
+    def hook(self, payload):
+        stdin = sys.stdin
+        sys.stdin = io.StringIO(payload)
+        try:
+            return self.run_cli("commit", "--hook")
+        finally:
+            sys.stdin = stdin
+
+    def test_the_hook_commits_an_edit_in_the_brain_and_nothing_else(self):
+        path = self.home / "notes" / "Home.md"
+        path.write_text(path.read_text() + "edited\n")
+        self.assertEqual(self.hook(json.dumps({"tool_name": "Edit", "tool_input": {"file_path": str(path)}})), (0, "", ""))
+        self.assertEqual(self.git("log", "-1", "--format=%s"), "atlas: edit Home (by Claude)")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        outside = Path(self.tmp.name) / "elsewhere.md"
+        outside.write_text("x")
+        for payload in (json.dumps({"tool_input": {"file_path": str(outside)}}), "not json", "{}"):
+            self.assertEqual(self.hook(payload), (0, "", ""))
+        self.assertEqual(self.git("log", "-1", "--format=%s"), "atlas: edit Home (by Claude)")
+
+    def test_commit_takes_refs_paths_or_everything_changed(self):
+        self.new("Acme", "organisation")
+        for name in ("Acme.md", "Home.md"):
+            (self.home / "notes" / name).write_text(self.read(f"notes/{name}") + "more\n")
+        self.run_ok("commit", "Acme", "-m", "tidy Acme")
+        self.assertEqual(self.git("log", "-1", "--format=%s"), "atlas: tidy Acme")
+        self.assertEqual(self.git("status", "--porcelain"), "M notes/Home.md")
+        self.run_ok("commit")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertEqual(self.run_ok("commit").strip(), "nothing to commit")
+
+
 class Check(BrainCase):
     def write(self, rel, text):
         (self.home / rel).write_text(text, encoding="utf-8")
@@ -272,6 +381,9 @@ class Check(BrainCase):
         self.new("Jane Doe", "person", body="At [[Acme GmbH]].")
         self.run_ok("set", "Home", "sources=")
         self.write("notes/Home.md", self.read("notes/Home.md") + "[[Jane Doe]]\n")
+        if (self.home / ".git").exists():
+            self.assertIn("uncommitted", self.kinds())
+            self.assertEqual(self.run_ok("commit").strip(), "notes/Home.md")
         self.assertEqual(self.findings(), (0, []))
 
     def test_schema_errors(self):
@@ -320,11 +432,27 @@ class Check(BrainCase):
     def test_old_inbox_items(self):
         self.run_ok("capture", "something to sort")
         item = next((self.home / "inbox").glob("*.md"))
-        old = 1_700_000_000
-        os.utime(item, (old, old))
+        self.assertTrue(item.name.startswith("2026-10-12 "))
+        item.rename(item.with_name("2026-09-01" + item.name[10:]))
         found = [f for f in self.findings()[1] if f["kind"] == "inbox"]
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["level"], "warning")
+
+
+class Hint(BrainCase):
+    def test_names_the_brain_and_lists_the_standing_preferences(self):
+        self.new("Short answers", "preference", description="Answer briefly, in prose, without bullet lists")
+        self.new("Old style", "preference")
+        self.run_ok("archive", "Old style")
+        out = self.run_ok("hint")
+        self.assertIn("personal brain, atlas: 2 markdown notes", out)
+        self.assertIn("- Short answers: Answer briefly, in prose, without bullet lists", out)
+        self.assertNotIn("Old style", out)
+        self.assertNotIn("orphan", self.kinds())
+
+    def test_is_silent_without_a_brain(self):
+        os.environ["ATLAS_HOME"] = str(self.home.parent / "none")
+        self.assertEqual(self.run_cli("hint"), (0, "", ""))
 
 
 class Wrapper(unittest.TestCase):
