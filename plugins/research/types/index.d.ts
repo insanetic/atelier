@@ -1,9 +1,8 @@
-// Self-contained by rule: the contract may not import. register.tsx narrows
-// matrix and findings to core's Matrix and Finding when it reads them.
-export type ActiveStudy = { topic: string; matrix: unknown; findings: unknown[] }
+// Self-contained by rule: the contract may not import.
+export type ActiveTopic = string | null
 
 declare module 'claude-code' {
   interface PluginState {
-    'research': { active: ActiveStudy | null; selected: string | null }
+    'research': { active: ActiveTopic }
   }
 }

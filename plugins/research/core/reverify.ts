@@ -1,7 +1,7 @@
 import type { Ctx } from './io.ts'
 import type { Finding } from './types.ts'
 import { files } from './paths.ts'
-import { listTopics, loadFindings, loadStudy, saveFindings } from './store.ts'
+import { listTopics, loadFindings, loadStudy, mergeFindings } from './store.ts'
 import { CODE_KINDS, WEB_KINDS } from './validate.ts'
 import { isStale } from './fresh.ts'
 import { cachedIo, checkEvidence, findArchive, requestArchive } from './evidence.ts'
@@ -19,7 +19,9 @@ export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise
     const study = await loadStudy(run.io, run.cfg, topic)
     if (study === undefined) continue
     const findings = await loadFindings(run.io, run.cfg, topic)
-    let isChanged = false
+    // The checks below take minutes of network: researchers may write meanwhile, so the save merges.
+    const before = new Map(findings.map(finding => [finding.id, JSON.stringify(finding)]))
+    const changed = new Set<Finding>()
     for (const finding of findings) {
       if (finding.status !== 'current') continue
       const label = `${topic}/${finding.id}`
@@ -31,7 +33,7 @@ export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise
           continue
         }
         item.archive = archived
-        isChanged = true
+        changed.add(finding)
         report.archived.push(label)
       }
       const verified = finding.verified
@@ -43,7 +45,7 @@ export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise
         report.skipped.push(`${label} (${verdict.reason})`)
         continue
       }
-      isChanged = true
+      changed.add(finding)
       if (verdict.kind === 'ok') {
         finding.verified = { ...verified, at: run.today }
         report.refreshed.push(label)
@@ -52,7 +54,8 @@ export async function reverify(ctx: Ctx, options: { dueOnly: boolean }): Promise
         report.drifted.push(label)
       }
     }
-    if (isChanged) await saveFindings(run.io, run.cfg, topic, findings)
+    if (changed.size === 0) continue
+    for (const id of await mergeFindings(run.io, run.cfg, topic, before, [...changed])) report.skipped.push(`${topic}/${id} (changed while it was re-checked; run reverify again)`)
   }
   return report
 }

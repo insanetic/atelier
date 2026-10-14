@@ -2,7 +2,7 @@ import type { Ctx } from './io.ts'
 import type { Finding, Finished, Study } from './types.ts'
 import { files } from './paths.ts'
 import { citableProblem } from './fresh.ts'
-import { listTopics, loadFindings, loadNotes, loadStudy, loadValidStudy } from './store.ts'
+import { listTopics, loadFindings, loadNotes, loadStudy, loadValidStudy, studyErrors } from './store.ts'
 import { BRIEF_SECTIONS, GREENFIELD_SECTION, UNCITED_SECTIONS, citationsOf, sectionsOf } from './notes.ts'
 import { setInYaml } from './yaml.ts'
 import { fail, ok } from './result.ts'
@@ -58,8 +58,10 @@ export async function finish(ctx: Ctx, topic: string): Promise<OpResult<Finished
     const problem = citableProblem(key, finding, dimension, ctx.today)
     if (problem !== undefined) problems.push(problem)
   }
-  if (problems.length > 0) return fail(...problems)
   const finished: Finished = { at: ctx.today, cites: cited.size }
+  const closed = await studyErrors(ctx, topic, { ...study, status: 'brief', finished })
+  if (closed !== undefined) problems.push(`study.yaml would not be valid as a brief: ${closed}`)
+  if (problems.length > 0) return fail(...problems)
   const path = files.study(ctx.cfg, topic)
   await ctx.io.writeText(path, setInYaml((await ctx.io.readText(path)) ?? '', { status: 'brief', finished }))
   return ok(finished)

@@ -6,7 +6,7 @@ import { cachedIo, checkEvidence, findArchive } from '../../core/evidence.ts'
 import { files } from '../../core/paths.ts'
 import { fakeIo } from './fake-io.ts'
 import type { FakeIo } from './fake-io.ts'
-import { CFG, LAGO_FILE, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath } from './fixtures.ts'
+import { CFG, LAGO_FILE, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, staticPage } from './fixtures.ts'
 
 const ctxOf = (io: FakeIo) => ({ io, cfg: CFG, today: TODAY })
 const STUDY_DIR = files.studyDir(CFG, 'tax')
@@ -79,14 +79,36 @@ test('web evidence passes when the fetched page holds the quote', async () => {
   assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, docs), { ok: true, via: 'fetch' })
 })
 
-test('a reachable page without the quote needs a browser', async () => {
+test('a page drawn by JavaScript without the quote needs a browser', async () => {
   const io = fakeIo()
   io.pages.set(STRIPE_TAX_URL, { status: 200, text: '<div id="root"></div>' })
   assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, docs), {
     ok: false,
-    reason: `the quote is not in the fetched page of ${STRIPE_TAX_URL}`,
+    reason: `the quote is not in the raw page of ${STRIPE_TAX_URL}, which looks rendered by JavaScript`,
     miss: 'hidden',
   })
+})
+
+test('a server-rendered page without the quote rejects it', async () => {
+  const io = fakeIo()
+  io.pages.set(STRIPE_TAX_URL, { status: 200, text: staticPage('Tax is rounded on the invoice total.') })
+  const outcome = await checkEvidence(ctxOf(io), STUDY_DIR, docs)
+  assert.equal(outcome.ok ? undefined : outcome.miss, 'absent')
+})
+
+test('a noscript notice marks a page as drawn by JavaScript, whatever its text', async () => {
+  const io = fakeIo()
+  io.pages.set(STRIPE_TAX_URL, { status: 200, text: staticPage('Menu') + '<noscript>You need to enable JavaScript to run this app.</noscript>' })
+  const outcome = await checkEvidence(ctxOf(io), STUDY_DIR, docs)
+  assert.equal(outcome.ok ? undefined : outcome.miss, 'hidden')
+})
+
+test('a raw text page keeps its angle brackets', async () => {
+  const io = fakeIo()
+  const raw = 'https://raw.githubusercontent.com/acme/tax/main/README.md'
+  io.pages.set(raw, { status: 200, text: '# Tax\n\nThe rates are a `Vec<Rate>` sorted by jurisdiction.\n' })
+  const evidence: Evidence = { kind: 'docs', url: raw, quote: 'The rates are a Vec<Rate> sorted by jurisdiction.', retrieved: TODAY }
+  assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, evidence), { ok: true, via: 'fetch' })
 })
 
 test('a dead page falls back to its archive copy', async () => {
@@ -109,11 +131,20 @@ test('a source that answers nothing is rejected with its url', async () => {
 test('artifacts must exist and stay under the size cap', async () => {
   const io = fakeIo({ [`${STUDY_DIR}/artifacts/small.png`]: 'x'.repeat(10), [`${STUDY_DIR}/artifacts/big.png`]: 'x'.repeat(300 * 1024 + 1) })
   const tested = (artifact: string): Evidence => ({ kind: 'tested', artifact, quote: 'the filter applies on every keystroke' })
-  assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, tested('artifacts/small.png')), { ok: true, via: 'file' })
+  const image = await checkEvidence(ctxOf(io), STUDY_DIR, tested('artifacts/small.png'))
+  assert.equal(image.ok ? undefined : image.miss, 'hidden')
   const big = await checkEvidence(ctxOf(io), STUDY_DIR, tested('artifacts/big.png'))
   assert.match(big.ok ? '' : big.reason, /the cap is 307200/)
   const missing = await checkEvidence(ctxOf(io), STUDY_DIR, tested('artifacts/none.png'))
   assert.match(missing.ok ? '' : missing.reason, /does not exist/)
+})
+
+test('a transcript artifact must hold the quote', async () => {
+  const io = fakeIo({ [`${STUDY_DIR}/artifacts/run.txt`]: '$ palette --type ab\nthe filter applies on every keystroke\n' })
+  const tested = (quote: string): Evidence => ({ kind: 'tested', artifact: 'artifacts/run.txt', quote })
+  assert.deepEqual(await checkEvidence(ctxOf(io), STUDY_DIR, tested('the filter applies on every keystroke')), { ok: true, via: 'file' })
+  const wrong = await checkEvidence(ctxOf(io), STUDY_DIR, tested('p99 latency stays under 12ms'))
+  assert.equal(wrong.ok ? undefined : wrong.miss, 'absent')
 })
 
 test('findArchive returns the closest snapshot over https', async () => {

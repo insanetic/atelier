@@ -51,16 +51,12 @@ describe('tools', () => {
     expect(String(out.result)).toContain('is not one of [per_line, per_invoice]')
   })
 
-  test('matrix answers with the table and fills the pane', async ($, on) => {
+  test('matrix answers with the table and opens no pane', async ($, on) => {
     world(on)
     await $.session.start(START)
     const out = await $.tool.call({ tool: 'mcp__research__matrix', study: 'tax' })
     expect(String(out.result)).toContain('| dimension | stripe |')
-    expect(opened).toContain('research-study')
-    const props = { title: 'Study tax', isFocused: false, bodyColumns: 100, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 40 }, view: {} }
-    const ui = await $.ui.mount({ plugin: 'research', surface: 'terminal', component: 'Pane', props, requestId: 'research-study' })
-    expect(await ui.find({ type: 'Text', text: /rounding/ })).toBeDefined()
-    await ui.unmount()
+    expect(opened).toEqual([])
   })
 
   test('add_finding records a reuse finding whose licence is quoted and refuses one whose licence is not', async ($, on) => {

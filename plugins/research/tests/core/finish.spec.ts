@@ -117,3 +117,9 @@ test('a citation above the first section is checked too', async () => {
   assert.match(errorsOf(await finish(ctx, 'tax')), /stripe\.vat does not exist/)
   assert.equal(io.files.get(files.study(CFG, 'tax')), before)
 })
+
+test('finish refuses to close a study that would be invalid as a brief, and leaves it a draft', async () => {
+  const { io, ctx } = seeded(brief(), [verifiedDocs()], { question: '' })
+  assert.match(errorsOf(await finish(ctx, 'tax')), /would not be valid as a brief: question is required/)
+  assert.equal((await loadStudy(io, CFG, 'tax'))?.status, 'draft')
+})

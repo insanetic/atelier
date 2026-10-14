@@ -9,6 +9,7 @@ import {
   drop,
   finish,
   files,
+  findRoot,
   loadConfig,
   loadFindings,
   loadValidStudy,
@@ -74,7 +75,7 @@ export async function main(argv: readonly string[], env: CliEnv): Promise<CliRes
     const value = flags.get(name)
     return typeof value === 'string' ? value : undefined
   }
-  const cfg = await loadConfig(env.io, env.cwd, env.home)
+  const cfg = await loadConfig(env.io, await findRoot(env.io, env.cwd), env.home)
   const ctx = { io: env.io, cfg, today: env.today }
   switch (command) {
     case 'init': {

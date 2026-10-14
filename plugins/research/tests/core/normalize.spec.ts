@@ -2,8 +2,18 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { containsQuote, htmlToText, locateQuote, normalizeText, numbersIn } from '../../core/normalize.ts'
 
-test('normalizeText folds quotes, dashes, whitespace, case and markdown marks', () => {
-  assert.equal(normalizeText('  “Tax” is — `rounded`\n per **line**  '), '"tax" is - rounded per line')
+test('normalizeText folds quotes, dashes, whitespace and case, and markdown marks for prose', () => {
+  assert.equal(normalizeText('  “Tax” is — `rounded`\n per **line**  ', { markup: true }), '"tax" is - rounded per line')
+})
+
+test('code keeps its asterisks and backticks', () => {
+  assert.equal(containsQuote('const area = width * height', 'const area = width height'), false)
+  assert.equal(containsQuote('const area = width * height', 'const area = width * height'), true)
+})
+
+test('soft hyphens, zero-width spaces and more named entities do not break a quote', () => {
+  assert.equal(containsQuote(htmlToText('<p>idem\u00adpotency keys&copy; expire&nbsp;&rarr; 24h</p>'), 'idempotency keys© expire → 24h'), true)
+  assert.equal(containsQuote('per\u200b line', 'per line'), true)
 })
 
 test('htmlToText drops scripts and styles and decodes entities', () => {

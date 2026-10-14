@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Io, RunResult } from '../core/io.ts'
 
-const USER_AGENT = 'research/0.2 (+https://github.com/insanetic/atelier)'
+const USER_AGENT = 'research/0.3 (+https://github.com/insanetic/atelier)'
 const FETCH_TIMEOUT_MS = 30_000
 
 const isMissing = (problem: unknown) => (problem as NodeJS.ErrnoException).code === 'ENOENT'
@@ -20,7 +20,10 @@ export function nodeIo(): Io {
     },
     async writeText(path, text) {
       await mkdir(dirname(path), { recursive: true })
-      await writeFile(path, text)
+      // A reader in another process sees the old file or the new one, never a half-written one.
+      const temporary = `${path}.${process.pid}.${Date.now()}.tmp`
+      await writeFile(temporary, text)
+      await rename(temporary, path)
     },
     async exists(path) {
       try {

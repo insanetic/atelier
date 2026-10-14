@@ -28,6 +28,8 @@ export function parseRepoUrl(url: string): { host: string; owner: string; name: 
   const match = /^https?:\/\/([^/]+)\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/.exec(url)
   if (!match) throw new Error(`unsupported repository url ${url}; expected https://<host>/<owner>/<repo>`)
   const [, host = '', owner = '', name = ''] = match
+  // Each part becomes a directory under the cache: . or .. would climb out of it.
+  if ([host, owner, name].some(part => part === '.' || part === '..')) throw new Error(`unsupported repository url ${url}; . and .. are not repository names`)
   return { host, owner, name }
 }
 

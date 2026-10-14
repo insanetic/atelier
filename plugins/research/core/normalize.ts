@@ -12,6 +12,22 @@ const NAMED: Record<string, string> = {
   rsquo: "'",
   ldquo: '"',
   rdquo: '"',
+  laquo: '"',
+  raquo: '"',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  times: '×',
+  divide: '÷',
+  rarr: '→',
+  larr: '←',
+  harr: '↔',
+  bull: '•',
+  middot: '·',
+  shy: '',
+  zwsp: '',
+  zwj: '',
+  zwnj: '',
 }
 
 const INLINE_TAG = /<\/?(?:a|abbr|b|code|em|i|kbd|mark|small|span|strong|sub|sup|var)\b[^>]*>/gi
@@ -38,21 +54,31 @@ export function htmlToText(html: string): string {
   return decodeEntities(stripped)
 }
 
-export function normalizeText(text: string): string {
-  return text
+const LOOKS_LIKE_HTML = /<(?:!doctype\s+html|html|head|body|div|p|span|a|h[1-6]|ul|ol|li|table|article|main|section|em|strong|code|pre|br)\b/i
+
+/** A fetched page as text: HTML loses its markup, anything else (raw markdown, source, JSON) is kept as it is. */
+export function pageText(page: string): string {
+  return LOOKS_LIKE_HTML.test(page) ? htmlToText(page) : page
+}
+
+/**
+ * Text for comparing quotes. Prose (markup: true) also drops backticks and
+ * asterisks, which markdown and rendered pages disagree on; code keeps them, as
+ * `a * b` and `a b` are different code.
+ */
+export function normalizeText(text: string, options: { markup?: boolean } = {}): string {
+  const plain = text
     .normalize('NFKC')
+    .replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, '')
     .replace(/[‘’‚‛′]/g, "'")
     .replace(/[“”„‟″]/g, '"')
     .replace(/[‐-―−]/g, '-')
-    .replace(/[`*]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase()
+  return (options.markup === true ? plain.replace(/[`*]/g, '') : plain).replace(/\s+/g, ' ').trim().toLowerCase()
 }
 
-export function containsQuote(haystack: string, quote: string): boolean {
-  const needle = normalizeText(quote)
-  return needle !== '' && normalizeText(haystack).includes(needle)
+export function containsQuote(haystack: string, quote: string, options: { markup?: boolean } = {}): boolean {
+  const needle = normalizeText(quote, options)
+  return needle !== '' && normalizeText(haystack, options).includes(needle)
 }
 
 /**

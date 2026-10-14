@@ -2,7 +2,7 @@ import type { Ctx } from './io.ts'
 import type { Decision } from './types.ts'
 import { files } from './paths.ts'
 import { citableProblem } from './fresh.ts'
-import { loadFindings, loadValidStudy } from './store.ts'
+import { loadFindings, loadValidStudy, studyErrors } from './store.ts'
 import { setInYaml } from './yaml.ts'
 import { fail, ok } from './result.ts'
 import type { OpResult } from './result.ts'
@@ -32,8 +32,10 @@ export async function decide(ctx: Ctx, input: DecideInput): Promise<OpResult<Dec
     if (problem !== undefined) problems.push(problem)
     else if (finding?.verified !== undefined) snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence }
   }
-  if (problems.length > 0) return fail(...problems)
   const decision: Decision = { chosen: input.chosen, decided_at: ctx.today, cites: input.cites, revisit_when: input.revisit_when, snapshot }
+  const closed = await studyErrors(ctx, input.study, { ...loaded.value, status: 'decided', decision })
+  if (closed !== undefined) problems.push(`study.yaml would not be valid once decided: ${closed}`)
+  if (problems.length > 0) return fail(...problems)
   const path = files.study(ctx.cfg, input.study)
   await ctx.io.writeText(path, setInYaml((await ctx.io.readText(path)) ?? '', { status: 'decided', decision }))
   return ok(decision)

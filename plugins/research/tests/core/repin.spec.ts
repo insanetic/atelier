@@ -5,7 +5,7 @@ import { loadFindings, loadReferences } from '../../core/store.ts'
 import { files } from '../../core/paths.ts'
 import { fakeIo } from './fake-io.ts'
 import { gitFake } from './git-fake.ts'
-import { CFG, LAGO_FILE, LAGO_URL, NEW_SHA, SHA, TODAY, codeFinding, lagoFilePath, seedStudy } from './fixtures.ts'
+import { CFG, LAGO_FILE, LAGO_URL, NEW_SHA, SHA, TODAY, codeFinding, lagoFilePath, seedStudy, study } from './fixtures.ts'
 
 test('repin moves code findings whose quote survives and drifts the rest', async () => {
   const moved = '# moved down a line\nclass Taxes\n  def total\n    round(total_tax)\n  end\nend\n'
@@ -52,4 +52,28 @@ test('repin keeps the comments and layout of a hand-edited references.yaml', asy
   assert.equal((await repin({ io, cfg: CFG, today: TODAY }, 'lago')).ok, true)
   const after = io.files.get(files.references(CFG)) ?? ''
   assert.equal(after, text.replace(SHA, NEW_SHA).replace('2026-10-01', TODAY))
+})
+
+test('repin writes nothing when one of the repositories fails', async () => {
+  const second = 'https://github.com/getlago/lago-front'
+  const io = fakeIo({ [lagoFilePath()]: LAGO_FILE, [lagoFilePath(NEW_SHA)]: '' })
+  const references = [{ id: 'lago', name: 'Lago', kind: 'product' as const, repos: [{ url: LAGO_URL, pin: SHA, pinned_at: '2026-10-01' }, { url: second, pin: SHA, pinned_at: '2026-10-01' }] }]
+  seedStudy(io, { references, study: study({ references: { lago: 'competitor' } }), findings: [codeFinding()] })
+  gitFake(io)
+  const failing = io.onRun
+  io.onRun = (argv, cwd) => (argv.includes('ls-remote') && argv.includes(second) ? { exitCode: 128, stdout: '', stderr: 'not found' } : failing(argv, cwd))
+  const findingsBefore = io.files.get(files.findings(CFG, 'tax'))
+  const out = await repin({ io, cfg: CFG, today: TODAY }, 'lago')
+  assert.match(out.ok ? '' : out.errors[0], /cannot resolve HEAD of .*lago-front/)
+  assert.equal(io.files.get(files.findings(CFG, 'tax')), findingsBefore)
+  assert.equal((await loadReferences(io, CFG))[0]?.repos?.[0]?.pin, SHA)
+})
+
+test('repin leaves a disputed finding disputed when its quote is gone', async () => {
+  const io = fakeIo({ [lagoFilePath()]: LAGO_FILE, [lagoFilePath(NEW_SHA)]: 'class Taxes\nend\n' })
+  seedStudy(io, { findings: [codeFinding({ status: 'disputed', note: 'the code rounds per line' })] })
+  gitFake(io)
+  const out = await repin({ io, cfg: CFG, today: TODAY }, 'lago')
+  assert.deepEqual(out.ok && out.value.drifted, ['tax/lago.rounding'])
+  assert.equal((await loadFindings(io, CFG, 'tax'))[0]?.status, 'disputed')
 })

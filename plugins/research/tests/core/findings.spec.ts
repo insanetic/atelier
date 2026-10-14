@@ -8,7 +8,7 @@ import { files, treeDir } from '../../core/paths.ts'
 import { loadAssessment, loadFindings, saveFindings } from '../../core/store.ts'
 import { toYaml } from '../../core/yaml.ts'
 import { fakeIo } from './fake-io.ts'
-import { CFG, LAGO_FILE, LAGO_URL, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy, study } from './fixtures.ts'
+import { CFG, LAGO_FILE, LAGO_URL, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy, staticPage, study } from './fixtures.ts'
 
 function seeded(findings: Finding[] = []) {
   const io = fakeIo({ [lagoFilePath()]: LAGO_FILE })
@@ -247,4 +247,37 @@ test('addFinding numbers pain and reuse findings without a dimension from 1', as
   assert.deepEqual(saved.map(f => f.id), ['lago.reuse.1', 'lago.reuse.2', 'stripe.pain.1'])
   assert.equal('dimension' in (saved[2] ?? {}), false)
   assert.deepEqual(saved[0]?.reuse, { type: 'code', url: LAGO_URL, license: 'AGPL-3.0' })
+})
+
+test('a superseded finding is not verified back into the study', async () => {
+  const { io, ctx } = seeded([docsFinding({ status: 'superseded' })])
+  const out = await verifyFinding(ctx, { study: 'tax', id: 'stripe.rounding', outcome: 'confirmed' })
+  assert.match(renderOp(out, ''), /is superseded/)
+  const [saved] = await loadFindings(io, CFG, 'tax')
+  assert.equal(saved.status, 'superseded')
+})
+
+test('a quote missing from a server-rendered page is rejected, not warned', async () => {
+  const { io, ctx } = seeded()
+  io.pages.set(STRIPE_TAX_URL, { status: 200, text: staticPage('Tax is rounded on the invoice total.') })
+  const out = await addFinding(ctx, stripeInput)
+  assert.match(renderOp(out, ''), /^rejected:[\s\S]*quote the page verbatim/)
+  assert.deepEqual(await loadFindings(io, CFG, 'tax'), [])
+})
+
+test('a findings.yaml that holds no list is refused rather than overwritten', async () => {
+  const { io, ctx } = seeded()
+  io.files.set(files.findings(CFG, 'tax'), '')
+  await assert.rejects(addFinding(ctx, stripeInput), /expected a list of records/)
+  assert.equal(io.files.get(files.findings(CFG, 'tax')), '')
+})
+
+test('a page that answers nothing keeps the finding unchecked, and verify still refuses it', async () => {
+  const { io, ctx } = seeded()
+  io.pages.set(STRIPE_TAX_URL, { status: 0, text: '' })
+  const out = await addFinding(ctx, stripeInput)
+  assert.match(renderOp(out, 'recorded'), /^recorded\nwarning: .*answered nothing; recorded unchecked/)
+  const verified = await verifyFinding(ctx, { study: 'tax', id: 'stripe.rounding', outcome: 'confirmed' })
+  assert.match(renderOp(verified, ''), /answered nothing/)
+  assert.equal((await loadFindings(io, CFG, 'tax'))[0]?.confidence, 'unverified')
 })

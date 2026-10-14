@@ -93,3 +93,9 @@ export function reuseFinding(over: Partial<Finding> = {}): Finding {
     ...over,
   }
 }
+
+/** A server-rendered page: enough text of its own that a missing quote means a wrong quote. */
+export function staticPage(body: string): string {
+  const filler = 'Every tax calculation runs on the server and returns line items, totals and the jurisdictions that applied. '.repeat(3)
+  return `<!doctype html><html><body><main><p>${body}</p><p>${filler}</p></main></body></html>`
+}

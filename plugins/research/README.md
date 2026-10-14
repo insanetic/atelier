@@ -59,7 +59,7 @@ To benchmark something we have against named references: `/study api-model --aga
 
    Ours is read from our own code.
 4. **Verify:** each quote is re-checked against code at a pinned commit or against the fetched page, and an independent verifier judges whether it supports the claim.
-5. **Write and finish:** `research finish` refuses a brief with a missing section, or with a citation that is unverified, disputed or out of date.
+5. **Write, audit and finish:** an auditor checks that each sentence of the brief follows from the findings it cites. Then `research finish` refuses a brief with a missing section, or with a citation that is unverified, disputed or out of date.
 
 ---
 
@@ -127,13 +127,14 @@ Update later with `/plugin marketplace update atelier`.
 
 | Component | Name | On invoke¹ | What it does |
 |---|---|---|---|
-| Skill | `/study` (`/research:study`) | ~2,570 | The method: quick, brief and deep |
-| Agent | `research:scout` | ~590 | Picks the references best at the task, and the comparison points |
-| Agent | `research:researcher` | ~660 | Researches one reference: answers, pitfalls, things to reuse |
-| Agent | `research:verifier` | ~390 | Re-checks quotes and judges support, independently |
+| Skill | `/study` (`/research:study`) | ~3,050 | The method: quick, brief and deep |
+| Agent | `research:scout` | ~690 | Picks the references best at the task, and the comparison points |
+| Agent | `research:researcher` | ~780 | Researches one reference: answers, pitfalls, things to reuse |
+| Agent | `research:verifier` | ~620 | Re-checks quotes and judges support, independently |
+| Agent | `research:auditor` | ~390 | Checks that each sentence of the brief follows from the findings it cites |
 | Agent | `research:analyst` | ~220 | Proposes scores against the written criteria (deep) |
 | Agent | `research:critic` | ~190 | Attacks candidate designs with the recorded pitfalls (deep) |
-| Tools | `add_finding`, `verify_finding`, `set_score`, `clone`, `query`, `matrix` | n/a | Validated writes, quote and licence checks, search, the comparison pane |
+| Tools | `add_finding`, `verify_finding`, `set_score`, `clone`, `query`, `matrix` | n/a | Validated writes, quote and licence checks, search, the comparison matrix, a status line with the counts |
 | Command | `research` (on PATH in sessions) | n/a | `init`, `check`, `stale`, `query`, `matrix`, `finish`, `drop`, `decide`, `reverify`, `clone`, `repin` |
 
 ¹ Tokens, estimated as file size / 4.
@@ -148,8 +149,8 @@ Update later with `/plugin marketplace update atelier`.
 plugins/research/
 ├── .claude-plugin/plugin.json    # plugin manifest
 ├── skills/study/SKILL.md         # the method
-├── agents/                       # scout, researcher, verifier, analyst, critic
-├── hooks/                        # the mod: tools, guard, pane, status line
+├── agents/                       # scout, researcher, verifier, auditor, analyst, critic
+├── hooks/                        # the mod: tools, guard, status line
 ├── core/                         # shared logic without I/O: records, validation, quote and licence checks
 ├── cli/, bin/research            # the research command
 ├── dist/                         # committed bundles: core for the mod, cli for Node

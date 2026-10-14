@@ -33,3 +33,7 @@ test('files names every study file under the research dir', () => {
   assert.equal(files.notes(CFG, 'tax'), '/repo/research/studies/tax/study.md')
   assert.equal(files.references(CFG), '/repo/research/references.yaml')
 })
+
+test('parseRepoUrl rejects dot segments that would leave the cache', () => {
+  for (const url of ['https://github.com/../..', 'https://../../x', 'https://github.com/acme/..']) assert.throws(() => parseRepoUrl(url), /\. and \.\. are not repository names/)
+})

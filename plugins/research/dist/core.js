@@ -6379,6 +6379,7 @@ function parseRepoUrl(url) {
   const match = /^https?:\/\/([^/]+)\/([^/]+)\/([^/#?]+?)(?:\.git)?\/?$/.exec(url);
   if (!match) throw new Error(`unsupported repository url ${url}; expected https://<host>/<owner>/<repo>`);
   const [, host = "", owner = "", name = ""] = match;
+  if ([host, owner, name].some((part) => part === "." || part === "..")) throw new Error(`unsupported repository url ${url}; . and .. are not repository names`);
   return { host, owner, name };
 }
 function treeDir(cfg, repoUrl, sha) {
@@ -6405,6 +6406,12 @@ async function loadConfig(io, root, home) {
   const cache = typeof data.cache === "string" ? data.cache : "~/.cache/research";
   return { root: join(root), dir: resolvePath(root, dir, home), cache: resolvePath(root, cache, home) };
 }
+async function findRoot(io, cwd) {
+  for (let dir = join(cwd); ; dir = join(dir, "..")) {
+    if (await io.exists(join(dir, CONFIG_FILE)) || await io.exists(join(dir, ".git"))) return dir;
+    if (dir === "/" || !dir.startsWith("/")) return join(cwd);
+  }
+}
 
 // core/normalize.ts
 var NAMED = {
@@ -6420,7 +6427,23 @@ var NAMED = {
   lsquo: "'",
   rsquo: "'",
   ldquo: '"',
-  rdquo: '"'
+  rdquo: '"',
+  laquo: '"',
+  raquo: '"',
+  copy: "\xA9",
+  reg: "\xAE",
+  trade: "\u2122",
+  times: "\xD7",
+  divide: "\xF7",
+  rarr: "\u2192",
+  larr: "\u2190",
+  harr: "\u2194",
+  bull: "\u2022",
+  middot: "\xB7",
+  shy: "",
+  zwsp: "",
+  zwj: "",
+  zwnj: ""
 };
 var INLINE_TAG = /<\/?(?:a|abbr|b|code|em|i|kbd|mark|small|span|strong|sub|sup|var)\b[^>]*>/gi;
 function decodeEntities(text) {
@@ -6437,12 +6460,17 @@ function htmlToText(html) {
   const stripped = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<style\b[\s\S]*?<\/style>/gi, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(INLINE_TAG, "").replace(/<[^>]+>/g, " ");
   return decodeEntities(stripped);
 }
-function normalizeText(text) {
-  return text.normalize("NFKC").replace(/[‘’‚‛′]/g, "'").replace(/[“”„‟″]/g, '"').replace(/[‐-―−]/g, "-").replace(/[`*]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+var LOOKS_LIKE_HTML = /<(?:!doctype\s+html|html|head|body|div|p|span|a|h[1-6]|ul|ol|li|table|article|main|section|em|strong|code|pre|br)\b/i;
+function pageText(page) {
+  return LOOKS_LIKE_HTML.test(page) ? htmlToText(page) : page;
 }
-function containsQuote(haystack, quote) {
-  const needle = normalizeText(quote);
-  return needle !== "" && normalizeText(haystack).includes(needle);
+function normalizeText(text, options = {}) {
+  const plain = text.normalize("NFKC").replace(/[\u00ad\u200b-\u200d\u2060\ufeff]/g, "").replace(/[‘’‚‛′]/g, "'").replace(/[“”„‟″]/g, '"').replace(/[‐-―−]/g, "-");
+  return (options.markup === true ? plain.replace(/[`*]/g, "") : plain).replace(/\s+/g, " ").trim().toLowerCase();
+}
+function containsQuote(haystack, quote, options = {}) {
+  const needle = normalizeText(quote, options);
+  return needle !== "" && normalizeText(haystack, options).includes(needle);
 }
 function locateQuote(text, quote) {
   const needle = normalizeText(quote);
@@ -6580,6 +6608,7 @@ var CODE_KINDS = ["code", "api_spec", "spec"];
 var WEB_KINDS = ["docs", "blog", "issue", "marketing"];
 var PRIMARY_KINDS = ["code", "api_spec", "spec", "docs", "tested"];
 var MAX_QUOTE_CHARS = 300;
+var MIN_QUOTE_CHARS = 10;
 var MAX_CODE_LINES = 15;
 var FINDING_ID = /^[a-z0-9][a-z0-9-]*\.[a-z][a-z0-9_]*(\.\d+)?$/;
 var METHOD_OF = {
@@ -6604,7 +6633,8 @@ var isMapping = (value) => value !== null && typeof value === "object" && !Array
 var error = (file, message) => ({ level: "error", kind: "schema", file, message });
 var warn2 = (file, message, kind = "schema") => ({ level: "warn", kind, file, message });
 function hostOf(url) {
-  return /^https?:\/\/([^/?#]+)/i.exec(url)?.[1]?.toLowerCase() ?? "";
+  const host = /^https?:\/\/([^/?#]+)/i.exec(url)?.[1]?.toLowerCase() ?? "";
+  return host.replace(/:\d+$/, "").replace(/^www\./, "");
 }
 function parseLines(lines) {
   const [first = Number.NaN, last] = lines.split("-").map(Number);
@@ -6651,6 +6681,7 @@ function evidenceIssues(item, index) {
   const out = [];
   if (!isOneOf(EVIDENCE_KINDS, item.kind)) out.push(`${at}.kind must be one of ${EVIDENCE_KINDS.join(", ")}`);
   if (!isText(item.quote)) out.push(`${at}.quote is required`);
+  else if (item.quote.trim().length < MIN_QUOTE_CHARS) out.push(`${at}.quote is too short to identify its source; quote at least ${MIN_QUOTE_CHARS} characters`);
   if (CODE_KINDS.includes(item.kind)) {
     if (!isText(item.repo)) out.push(`${at}.repo is required`);
     if (!isSha(item.sha)) out.push(`${at}.sha must be a full 40-character sha`);
@@ -7034,7 +7065,9 @@ async function readYaml(io, path) {
 async function readList(io, path) {
   const loaded = await readYaml(io, path);
   if (loaded.error !== void 0) throw new Error(`${path}: ${loaded.error}`);
-  return Array.isArray(loaded.data) ? loaded.data : [];
+  if (loaded.missing) return [];
+  if (!Array.isArray(loaded.data)) throw new Error(`${path}: expected a list of records; fix or restore the file`);
+  return loaded.data;
 }
 function loadReferences(io, cfg) {
   return readList(io, files.references(cfg));
@@ -7057,20 +7090,38 @@ async function loadNotes(io, cfg, topic) {
 function saveFindings(io, cfg, topic, findings) {
   return io.writeText(files.findings(cfg, topic), toYaml(findings));
 }
+async function mergeFindings(io, cfg, topic, before, changed) {
+  const byId = new Map(changed.map((finding) => [finding.id, finding]));
+  const kept = [];
+  const latest = (await loadFindings(io, cfg, topic)).map((finding) => {
+    const next = byId.get(finding.id);
+    if (next === void 0) return finding;
+    if (JSON.stringify(finding) !== before.get(finding.id)) {
+      kept.push(finding.id);
+      return finding;
+    }
+    return next;
+  });
+  await saveFindings(io, cfg, topic, latest);
+  return kept;
+}
 function saveAssessment(io, cfg, topic, scores) {
   return io.writeText(files.assessment(cfg, topic), toYaml(scores));
 }
 async function listTopics(io, cfg) {
   return (await io.listDirs(files.studies(cfg))).sort();
 }
+async function studyErrors(ctx, topic, study) {
+  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map((ref) => ref.id));
+  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter((issue) => issue.level === "error");
+  return errors.length === 0 ? void 0 : errors.map((issue) => issue.message).join("; ");
+}
 async function loadValidStudy(ctx, topic) {
   if (!isTopic(topic)) return fail(TOPIC_RULE);
   const study = await loadStudy(ctx.io, ctx.cfg, topic);
   if (study === void 0) return fail(`study ${topic} does not exist`);
-  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map((ref) => ref.id));
-  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter((issue) => issue.level === "error");
-  if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map((issue) => issue.message).join("; ")}`);
-  return ok(study);
+  const errors = await studyErrors(ctx, topic, study);
+  return errors === void 0 ? ok(study) : fail(`study ${topic} has errors: ${errors}`);
 }
 async function createStudy(ctx, topic, mode) {
   if (!isTopic(topic)) return fail(TOPIC_RULE);
@@ -7165,21 +7216,33 @@ async function checkCode(ctx, evidence) {
   const found = locateQuote(source.text, evidence.quote);
   return miss(found === void 0 ? `the quote is not in ${path}` : `the quote is at lines ${lineRange(found)}, not ${lines}`, "absent");
 }
+var IMAGE = /\.(?:png|jpe?g|gif|webp)$/i;
 async function checkArtifact(io, studyDir, evidence) {
-  const size = await io.size(join(studyDir, evidence.artifact ?? ""));
-  if (size === void 0) return miss(`artifact ${evidence.artifact} does not exist`, "removed");
-  if (size > MAX_ARTIFACT_BYTES) return miss(`artifact ${evidence.artifact} is ${size} bytes; the cap is ${MAX_ARTIFACT_BYTES}`, "absent");
-  return pass("file");
+  const artifact = evidence.artifact ?? "";
+  const path = join(studyDir, artifact);
+  const size = await io.size(path);
+  if (size === void 0) return miss(`artifact ${artifact} does not exist`, "removed");
+  if (size > MAX_ARTIFACT_BYTES) return miss(`artifact ${artifact} is ${size} bytes; the cap is ${MAX_ARTIFACT_BYTES}`, "absent");
+  if (IMAGE.test(artifact)) return miss(`artifact ${artifact} is an image; the quote can only be checked by looking at it`, "hidden");
+  return containsQuote(await io.readText(path) ?? "", evidence.quote, { markup: true }) ? pass("file") : miss(`the quote is not in artifact ${artifact}`, "absent");
+}
+var EMPTY_MOUNT = /<div\b[^>]*\bid=["'](?:root|app|__next|__nuxt|___gatsby|svelte)["'][^>]*>\s*<\/div>/i;
+var NOSCRIPT_NOTICE = /<noscript\b[^>]*>[\s\S]{0,400}?(?:enable|requires?|turn on)\s+javascript/i;
+var MIN_STATIC_TEXT = 200;
+function looksClientRendered(html) {
+  if (EMPTY_MOUNT.test(html) || NOSCRIPT_NOTICE.test(html)) return true;
+  return htmlToText(html).replace(/\s+/g, " ").trim().length < MIN_STATIC_TEXT;
 }
 async function checkWeb(io, evidence) {
   const url = evidence.url ?? "";
   const live = await io.fetchText(url);
   if (isReachable(live)) {
-    return containsQuote(htmlToText(live.text), evidence.quote) ? pass("fetch") : miss(`the quote is not in the fetched page of ${url}`, "hidden");
+    if (containsQuote(pageText(live.text), evidence.quote, { markup: true })) return pass("fetch");
+    return looksClientRendered(live.text) ? miss(`the quote is not in the raw page of ${url}, which looks rendered by JavaScript`, "hidden") : miss(`the quote is not in the page of ${url}; quote the page verbatim`, "absent");
   }
   if (evidence.archive !== void 0) {
     const archived = await io.fetchText(evidence.archive);
-    if (isReachable(archived) && containsQuote(htmlToText(archived.text), evidence.quote)) return pass("archive");
+    if (isReachable(archived) && containsQuote(pageText(archived.text), evidence.quote, { markup: true })) return pass("archive");
   }
   const answered = `${url} answered ${live.status === 0 ? "nothing" : live.status}`;
   if (live.status === 0) return miss(answered, "unreachable");
@@ -7278,6 +7341,7 @@ async function addFinding(ctx, input, lock = new KeyedLock()) {
     const outcome = await checkEvidence(ctx, studyDir, item);
     if (outcome.ok) continue;
     if (outcome.miss === "hidden" || outcome.miss === "blocked") warnings.push(`evidence[${index}]: ${outcome.reason}; ${BROWSER}`);
+    else if (outcome.miss === "unreachable" && WEB_KINDS.includes(item.kind)) warnings.push(`evidence[${index}]: ${outcome.reason}; recorded unchecked, verify it once the page answers`);
     else errors.push(`evidence[${index}]: ${outcome.reason}`);
   }
   if (errors.length > 0) return fail(...errors);
@@ -7294,6 +7358,7 @@ async function verifyFinding(ctx, input, lock = new KeyedLock()) {
   if (!OUTCOMES.includes(input.outcome)) return fail("outcome must be confirmed, likely or disputed");
   const finding = (await loadFindings(ctx.io, ctx.cfg, input.study)).find((existing) => existing.id === input.id);
   if (finding === void 0) return fail(`finding ${input.id} does not exist in study ${input.study}`);
+  if (finding.status === "superseded") return fail(`finding ${input.id} is superseded; verify the finding that replaced it`);
   let updated;
   if (input.outcome === "disputed") {
     const { verified: _dropped, ...rest } = finding;
@@ -7406,7 +7471,7 @@ async function repin(ctx, refId, toSha) {
     return fail("--to takes a full 40-character sha and works for a reference with exactly one repository");
   }
   const result = { pins: [], moved: [], drifted: [] };
-  const topics = await listTopics(ctx.io, ctx.cfg);
+  const targets = [];
   for (const repo of repos) {
     try {
       parseRepoUrl(repo.url);
@@ -7417,30 +7482,38 @@ async function repin(ctx, refId, toSha) {
     if (sha === void 0) return fail(`cannot resolve HEAD of ${repo.url}`);
     const tree = await ensureTree(ctx, repo.url, sha);
     if (!tree.ok) return tree;
-    const previous = repo.pin;
-    if (previous !== void 0 && previous !== sha) {
-      for (const topic of topics) {
-        const findings = await loadFindings(ctx.io, ctx.cfg, topic);
-        let isChanged = false;
-        for (const finding of findings) {
-          for (const item of finding.evidence) {
-            if (!CODE_KINDS.includes(item.kind) || item.repo !== repo.url || item.sha !== previous) continue;
-            isChanged = true;
-            const text = await ctx.io.readText(join(treeDir(ctx.cfg, repo.url, sha), item.path ?? ""));
-            const found = text === void 0 ? void 0 : locateQuote(text, item.quote);
-            if (found === void 0) {
+    targets.push({ repo, sha, dir: tree.value });
+  }
+  const moves = targets.filter((target) => target.repo.pin !== void 0 && target.repo.pin !== target.sha);
+  if (moves.length > 0) {
+    for (const topic of await listTopics(ctx.io, ctx.cfg)) {
+      const findings = await loadFindings(ctx.io, ctx.cfg, topic);
+      const before = new Map(findings.map((finding) => [finding.id, JSON.stringify(finding)]));
+      const changed = /* @__PURE__ */ new Set();
+      for (const finding of findings) {
+        for (const item of finding.evidence) {
+          const target = moves.find((move) => item.repo === move.repo.url && item.sha === move.repo.pin);
+          if (!CODE_KINDS.includes(item.kind) || target === void 0) continue;
+          const text = await ctx.io.readText(join(target.dir, item.path ?? ""));
+          const found = text === void 0 ? void 0 : locateQuote(text, item.quote);
+          if (found === void 0) {
+            if (finding.status === "current") {
               finding.status = "drifted";
-              result.drifted.push(`${topic}/${finding.id}`);
-              continue;
+              changed.add(finding);
             }
-            item.sha = sha;
-            item.lines = lineRange(found);
-            result.moved.push(`${topic}/${finding.id}`);
+            result.drifted.push(`${topic}/${finding.id}`);
+            continue;
           }
+          item.sha = target.sha;
+          item.lines = lineRange(found);
+          changed.add(finding);
+          result.moved.push(`${topic}/${finding.id}`);
         }
-        if (isChanged) await saveFindings(ctx.io, ctx.cfg, topic, findings);
       }
+      if (changed.size > 0) await mergeFindings(ctx.io, ctx.cfg, topic, before, [...changed]);
     }
+  }
+  for (const { repo, sha } of targets) {
     repo.pin = sha;
     repo.pinned_at = ctx.today;
     result.pins.push({ url: repo.url, sha });
@@ -7545,7 +7618,8 @@ async function reverify(ctx, options) {
     const study = await loadStudy(run.io, run.cfg, topic);
     if (study === void 0) continue;
     const findings = await loadFindings(run.io, run.cfg, topic);
-    let isChanged = false;
+    const before = new Map(findings.map((finding) => [finding.id, JSON.stringify(finding)]));
+    const changed = /* @__PURE__ */ new Set();
     for (const finding of findings) {
       if (finding.status !== "current") continue;
       const label = `${topic}/${finding.id}`;
@@ -7557,7 +7631,7 @@ async function reverify(ctx, options) {
           continue;
         }
         item.archive = archived;
-        isChanged = true;
+        changed.add(finding);
         report.archived.push(label);
       }
       const verified = finding.verified;
@@ -7569,7 +7643,7 @@ async function reverify(ctx, options) {
         report.skipped.push(`${label} (${verdict.reason})`);
         continue;
       }
-      isChanged = true;
+      changed.add(finding);
       if (verdict.kind === "ok") {
         finding.verified = { ...verified, at: run.today };
         report.refreshed.push(label);
@@ -7578,7 +7652,8 @@ async function reverify(ctx, options) {
         report.drifted.push(label);
       }
     }
-    if (isChanged) await saveFindings(run.io, run.cfg, topic, findings);
+    if (changed.size === 0) continue;
+    for (const id of await mergeFindings(run.io, run.cfg, topic, before, [...changed])) report.skipped.push(`${topic}/${id} (changed while it was re-checked; run reverify again)`);
   }
   return report;
 }
@@ -7626,8 +7701,10 @@ async function decide(ctx, input) {
     if (problem !== void 0) problems.push(problem);
     else if (finding?.verified !== void 0) snapshot[id] = { verified_at: finding.verified.at, confidence: finding.confidence };
   }
-  if (problems.length > 0) return fail(...problems);
   const decision = { chosen: input.chosen, decided_at: ctx.today, cites: input.cites, revisit_when: input.revisit_when, snapshot };
+  const closed = await studyErrors(ctx, input.study, { ...loaded.value, status: "decided", decision });
+  if (closed !== void 0) problems.push(`study.yaml would not be valid once decided: ${closed}`);
+  if (problems.length > 0) return fail(...problems);
   const path = files.study(ctx.cfg, input.study);
   await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "decided", decision }));
   return ok(decision);
@@ -7673,8 +7750,10 @@ async function finish(ctx, topic) {
     const problem = citableProblem(key, finding, dimension, ctx.today);
     if (problem !== void 0) problems.push(problem);
   }
-  if (problems.length > 0) return fail(...problems);
   const finished = { at: ctx.today, cites: cited.size };
+  const closed = await studyErrors(ctx, topic, { ...study, status: "brief", finished });
+  if (closed !== void 0) problems.push(`study.yaml would not be valid as a brief: ${closed}`);
+  if (problems.length > 0) return fail(...problems);
   const path = files.study(ctx.cfg, topic);
   await ctx.io.writeText(path, setInYaml(await ctx.io.readText(path) ?? "", { status: "brief", finished }));
   return ok(finished);
@@ -7696,6 +7775,37 @@ async function drop(ctx, topic, ref, lock = new KeyedLock()) {
     return ok({ findings: findings.filter((finding) => finding.ref === ref).map((finding) => finding.id), scores: scores.length - kept.length });
   });
 }
+
+// core/guard.ts
+var GUARDED_FILE = /(^|\/)studies\/[^/]+\/(findings|assessment)\.yaml$/;
+var NAMED2 = /(?:findings|assessment)\.yaml\b/;
+var REDIRECT = />\|?>?\s*['"]?[^\s'"]*(?:findings|assessment)\.yaml/;
+var IN_PLACE_TOOL = /\b(?:sed|perl|ruby|yq)\b/;
+var IN_PLACE_FLAG = /\s(?:-[a-zA-Z]*i[a-zA-Z.]*|--in-?place\S*)(?=\s|$)/;
+var REMOVES = /\b(?:rm|mv|truncate|shred|unlink)\b/;
+var COPIES_ONTO = /\b(?:cp|install|ln|rsync)\b/;
+var GIT_REWRITES = /\bgit\s+(?:checkout|restore|reset|stash|apply|am|mv|rm)\b/;
+var DD_ONTO = /\bdd\b.*\bof=\S*(?:findings|assessment)\.yaml/;
+var SCRIPT = /\b(?:python3?|node|deno|bun|ruby)\b/;
+var SCRIPT_WRITE = /\b(?:open|writeFile\w*|write_text|write_bytes|dump)\s*\(/;
+var READ_ONLY_OPEN = /\bopen\s*\([^)]*\)\s*\)/;
+var lastWord = (segment) => (segment.trim().split(/\s+/).at(-1) ?? "").replace(/^['"]|['"]$/g, "");
+function scriptWrites(segment) {
+  if (!SCRIPT.test(segment) || !SCRIPT_WRITE.test(segment)) return false;
+  if (/\bopen\s*\([^)]*,\s*['"][wa+]/.test(segment) || /\b(?:writeFile\w*|write_text|write_bytes)\s*\(/.test(segment)) return true;
+  return /\bdump\s*\(/.test(segment) && !READ_ONLY_OPEN.test(segment);
+}
+function isGuardedWrite(command) {
+  if (!NAMED2.test(command)) return false;
+  if (scriptWrites(command)) return true;
+  return command.split(/&&|\|\||[;|\n]/).some((segment) => {
+    if (!NAMED2.test(segment)) return false;
+    if (REDIRECT.test(segment) || /\btee\b/.test(segment)) return true;
+    if (IN_PLACE_TOOL.test(segment) && IN_PLACE_FLAG.test(segment)) return true;
+    if (REMOVES.test(segment) || GIT_REWRITES.test(segment) || DD_ONTO.test(segment)) return true;
+    return COPIES_ONTO.test(segment) && NAMED2.test(lastWord(segment));
+  });
+}
 export {
   BRIEF_SECTIONS,
   CELL_STATES,
@@ -7709,6 +7819,7 @@ export {
   FINDING_KINDS,
   FINDING_STATUSES,
   GREENFIELD_SECTION,
+  GUARDED_FILE,
   KANO,
   KeyedLock,
   MAX_ARTIFACT_BYTES,
@@ -7716,6 +7827,7 @@ export {
   MAX_QUOTE_CHARS,
   MAX_SHORT_ANSWER,
   METHODS,
+  MIN_QUOTE_CHARS,
   PIN_MAX_DAYS,
   PRIMARY_KINDS,
   REFERENCE_KINDS,
@@ -7759,10 +7871,12 @@ export {
   fail,
   files,
   findArchive,
+  findRoot,
   finish,
   hostOf,
   htmlToText,
   isDate,
+  isGuardedWrite,
   isSha,
   isStale,
   isTopic,
@@ -7778,12 +7892,15 @@ export {
   loadStudy,
   loadValidStudy,
   locateQuote,
+  looksClientRendered,
+  mergeFindings,
   methodOf,
   normalizeText,
   notesTemplate,
   numberGuard,
   numbersIn,
   ok,
+  pageText,
   parseLines,
   parseRepoUrl,
   parseYaml,
@@ -7809,6 +7926,7 @@ export {
   stalePins,
   stateOf,
   statusLine,
+  studyErrors,
   toYaml,
   todayFromMs,
   treeDir,

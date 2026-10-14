@@ -15,7 +15,7 @@ Agents collect. Deterministic checks verify the quotes, and the verifier judges 
 
 1. Derive a kebab-case topic from the task: `tax`, `idempotency-keys`, `plan-change`.
 2. Run `research init <topic>`, adding `--quick` or `--deep` when given. On first use it creates `research/`. An existing study is reopened untouched: continue where it stopped, never reset it.
-3. Call `matrix` with the topic. It opens the pane and shows what is already known.
+3. Call `matrix` with the topic. It shows what is already known.
 4. Run the mode: quick, brief (the default) or deep.
 
 ## Files
@@ -65,9 +65,16 @@ Run every step without asking the user anything, and report at the end.
      - every dimension with its options;
      - "record each answer with add_finding, plus pain and reuse findings".
    - The ours researcher also gets the HEAD sha and "read our code only; never fetch the web".
-4. **Verify.** Dispatch one `research:verifier` per reference, all in one message. Give each only that reference's finding ids, which `research query --study <topic> --ref <ref>` lists.
+   - **Gaps.** A researcher may report a dimension no option fits. Add the option it describes to that dimension in `study.yaml`, run `research check`, and dispatch that researcher again for the gapped dimensions only. When an added option could also fit references already answered, list it in Open questions rather than re-running every researcher.
+4. **Verify.** Dispatch `research:verifier`s, all in one message, each with about 15 finding ids, grouped by reference so related pages are read once. `research query --study <topic> --ref <ref>` lists them. A verifier gets only the ids, never a researcher's reasoning.
    - A verifier may report a finding as needing a browser. For each one, open the page with your browser tools and read the quote.
    - Then call `verify_finding` with `browser_confirmed: true`, or with `outcome: disputed` and a note.
+   - **Dig further or stop.** Before writing, look at the matrix. Run one more targeted round (a researcher for the weak reference, or a new reference from the scout's rejected list) when:
+     - a dimension has two or more `unknown` or disputed answers;
+     - a conclusion you are about to draw rests on a single reference or a single source;
+     - the researchers reported a reference the scout missed.
+
+     Otherwise stop: one extra round at most.
 5. **Write the brief.** Call `matrix` for the answers, and `query` with `kind: reuse` and `kind: pain` for the reuse findings and pitfalls (the matrix shows answers only). Put the cost on the line under the `# <topic>` title (`Cost: <tokens> tokens, <minutes> min`).
    - Then fill in exactly these `##` sections, in this order:
      1. `## Answer`: three sentences. Has it been done? Which approach dominates? What should we do? "Nothing close exists" is a valid answer when it lists what was searched.
@@ -81,6 +88,9 @@ Run every step without asking the user anything, and report at the end.
      8. `## Open questions`: the unknowns, and what would settle them.
    - Cite only `confirmed` or `likely` findings.
    - Every section cites at least one finding, except Answer, Who solved it, Open questions and Greenfield.
+   - The Answer's and the Recommendation's main claims rest on findings from at least two references. If one rests on a single source, say so in the sentence.
+   - Where references disagree, say so under Approaches and give both sides; do not average them away.
+   - **Audit the brief.** Dispatch `research:auditor` with the topic. It checks that each cited sentence follows from the findings it cites. Fix every sentence it reports as unsupported or partial: weaken it, cite the right finding, or drop it. Then audit again, until it reports none.
 6. **Finish.** Run `research finish <topic>`. It refuses:
    - missing or misordered sections;
    - citations that do not resolve;
@@ -91,6 +101,8 @@ Run every step without asking the user anything, and report at the end.
    - the Answer and the Recommendation;
    - the references picked;
    - the cost.
+
+   In chat, cite with links, not ids: put each finding's source URL (or `file:line` for ours) where the brief has `[f:<id>]`.
 
 ## Follow-ups
 
@@ -131,7 +143,8 @@ The sections of a deep `study.md` are: Question and decision, Paradigms found, T
 ## Evidence rules
 
 **Quotes**
-- Quotes are verbatim: at most 300 characters for web sources, and at most 15 lines of code at the pinned sha. Never paraphrase inside `quote`.
+- Quotes are verbatim: at least 10 characters, at most 300 for web sources, and at most 15 lines of code at the pinned sha. Never paraphrase inside `quote`. A quote missing from a server-rendered page is rejected; only a page that looks rendered by JavaScript gets the browser check.
+- `tested` evidence needs a text transcript under `artifacts/` that holds the quote. A screenshot is checked by looking at it.
 - Evidence strength, strongest first: `tested` > `code` / `api_spec` / `spec` > `docs` > `blog` / `issue` > `marketing`. Vendor marketing never gets past `likely`.
 - `unknown` with `searched` beats a guess. Every number in `detail` must appear in a quote.
 

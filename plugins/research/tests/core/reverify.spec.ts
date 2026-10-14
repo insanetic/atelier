@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { renderReport, reverify } from '../../core/reverify.ts'
-import { loadFindings } from '../../core/store.ts'
+import { loadFindings, saveFindings } from '../../core/store.ts'
 import { fakeIo } from './fake-io.ts'
 import { gitFake } from './git-fake.ts'
-import { CFG, LAGO_FILE, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy } from './fixtures.ts'
+import { CFG, LAGO_FILE, SHA, STRIPE_TAX_URL, TODAY, codeFinding, docsFinding, lagoFilePath, seedStudy, staticPage } from './fixtures.ts'
 
 const verifiedOn = (at: string, via: 'fetch' | 'git' | 'browser') => ({ confidence: 'confirmed' as const, verified: { by: 'verifier', at, via } })
 
@@ -17,7 +17,7 @@ function setup() {
 test('due findings whose quote still matches are refreshed and changed ones drift', async () => {
   const { io, ctx } = setup()
   seedStudy(io, { findings: [docsFinding(verifiedOn('2025-01-01', 'fetch')), codeFinding(verifiedOn('2025-01-01', 'git'))] })
-  io.pages.set(STRIPE_TAX_URL, { status: 200, text: '<p>Tax is rounded on the invoice total.</p>' })
+  io.pages.set(STRIPE_TAX_URL, { status: 200, text: staticPage('Tax is rounded on the invoice total.') })
   const report = await reverify(ctx, { dueOnly: true })
   assert.deepEqual(report, { refreshed: ['tax/lago.rounding'], drifted: ['tax/stripe.rounding'], archived: [], skipped: [] })
   const [docs, code] = await loadFindings(io, CFG, 'tax')
@@ -38,7 +38,7 @@ test('a browser-verified quote the raw fetch cannot see is skipped, not drifted'
   io.pages.set(STRIPE_TAX_URL, { status: 200, text: '<div id="app"></div>' })
   const report = await reverify(ctx, { dueOnly: true })
   assert.deepEqual([report.refreshed, report.drifted], [[], []])
-  assert.match(report.skipped[0] ?? '', /^tax\/stripe\.rounding \(the quote is not in the fetched page/)
+  assert.match(report.skipped[0] ?? '', /^tax\/stripe\.rounding \(the quote is not in the raw page of .*rendered by JavaScript/)
 })
 
 test('missing archives are filled for current findings', async () => {
@@ -90,4 +90,41 @@ test('reverify asks Wayback to save pages that have no archive yet', async () =>
   seedStudy(io, { findings: [docsFinding()] })
   await reverify(ctx, { dueOnly: true })
   assert.ok(io.fetched.includes(`https://web.archive.org/save/${STRIPE_TAX_URL}`))
+})
+
+test('a finding recorded while reverify runs survives its save', async () => {
+  const { io, ctx } = setup()
+  seedStudy(io, { findings: [docsFinding(verifiedOn('2025-01-01', 'fetch'))] })
+  io.pages.set(STRIPE_TAX_URL, { status: 200, text: staticPage('Tax is rounded per line item.') })
+  const fetchText = io.fetchText.bind(io)
+  let isAdded = false
+  io.fetchText = async url => {
+    // A researcher writes between reverify's load and its save.
+    if (!isAdded) {
+      isAdded = true
+      await saveFindings(io, CFG, 'tax', [...(await loadFindings(io, CFG, 'tax')), codeFinding()])
+    }
+    return fetchText(url)
+  }
+  const report = await reverify(ctx, { dueOnly: true })
+  assert.deepEqual(report.refreshed, ['tax/stripe.rounding'])
+  assert.deepEqual((await loadFindings(io, CFG, 'tax')).map(finding => finding.id), ['stripe.rounding', 'lago.rounding'])
+})
+
+test('a finding changed while reverify runs keeps the newer version', async () => {
+  const { io, ctx } = setup()
+  seedStudy(io, { findings: [docsFinding(verifiedOn('2025-01-01', 'fetch'))] })
+  io.pages.set(STRIPE_TAX_URL, { status: 200, text: staticPage('Tax is rounded per line item.') })
+  const fetchText = io.fetchText.bind(io)
+  let isDisputed = false
+  io.fetchText = async url => {
+    if (!isDisputed) {
+      isDisputed = true
+      await saveFindings(io, CFG, 'tax', [docsFinding({ status: 'disputed', note: 'per invoice' })])
+    }
+    return fetchText(url)
+  }
+  const report = await reverify(ctx, { dueOnly: true })
+  assert.match(report.skipped[0] ?? '', /changed while it was re-checked/)
+  assert.equal((await loadFindings(io, CFG, 'tax'))[0]?.status, 'disputed')
 })

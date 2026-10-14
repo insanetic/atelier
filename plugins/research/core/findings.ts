@@ -105,6 +105,8 @@ export async function addFinding(ctx: Ctx, input: AddFindingInput, lock = new Ke
     const outcome = await checkEvidence(ctx, studyDir, item)
     if (outcome.ok) continue
     if (outcome.miss === 'hidden' || outcome.miss === 'blocked') warnings.push(`evidence[${index}]: ${outcome.reason}; ${BROWSER}`)
+    // A page that answered nothing says nothing about the quote: keep the work, unverified, for verify or reverify to check.
+    else if (outcome.miss === 'unreachable' && WEB_KINDS.includes(item.kind)) warnings.push(`evidence[${index}]: ${outcome.reason}; recorded unchecked, verify it once the page answers`)
     else errors.push(`evidence[${index}]: ${outcome.reason}`)
   }
   if (errors.length > 0) return fail(...errors)
@@ -122,6 +124,7 @@ export async function verifyFinding(ctx: Ctx, input: VerifyInput, lock = new Key
   if (!OUTCOMES.includes(input.outcome)) return fail('outcome must be confirmed, likely or disputed')
   const finding = (await loadFindings(ctx.io, ctx.cfg, input.study)).find(existing => existing.id === input.id)
   if (finding === undefined) return fail(`finding ${input.id} does not exist in study ${input.study}`)
+  if (finding.status === 'superseded') return fail(`finding ${input.id} is superseded; verify the finding that replaced it`)
   let updated: Finding
   if (input.outcome === 'disputed') {
     const { verified: _dropped, ...rest } = finding

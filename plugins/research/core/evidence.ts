@@ -1,7 +1,7 @@
 import type { Ctx, FetchResult, Io } from './io.ts'
 import type { Evidence, Via } from './types.ts'
 import { join, treeDir } from './paths.ts'
-import { containsQuote, htmlToText, locateQuote } from './normalize.ts'
+import { containsQuote, htmlToText, locateQuote, pageText } from './normalize.ts'
 import { CODE_KINDS, isSha, parseLines } from './validate.ts'
 
 export const MAX_ARTIFACT_BYTES = 300 * 1024
@@ -10,7 +10,7 @@ export const MAX_ARTIFACT_BYTES = 300 * 1024
  * Why a check failed, which decides what each caller does with it:
  * - absent: the source is there and the quote is not (add rejects, reverify drifts)
  * - removed: the page or file is gone (add rejects, reverify drifts)
- * - hidden: the page loads but the raw text lacks the quote, maybe rendered by JavaScript (add warns, browser check)
+ * - hidden: the source cannot show the quote to a text check: a page rendered by JavaScript, or a screenshot (add warns, browser check)
  * - blocked: the server refuses automated clients (add warns, browser check, reverify skips)
  * - unreachable: nothing could be checked: no answer, no checkout, a commit not in the repo (add rejects, reverify skips)
  */
@@ -64,11 +64,32 @@ async function checkCode(ctx: Ctx, evidence: Evidence): Promise<CheckOutcome> {
   return miss(found === undefined ? `the quote is not in ${path}` : `the quote is at lines ${lineRange(found)}, not ${lines}`, 'absent')
 }
 
+const IMAGE = /\.(?:png|jpe?g|gif|webp)$/i
+
+/** A transcript must hold the quote; a screenshot cannot be read as text, so a person or the verifier looks at it. */
 async function checkArtifact(io: Io, studyDir: string, evidence: Evidence): Promise<CheckOutcome> {
-  const size = await io.size(join(studyDir, evidence.artifact ?? ''))
-  if (size === undefined) return miss(`artifact ${evidence.artifact} does not exist`, 'removed')
-  if (size > MAX_ARTIFACT_BYTES) return miss(`artifact ${evidence.artifact} is ${size} bytes; the cap is ${MAX_ARTIFACT_BYTES}`, 'absent')
-  return pass('file')
+  const artifact = evidence.artifact ?? ''
+  const path = join(studyDir, artifact)
+  const size = await io.size(path)
+  if (size === undefined) return miss(`artifact ${artifact} does not exist`, 'removed')
+  if (size > MAX_ARTIFACT_BYTES) return miss(`artifact ${artifact} is ${size} bytes; the cap is ${MAX_ARTIFACT_BYTES}`, 'absent')
+  if (IMAGE.test(artifact)) return miss(`artifact ${artifact} is an image; the quote can only be checked by looking at it`, 'hidden')
+  return containsQuote((await io.readText(path)) ?? '', evidence.quote, { markup: true }) ? pass('file') : miss(`the quote is not in artifact ${artifact}`, 'absent')
+}
+
+const EMPTY_MOUNT = /<div\b[^>]*\bid=["'](?:root|app|__next|__nuxt|___gatsby|svelte)["'][^>]*>\s*<\/div>/i
+const NOSCRIPT_NOTICE = /<noscript\b[^>]*>[\s\S]{0,400}?(?:enable|requires?|turn on)\s+javascript/i
+/** Less readable text than this, and the page is most likely drawn in the browser. */
+const MIN_STATIC_TEXT = 200
+
+/**
+ * A page that misses the quote but carries its own text is a wrong quote. Only
+ * a page that looks drawn by JavaScript (an empty mount node, a noscript
+ * notice, almost no text) earns a browser check instead.
+ */
+export function looksClientRendered(html: string): boolean {
+  if (EMPTY_MOUNT.test(html) || NOSCRIPT_NOTICE.test(html)) return true
+  return htmlToText(html).replace(/\s+/g, ' ').trim().length < MIN_STATIC_TEXT
 }
 
 /**
@@ -79,11 +100,14 @@ async function checkWeb(io: Io, evidence: Evidence): Promise<CheckOutcome> {
   const url = evidence.url ?? ''
   const live = await io.fetchText(url)
   if (isReachable(live)) {
-    return containsQuote(htmlToText(live.text), evidence.quote) ? pass('fetch') : miss(`the quote is not in the fetched page of ${url}`, 'hidden')
+    if (containsQuote(pageText(live.text), evidence.quote, { markup: true })) return pass('fetch')
+    return looksClientRendered(live.text)
+      ? miss(`the quote is not in the raw page of ${url}, which looks rendered by JavaScript`, 'hidden')
+      : miss(`the quote is not in the page of ${url}; quote the page verbatim`, 'absent')
   }
   if (evidence.archive !== undefined) {
     const archived = await io.fetchText(evidence.archive)
-    if (isReachable(archived) && containsQuote(htmlToText(archived.text), evidence.quote)) return pass('archive')
+    if (isReachable(archived) && containsQuote(pageText(archived.text), evidence.quote, { markup: true })) return pass('archive')
   }
   const answered = `${url} answered ${live.status === 0 ? 'nothing' : live.status}`
   if (live.status === 0) return miss(answered, 'unreachable')

@@ -1,9 +1,10 @@
 import type { Ctx } from './io.ts'
-import { join, parseRepoUrl, treeDir } from './paths.ts'
+import type { Finding } from './types.ts'
+import { join, parseRepoUrl } from './paths.ts'
 import { locateQuote } from './normalize.ts'
 import { lineRange } from './evidence.ts'
 import { ensureTree } from './clone.ts'
-import { listTopics, loadFindings, loadReferences, saveFindings } from './store.ts'
+import { listTopics, loadFindings, loadReferences, mergeFindings } from './store.ts'
 import { files } from './paths.ts'
 import { setPathsInYaml } from './yaml.ts'
 import { CODE_KINDS, isSha } from './validate.ts'
@@ -29,7 +30,8 @@ export async function repin(ctx: Ctx, refId: string, toSha?: string): Promise<Op
     return fail('--to takes a full 40-character sha and works for a reference with exactly one repository')
   }
   const result: RepinResult = { pins: [], moved: [], drifted: [] }
-  const topics = await listTopics(ctx.io, ctx.cfg)
+  // Every repository resolves and checks out before anything is written: a failure leaves pins and findings as they were.
+  const targets: { repo: (typeof repos)[number]; sha: string; dir: string }[] = []
   for (const repo of repos) {
     try {
       parseRepoUrl(repo.url)
@@ -40,30 +42,39 @@ export async function repin(ctx: Ctx, refId: string, toSha?: string): Promise<Op
     if (sha === undefined) return fail(`cannot resolve HEAD of ${repo.url}`)
     const tree = await ensureTree(ctx, repo.url, sha)
     if (!tree.ok) return tree
-    const previous = repo.pin
-    if (previous !== undefined && previous !== sha) {
-      for (const topic of topics) {
-        const findings = await loadFindings(ctx.io, ctx.cfg, topic)
-        let isChanged = false
-        for (const finding of findings) {
-          for (const item of finding.evidence) {
-            if (!CODE_KINDS.includes(item.kind) || item.repo !== repo.url || item.sha !== previous) continue
-            isChanged = true
-            const text = await ctx.io.readText(join(treeDir(ctx.cfg, repo.url, sha), item.path ?? ''))
-            const found = text === undefined ? undefined : locateQuote(text, item.quote)
-            if (found === undefined) {
+    targets.push({ repo, sha, dir: tree.value })
+  }
+  const moves = targets.filter(target => target.repo.pin !== undefined && target.repo.pin !== target.sha)
+  if (moves.length > 0) {
+    for (const topic of await listTopics(ctx.io, ctx.cfg)) {
+      const findings = await loadFindings(ctx.io, ctx.cfg, topic)
+      const before = new Map(findings.map(finding => [finding.id, JSON.stringify(finding)]))
+      const changed = new Set<Finding>()
+      for (const finding of findings) {
+        for (const item of finding.evidence) {
+          const target = moves.find(move => item.repo === move.repo.url && item.sha === move.repo.pin)
+          if (!CODE_KINDS.includes(item.kind) || target === undefined) continue
+          const text = await ctx.io.readText(join(target.dir, item.path ?? ''))
+          const found = text === undefined ? undefined : locateQuote(text, item.quote)
+          if (found === undefined) {
+            // A disputed or superseded finding keeps its status: drifted would lose why it was set aside.
+            if (finding.status === 'current') {
               finding.status = 'drifted'
-              result.drifted.push(`${topic}/${finding.id}`)
-              continue
+              changed.add(finding)
             }
-            item.sha = sha
-            item.lines = lineRange(found)
-            result.moved.push(`${topic}/${finding.id}`)
+            result.drifted.push(`${topic}/${finding.id}`)
+            continue
           }
+          item.sha = target.sha
+          item.lines = lineRange(found)
+          changed.add(finding)
+          result.moved.push(`${topic}/${finding.id}`)
         }
-        if (isChanged) await saveFindings(ctx.io, ctx.cfg, topic, findings)
       }
+      if (changed.size > 0) await mergeFindings(ctx.io, ctx.cfg, topic, before, [...changed])
     }
+  }
+  for (const { repo, sha } of targets) {
     repo.pin = sha
     repo.pinned_at = ctx.today
     result.pins.push({ url: repo.url, sha })

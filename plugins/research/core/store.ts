@@ -23,10 +23,16 @@ export async function readYaml(io: Io, path: string): Promise<Loaded> {
   }
 }
 
+/**
+ * A missing file is an empty list; a file that is there but holds no list is
+ * refused, as saving over it would lose whatever it held.
+ */
 async function readList<T>(io: Io, path: string): Promise<T[]> {
   const loaded = await readYaml(io, path)
   if (loaded.error !== undefined) throw new Error(`${path}: ${loaded.error}`)
-  return Array.isArray(loaded.data) ? (loaded.data as T[]) : []
+  if (loaded.missing) return []
+  if (!Array.isArray(loaded.data)) throw new Error(`${path}: expected a list of records; fix or restore the file`)
+  return loaded.data as T[]
 }
 
 export function loadReferences(io: Io, cfg: Config): Promise<Reference[]> {
@@ -56,6 +62,27 @@ export function saveFindings(io: Io, cfg: Config, topic: string, findings: Findi
   return io.writeText(files.findings(cfg, topic), toYaml(findings))
 }
 
+/**
+ * Writes back findings that were changed from a copy loaded earlier. The file is
+ * read again first, so records added meanwhile survive, and a record changed
+ * meanwhile keeps the newer version. Returns the ids that were left alone.
+ */
+export async function mergeFindings(io: Io, cfg: Config, topic: string, before: ReadonlyMap<string, string>, changed: readonly Finding[]): Promise<string[]> {
+  const byId = new Map(changed.map(finding => [finding.id, finding]))
+  const kept: string[] = []
+  const latest = (await loadFindings(io, cfg, topic)).map(finding => {
+    const next = byId.get(finding.id)
+    if (next === undefined) return finding
+    if (JSON.stringify(finding) !== before.get(finding.id)) {
+      kept.push(finding.id)
+      return finding
+    }
+    return next
+  })
+  await saveFindings(io, cfg, topic, latest)
+  return kept
+}
+
 export function saveAssessment(io: Io, cfg: Config, topic: string, scores: Score[]): Promise<void> {
   return io.writeText(files.assessment(cfg, topic), toYaml(scores))
 }
@@ -64,15 +91,20 @@ export async function listTopics(io: Io, cfg: Config): Promise<string[]> {
   return (await io.listDirs(files.studies(cfg))).sort()
 }
 
+/** The errors validation finds in a study, as one message, or undefined. */
+export async function studyErrors(ctx: Ctx, topic: string, study: Study): Promise<string | undefined> {
+  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map(ref => ref.id))
+  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter(issue => issue.level === 'error')
+  return errors.length === 0 ? undefined : errors.map(issue => issue.message).join('; ')
+}
+
 /** A study whose study.yaml passes validation: the only kind tools build on. */
 export async function loadValidStudy(ctx: Ctx, topic: string): Promise<OpResult<Study>> {
   if (!isTopic(topic)) return fail(TOPIC_RULE)
   const study = await loadStudy(ctx.io, ctx.cfg, topic)
   if (study === undefined) return fail(`study ${topic} does not exist`)
-  const refIds = new Set((await loadReferences(ctx.io, ctx.cfg)).map(ref => ref.id))
-  const errors = validateStudy(study, topic, refIds, files.study(ctx.cfg, topic)).filter(issue => issue.level === 'error')
-  if (errors.length > 0) return fail(`study ${topic} has errors: ${errors.map(issue => issue.message).join('; ')}`)
-  return ok(study)
+  const errors = await studyErrors(ctx, topic, study)
+  return errors === undefined ? ok(study) : fail(`study ${topic} has errors: ${errors}`)
 }
 
 /** Creates the files of a new study; never overwrites one that exists. */

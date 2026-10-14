@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ToolSpec } from 'claude-code'
 import * as core from '../dist/core.js'
 
-const USER_AGENT = 'research/0.2 (+https://github.com/insanetic/atelier)'
+const USER_AGENT = 'research/0.3 (+https://github.com/insanetic/atelier)'
 // $.http.fetch takes no timeout and the hook budget stands still while it waits:
 // a source that never answers would hold the tool, so the clock bounds it.
 const FETCH_TIMEOUT_MS = 15_000
@@ -38,31 +38,24 @@ function modIo($: EngineInterface): core.Io {
   }
 }
 
-type ActiveStudy = { topic: string; matrix: core.Matrix; findings: core.Finding[] }
-
 const PLUGIN = 'research'
-const PANE = 'research-study'
 const DENY = `${PLUGIN}: findings.yaml and assessment.yaml are written only through the add_finding, verify_finding and set_score tools`
-const GUARDED_FILE = /(^|\/)studies\/[^/]+\/(findings|assessment)\.yaml$/
-const GUARDED_BASH =
-  /(?:>>?|\btee\b(?:\s+-a)?)\s*\S*(?:findings|assessment)\.yaml|\b(?:sed\s+-i|perl\s+-p?i|mv|cp|rm)\b[^|;&]*(?:findings|assessment)\.yaml/
 
 const active = atom({ plugin: 'research', key: 'active' } as const, null)
-const selected = atom({ plugin: 'research', key: 'selected' } as const, null)
 const studyLock = new core.KeyedLock()
 
 const EVIDENCE = {
   type: 'object',
   properties: {
     kind: { type: 'string', enum: [...core.EVIDENCE_KINDS] },
-    quote: { type: 'string', description: 'Verbatim excerpt: at most 300 characters for web sources, at most 15 lines for code.' },
+    quote: { type: 'string', description: 'Verbatim excerpt: at least 10 characters; at most 300 characters for web sources, at most 15 lines for code.' },
     repo: { type: 'string', description: 'code, api_spec, spec: the repository URL as in references.yaml, or "self" for our own repo.' },
     sha: { type: 'string', description: 'code, api_spec, spec: the full 40-character commit sha (the pinned one).' },
     path: { type: 'string' },
     lines: { type: 'string', description: 'code, api_spec, spec: "40-58" or "40", 1-based.' },
     url: { type: 'string', description: 'docs, blog, issue, marketing: the page URL.' },
     archive: { type: 'string' },
-    artifact: { type: 'string', description: 'tested: a path under the study directory starting with artifacts/.' },
+    artifact: { type: 'string', description: 'tested: a path under the study directory starting with artifacts/; a text transcript must hold the quote.' },
   },
   required: ['kind', 'quote'],
 }
@@ -103,7 +96,7 @@ const TOOLS: ToolSpec[] = [
     name: 'verify_finding',
     isDeferred: false,
     description:
-      'Verifier only. Re-checks a finding\'s evidence and records whether the quotes support the answer: confirmed (primary evidence that supports it), likely (secondary or partial support), disputed (it does not support it; give a note). When the raw fetch cannot see a quote (a JavaScript-rendered page) and you confirmed it in a browser, pass browser_confirmed.',
+      'Verifier only. Re-checks a finding\'s evidence and records whether the quotes support the answer: confirmed (primary evidence that supports it), likely (secondary or partial support), disputed (it does not support it; give a note). When the raw fetch cannot see a quote (a page rendered by JavaScript) and you confirmed it in a browser, or you saw it in a screenshot artifact, pass browser_confirmed. Refuses a superseded finding.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -161,7 +154,7 @@ const TOOLS: ToolSpec[] = [
   {
     name: 'matrix',
     isDeferred: false,
-    description: "Show a study's comparison matrix (dimensions by references, each cell with its answer and state) and make it the active study in the pane.",
+    description: "Show a study's comparison matrix (dimensions by references, each cell with its answer and state) and make it the active study, whose counts the status line shows.",
     inputSchema: { type: 'object', properties: { study: { type: 'string' } }, required: ['study'] },
   },
 ]
@@ -180,24 +173,21 @@ async function contextOf($: EngineInterface): Promise<core.Ctx> {
   return { io, cfg: await core.loadConfig(io, root, home), today: core.todayFromMs(await $.clock.now()) }
 }
 
-/** Makes a study the active one: its matrix goes to the pane, its counts to the status line. */
+/** Makes a study the active one: its counts go to the status line. */
 async function showStudy($: EngineInterface, ctx: core.Ctx, topic: string): Promise<core.OpResult<core.Matrix>> {
   const loaded = await core.loadValidStudy(ctx, topic)
   if (!loaded.ok) return loaded
   const findings = await core.loadFindings(ctx.io, ctx.cfg, topic)
   const matrix = core.buildMatrix(loaded.value, findings, ctx.today)
-  await update($, active, () => ({ topic, matrix, findings }))
+  await update($, active, () => topic)
   $.ui.status(core.statusLine(matrix))
   return core.ok(matrix)
 }
 
-async function activeStudy($: EngineInterface): Promise<ActiveStudy | null> {
-  return (await read($, active)) as ActiveStudy | null
-}
-
 async function refreshIfActive($: EngineInterface, ctx: core.Ctx, topic: unknown): Promise<void> {
-  const current = await activeStudy($)
-  if (current !== null && current.topic === topic) await showStudy($, ctx, current.topic)
+  // A session that ran 0.2.0 may still hold its object here: only a topic name counts.
+  const current: unknown = await read($, active)
+  if (typeof current === 'string' && current === topic) await showStudy($, ctx, current)
 }
 
 export const register: Register = on => {
@@ -206,9 +196,9 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('tool.call', { tool: 'Edit' }, ($, e, next) => (GUARDED_FILE.test(e.file_path) ? { deny: DENY } : next(e)))
-  on('tool.call', { tool: 'Write' }, ($, e, next) => (GUARDED_FILE.test(e.file_path) ? { deny: DENY } : next(e)))
-  on('tool.call', { tool: 'Bash' }, ($, e, next) => (GUARDED_BASH.test(e.command) ? { deny: DENY } : next(e)))
+  on('tool.call', { tool: 'Edit' }, ($, e, next) => (core.GUARDED_FILE.test(e.file_path) ? { deny: DENY } : next(e)))
+  on('tool.call', { tool: 'Write' }, ($, e, next) => (core.GUARDED_FILE.test(e.file_path) ? { deny: DENY } : next(e)))
+  on('tool.call', { tool: 'Bash' }, ($, e, next) => (core.isGuardedWrite(e.command) ? { deny: DENY } : next(e)))
 
   on('tool.call', { tool: 'mcp__research__add_finding' }, async ($, e) => {
     try {
@@ -270,52 +260,9 @@ export const register: Register = on => {
       const topic = String(argsOf(e).study)
       const shown = await showStudy($, await contextOf($), topic)
       if (!shown.ok) return { result: shown.errors.join('\n') }
-      await $.ui.open({ id: PANE, title: `Study ${topic}` })
       return { result: core.renderMatrix(shown.value) }
     } catch (problem) {
       return failure(problem)
     }
-  })
-
-
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const current = await activeStudy($)
-    if (current === null) return <Text dimColor>{'No active study. Run /study <topic>.'}</Text>
-    const chosenId = await read($, selected)
-    const chosen = current.findings.find(finding => finding.id === chosenId)
-    return (
-      <Box flexDirection="column">
-        <Text bold>{`Study ${current.topic}`}</Text>
-        {current.matrix.rows.map(row => (
-          <Box flexDirection="column">
-            <Text>{row.dimension.id}</Text>
-            {row.cells.map(cell =>
-              cell.findings.length === 0 ? (
-                <Text dimColor>{`  ${cell.ref}: -`}</Text>
-              ) : (
-                cell.findings.map(item => (
-                  <Button
-                    plain
-                    key={item.id}
-                    dimColor={item.state !== 'verified'}
-                    label={`  ${cell.ref}: ${core.cellText({ ref: cell.ref, findings: [item] })}`}
-                    onPress={() => update($, selected, () => item.id)}
-                  />
-                ))
-              ),
-            )}
-          </Box>
-        ))}
-        <Text dimColor>{core.statusLine(current.matrix)}</Text>
-        {chosen !== undefined && (
-          <Box flexDirection="column">
-            {core.describeFinding(chosen).map(line => (
-              <Text>{line}</Text>
-            ))}
-          </Box>
-        )}
-      </Box>
-    )
   })
 }

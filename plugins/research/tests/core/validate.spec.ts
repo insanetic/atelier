@@ -229,3 +229,14 @@ test('a reuse licence that no quote shows is refused; unknown is allowed', () =>
   assert.match(text(validateFinding(reuseFinding({ reuse: { type: 'schema', url, license: 'MIT' } }), study(), 'f')), /license MIT is not in any quote/)
   assert.deepEqual(validateFinding(reuseFinding({ reuse: { type: 'schema', url, license: 'unknown' } }), study(), 'f'), [])
 })
+
+test('a quote too short to identify its source is refused', () => {
+  const f = docsFinding({ evidence: [{ kind: 'docs', url: 'https://docs.stripe.com/tax', quote: 'per line', retrieved: '2026-10-08' }] })
+  assert.match(text(validateFinding(f, study(), 'f')), /too short to identify its source/)
+})
+
+test('www. and a port do not count as a second host for confirmation', () => {
+  const blog = (url: string) => ({ kind: 'blog' as const, url, quote: 'Tax is rounded per line item.', retrieved: '2026-10-08' })
+  const f = docsFinding({ method: 'third_party', evidence: [blog('https://example.com/a'), blog('https://www.example.com:443/b')] })
+  assert.equal(canConfirm(f), false)
+})

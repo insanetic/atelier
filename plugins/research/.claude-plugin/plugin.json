@@ -1,6 +1,6 @@
 {
   "name": "research",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares - every claim verified.",
   "author": {
     "name": "insanetic"

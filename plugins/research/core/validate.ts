@@ -10,6 +10,7 @@ export const CODE_KINDS: readonly EvidenceKind[] = ['code', 'api_spec', 'spec']
 export const WEB_KINDS: readonly EvidenceKind[] = ['docs', 'blog', 'issue', 'marketing']
 export const PRIMARY_KINDS: readonly EvidenceKind[] = ['code', 'api_spec', 'spec', 'docs', 'tested']
 export const MAX_QUOTE_CHARS = 300
+export const MIN_QUOTE_CHARS = 10
 export const MAX_CODE_LINES = 15
 export const FINDING_ID = /^[a-z0-9][a-z0-9-]*\.[a-z][a-z0-9_]*(\.\d+)?$/
 
@@ -36,8 +37,10 @@ const isMapping = (value: unknown): value is Record<string, unknown> => value !=
 const error = (file: string, message: string): Issue => ({ level: 'error', kind: 'schema', file, message })
 const warn = (file: string, message: string, kind: Issue['kind'] = 'schema'): Issue => ({ level: 'warn', kind, file, message })
 
+/** The site a URL belongs to: www. and a port do not make a second host. */
 export function hostOf(url: string): string {
-  return /^https?:\/\/([^/?#]+)/i.exec(url)?.[1]?.toLowerCase() ?? ''
+  const host = /^https?:\/\/([^/?#]+)/i.exec(url)?.[1]?.toLowerCase() ?? ''
+  return host.replace(/:\d+$/, '').replace(/^www\./, '')
 }
 
 export function parseLines(lines: string): [number, number] {
@@ -92,6 +95,7 @@ export function evidenceIssues(item: Evidence, index: number): string[] {
   const out: string[] = []
   if (!isOneOf(EVIDENCE_KINDS, item.kind)) out.push(`${at}.kind must be one of ${EVIDENCE_KINDS.join(', ')}`)
   if (!isText(item.quote)) out.push(`${at}.quote is required`)
+  else if (item.quote.trim().length < MIN_QUOTE_CHARS) out.push(`${at}.quote is too short to identify its source; quote at least ${MIN_QUOTE_CHARS} characters`)
   if (CODE_KINDS.includes(item.kind)) {
     if (!isText(item.repo)) out.push(`${at}.repo is required`)
     if (!isSha(item.sha)) out.push(`${at}.sha must be a full 40-character sha`)
