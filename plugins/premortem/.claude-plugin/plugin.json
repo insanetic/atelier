@@ -1,7 +1,7 @@
 {
   "name": "premortem",
-  "version": "0.2.0",
-  "description": "Assume it already failed, then work backward to the causes: a premortem before shipping, merging, launching or committing to a plan.",
+  "version": "0.3.0",
+  "description": "Three ways to meet the future before committing: premortem (it failed - why?), dystopia (it succeeded - who pays?) and oppenheimer (it exists - who holds it, and what do you owe that?).",
   "author": {
     "name": "insanetic"
   }

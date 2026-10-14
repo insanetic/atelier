@@ -16,7 +16,7 @@
     {
       "name": "premortem",
       "source": "./plugins/premortem",
-      "description": "Premortems before costly or one-way calls: assume it already failed, find why, change the plan now"
+      "description": "Premortem, dystopia and oppenheimer before costly or one-way calls: assume it failed, that it succeeded and did harm, or that the capability got out, then change the plan now"
     },
     {
       "name": "rulebook",

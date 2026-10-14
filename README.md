@@ -20,7 +20,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 |---|---|---|
 | [research](plugins/research) | `/study <task>` | Prior art before you build: how others solved a task, what to reuse, the pitfalls, and how ours compares, every claim verified quote by quote. |
 | [market](plugins/market) | `/discover <category>` | Competitor tracking on top of research: the registry of every known competitor, discovery that keeps it complete, and the capability landscape. |
-| [premortem](plugins/premortem) | `/premortem <plan>` | A premortem before anything costly or hard to reverse: assume it already failed, work backward to the causes from every vantage point, rank them, and change the plan before going ahead. |
+| [premortem](plugins/premortem) | `/premortem <plan>`, `/premortem:dystopia <product>`, `/premortem:oppenheimer <capability>` | A premortem before anything costly or hard to reverse: assume it already failed, work backward to the causes from every lens, rank them on evidence, and change the plan before going ahead. Dystopia assumes it succeeded at scale and traces who paid for that success; oppenheimer assumes a dual-use capability got out and was used, and sets the red lines while they can still be set. |
 | [rulebook](plugins/rulebook) | `/rulebook:write <convention>`, `/rulebook:review <the ask>` | A numbered convention catalog in `.claude/rules/` for any stack: each rule one checkable entry with a stable ID, a CLI that checks the catalog and selects the entries a change falls under, and a forked, read-only review of a change against them and the ask. |
 | [atlas](plugins/atlas) | `/atlas <question or fact>`, `/atlas:drain` | A personal brain: one folder of markdown notes in your home directory, the same in every project and consulted only when asked. Typed notes with validity dates, a command that searches and maintains them with no index, a lint that finds what went stale, and it opens in Obsidian. |
 
@@ -66,7 +66,7 @@ Update later with `/plugin marketplace update atelier`; enable or disable with `
 └── plugins/
     ├── research/                 # self-contained plugin: manifest, skill, agents, hooks, CLI, tests
     ├── market/                   # competitor tracking: registry, discovery, landscape (depends on research)
-    ├── premortem/                # skill-only plugin: manifest and the premortem skill
+    ├── premortem/                # skill-only plugin: premortem, dystopia and oppenheimer skills, evals
     ├── rulebook/                 # convention catalog: two skills, a reviewer agent, the rulebook CLI, an edit hook
     └── atlas/                    # personal brain: two skills and the atlas CLI (Python, no dependencies)
 ```
