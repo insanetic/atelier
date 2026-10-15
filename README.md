@@ -10,6 +10,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install premortem@atelier
 /plugin install rulebook@atelier
 /plugin install atlas@atelier
+/plugin install data-max@atelier
 ```
 
 ---
@@ -23,6 +24,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 | [premortem](plugins/premortem) | `/premortem <plan>`, `/premortem:dystopia <product>`, `/premortem:oppenheimer <capability>` | A premortem before anything costly or hard to reverse: assume it already failed, work backward to the causes from every lens, rank them on evidence, and change the plan before going ahead. Dystopia assumes it succeeded at scale and traces who paid for that success; oppenheimer assumes a dual-use capability got out and was used, and sets the red lines while they can still be set. |
 | [rulebook](plugins/rulebook) | `/rulebook:write <convention>`, `/rulebook:review <the ask>` | A numbered convention catalog in `.claude/rules/` for any stack: each rule one checkable entry with a stable ID, a CLI that checks the catalog and selects the entries a change falls under, and a forked, read-only review of a change against them and the ask. |
 | [atlas](plugins/atlas) | `/atlas <question or fact>`, `/atlas:drain` | A personal brain: one folder of markdown notes in your home directory, the same in every project, consulted when a question is about something you recorded, with your standing preferences shown at session start. Typed notes with validity dates, a command that searches and maintains them with no index, a lint that finds what went stale, and it opens in Obsidian. |
+| [data-max](plugins/data-max) | `/data-max:data-review`, `/data-max:data-transform`, `/data-max:metric-creator` | Work with data end to end: review a raw export (CSV/TSV/JSON/XML/Excel) for warehouse readiness, transform it into clean warehouse-ready tables with a rerunnable script, and author versioned, DSL-compatible metric and dimension definitions from a DDL schema. |
 
 ---
 
@@ -37,6 +39,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install premortem@atelier
 /plugin install rulebook@atelier
 /plugin install atlas@atelier
+/plugin install data-max@atelier
 # or, from a local clone:
 /plugin marketplace add ./path/to/atelier
 ```
@@ -51,6 +54,7 @@ claude plugin install research@atelier --scope project
 claude plugin install market@atelier --scope project
 claude plugin install premortem@atelier --scope project
 claude plugin install rulebook@atelier --scope project
+claude plugin install data-max@atelier --scope project
 ```
 
 Update later with `/plugin marketplace update atelier`; enable or disable with `/plugin`.
@@ -68,7 +72,8 @@ Update later with `/plugin marketplace update atelier`; enable or disable with `
     ├── market/                   # competitor tracking: registry, discovery, landscape (depends on research)
     ├── premortem/                # skill-only plugin: premortem, dystopia and oppenheimer skills, evals
     ├── rulebook/                 # convention catalog: two skills, a reviewer agent, the rulebook CLI, an edit hook
-    └── atlas/                    # personal brain: two skills and the atlas CLI (Python, no dependencies)
+    ├── atlas/                    # personal brain: two skills and the atlas CLI (Python, no dependencies)
+    └── data-max/                 # skill-only plugin: data review, transform and metric authoring skills
 ```
 
 Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json` and has one entry in `.claude-plugin/marketplace.json`.

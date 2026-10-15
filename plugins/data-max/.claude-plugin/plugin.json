@@ -1,0 +1,9 @@
+{
+  "name": "data-max",
+  "version": "1.0.0",
+  "description": "Work with data end to end: review raw exports for warehouse readiness and cleanse them, transform them into clean warehouse-ready tables, and author versioned, DSL-compatible metric (data cube) and dimension definitions.",
+  "author": {
+    "name": "insanetic"
+  },
+  "keywords": ["data", "analytics", "data-warehouse", "bigquery", "metrics", "kpi", "etl", "csv"]
+}

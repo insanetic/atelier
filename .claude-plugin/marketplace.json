@@ -27,6 +27,11 @@
       "name": "atlas",
       "source": "./plugins/atlas",
       "description": "A personal brain: markdown notes in your home directory, reachable from every session only when asked, readable in Obsidian, with a lint that finds what went stale"
+    },
+    {
+      "name": "data-max",
+      "source": "./plugins/data-max",
+      "description": "Work with data end to end: review and cleanse raw exports, transform them into warehouse-ready tables, and author versioned, DSL-compatible metric and dimension definitions"
     }
   ]
 }
