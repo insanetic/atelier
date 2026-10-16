@@ -1,0 +1,9 @@
+{
+  "name": "paperwork",
+  "version": "0.1.0",
+  "description": "An archive for business documents that never deletes: drop invoices, receipts and scans into an inbox; they are read (e-invoice XML, text, OCR in Docker), checked against their own text and arithmetic, named by one convention, filed per entity, year and direction, deduplicated and indexed into CSV.",
+  "author": {
+    "name": "insanetic"
+  },
+  "keywords": ["invoices", "receipts", "bookkeeping", "archive", "ocr", "xrechnung", "zugferd", "csv", "gobd"]
+}

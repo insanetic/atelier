@@ -1,0 +1,62 @@
+#!/bin/sh
+# Runs the paperwork engine inside its Docker image. Nothing is installed on the host: the image
+# holds the tools, the engine is mounted read-only, and only the archive folder is mounted, at the
+# same path, with no network.
+plugin="$(cd "$(dirname "$0")/.." && pwd -P)"
+conf="${XDG_CONFIG_HOME:-$HOME/.config}/paperwork"
+tag="paperwork-tools:$(cksum < "$plugin/docker/Dockerfile" | cut -d' ' -f1)"
+
+command -v docker >/dev/null 2>&1 || { echo "paperwork: Docker is required and was not found" >&2; exit 5; }
+docker info >/dev/null 2>&1 || { echo "paperwork: Docker is not running" >&2; exit 5; }
+if ! docker image inspect "$tag" >/dev/null 2>&1; then
+  echo "paperwork: building the tools image $tag (once)" >&2
+  docker build -q -t "$tag" "$plugin/docker" >&2 || exit 5
+fi
+
+run() {
+  docker run --rm -i --network none --user "$(id -u):$(id -g)" \
+    -e TZ=UTC -e LC_ALL=C.UTF-8 -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 "$@"
+}
+
+if [ "${1:-}" = __test ]; then
+  shift
+  run -v "$plugin:/opt/paperwork:ro" -w /opt/paperwork "$tag" python3 -m unittest discover -s tests "$@"
+  exit $?
+fi
+
+abspath() { (cd "$1" 2>/dev/null && pwd -P); }
+root=""
+if [ "${1:-}" = init ]; then
+  [ $# -ge 2 ] || { echo "usage: paperwork init <root>" >&2; exit 2; }
+  mkdir -p "$2" || exit 2
+  root="$(abspath "$2")"; shift 2; set -- init "$root" "$@"
+elif [ "${1:-}" = --root ]; then
+  [ $# -ge 2 ] || { echo "usage: paperwork --root <root> <command>" >&2; exit 2; }
+  root="$(abspath "$2")"; shift 2
+elif [ -n "${PAPERWORK_HOME:-}" ]; then
+  root="$(abspath "$PAPERWORK_HOME")"
+else
+  d="$(pwd -P)"
+  while [ "$d" != / ]; do
+    if [ -f "$d/_paperwork/config.json" ]; then root="$d"; break; fi
+    d="$(dirname "$d")"
+  done
+  if [ -z "$root" ] && [ -f "$conf/roots" ] && [ "$(grep -c . "$conf/roots")" = 1 ]; then
+    root="$(head -n 1 "$conf/roots")"
+  fi
+fi
+if [ -z "$root" ] || [ ! -d "$root" ]; then
+  echo "paperwork: no archive found. Run inside one, set PAPERWORK_HOME, or pass --root <root>." >&2
+  [ -f "$conf/roots" ] && { echo "registered archives:" >&2; sed 's/^/  /' "$conf/roots" >&2; }
+  exit 2
+fi
+
+cwd="$(pwd -P)"
+case "$cwd/" in "$root"/*) work="$cwd" ;; *) work="$root" ;; esac
+run -e PAPERWORK_ROOT="$root" -v "$root:$root" -v "$plugin/lib:/opt/paperwork/lib:ro" -w "$work" \
+  "$tag" python3 -I /opt/paperwork/lib/paperwork.py "$@"
+code=$?
+if [ "${1:-}" = init ] && [ "$code" = 0 ]; then
+  mkdir -p "$conf" && { grep -qxF "$root" "$conf/roots" 2>/dev/null || echo "$root" >> "$conf/roots"; }
+fi
+exit "$code"

@@ -1,0 +1,37 @@
+---
+name: ask
+description: >-
+  Use when the user asks a question about their invoices, receipts, vendors or
+  spending in the paperwork archive - "what did we pay Hetzner in 2025",
+  "input tax for Q2", "all invoices of Acme GmbH last year", "which invoices
+  are in USD", "show credit notes", "what is still in review", "find the
+  invoice for the coffee machine". Answers from the CSV index, with the file
+  paths, without changing anything.
+user-invocable: true
+license: MIT
+metadata:
+  author: Stanislav Schmidt
+  version: 0.1.0
+---
+
+# Ask
+
+Answer from `exports/` (run `paperwork export` first if the archive changed). Read-only.
+
+| File | Holds |
+|---|---|
+| `documents.csv` | One row per document: entity, direction, type, dates, counterparty, parties, billing address, number, currency, net, tax, gross, rates, reverse charge, category, status, path, warnings |
+| `lines.csv` | Line items, keyed by document `id` |
+| `vat_summary.csv` | Entity × month × direction × currency × tax rate (only ok/filed invoices, receipts, credit notes) |
+| `vendors.csv` | Entity × year × counterparty totals |
+| `issues.csv` | Open problems and warnings |
+
+`exports/all/` covers every entity; `exports/<entity>/` one. Use DuckDB if it is installed
+(`duckdb -c "select ... from read_csv('exports/all/documents.csv')"`), otherwise Python's `csv`.
+
+- Money is exact decimal text; sum with `DECIMAL`, never floats. Never add currencies together:
+  group by `currency`.
+- Exclude `status` `duplicate` and `review` from totals unless asked; say how many were left out.
+- Credit notes are negative, so a plain sum is the net spend.
+- Give the `path` of every document you cite so the user can open it.
+- If the answer needs a field the index does not have, say so instead of guessing from file names.

@@ -32,6 +32,11 @@
       "name": "data-max",
       "source": "./plugins/data-max",
       "description": "Work with data end to end: review and cleanse raw exports, transform them into warehouse-ready tables, and author versioned, DSL-compatible metric and dimension definitions"
+    },
+    {
+      "name": "paperwork",
+      "source": "./plugins/paperwork",
+      "description": "Invoices and receipts into an archive that never deletes: inbox, checked extraction, one naming convention per entity, year and direction, duplicates, CSV index"
     }
   ]
 }
