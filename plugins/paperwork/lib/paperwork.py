@@ -922,6 +922,7 @@ class Archive:
             raise Fail(f"not an archive (no {STATE}/config.json): {self.root}; run `paperwork init`")
         self.config = self.load_config()
         self.vendors = read_json(self.p(STATE, "vendors.json"), {"vendors": []})
+        self.rules = load_rules(self)
         self._records = None
         self.today = dt.datetime.now(dt.timezone.utc).date()
 
@@ -1221,6 +1222,190 @@ def resolve_entity(cfg, d):
     return None, None, "the buyer matches no entity in config.json"
 
 
+# ----------------------------------------------------------------------------------------------
+# Rules
+
+
+RULE_WHEN = {"counterparty", "vat_id", "text", "regex", "doc_type", "entity"}
+RULE_SET = {"doc_type", "entity", "direction", "category", "tags"}
+LAYERS = ("archive", "user")
+
+
+def rule_problems(rule, classes, cfg, seen):
+    rid = rule.get("id") if isinstance(rule, dict) else None
+    if not isinstance(rid, str) or not rid:
+        return ["a rule needs an id"]
+    if rid in seen:
+        return [f"{rid}: the id is used twice"]
+    seen.add(rid)
+    out = []
+    unknown = sorted(set(rule) - {"id", "when", "set"})
+    if unknown:
+        out.append(f"{rid}: unknown keys {', '.join(unknown)}")
+    when, sets = rule.get("when"), rule.get("set")
+    if not isinstance(when, dict) or not when:
+        out.append(f"{rid}: when needs at least one condition")
+        when = {}
+    if not isinstance(sets, dict) or not sets:
+        out.append(f"{rid}: set needs at least one field")
+        sets = {}
+    for k in sorted(set(when) - RULE_WHEN):
+        out.append(f"{rid}: unknown condition {k!r} (known: {', '.join(sorted(RULE_WHEN))})")
+    if "text" in when and not (isinstance(when["text"], list) and when["text"]
+                               and all(isinstance(t, str) and squash(t) for t in when["text"])):
+        out.append(f"{rid}: text is a list of phrases")
+    if "regex" in when:
+        try:
+            re.compile(when["regex"], re.I | re.M)
+        except (re.error, TypeError) as e:
+            out.append(f"{rid}: regex is invalid: {e}")
+    for k in ("counterparty", "vat_id", "doc_type", "entity"):
+        if k in when and not isinstance(when[k], str):
+            out.append(f"{rid}: {k} is a string")
+    entities = {e["slug"] for e in cfg["entities"]}
+    if isinstance(when.get("doc_type"), str) and when["doc_type"] not in classes:
+        out.append(f"{rid}: class {when['doc_type']!r} is not defined")
+    if isinstance(when.get("entity"), str) and when["entity"] not in entities:
+        out.append(f"{rid}: entity {when['entity']!r} is not in config.json")
+    dt_set = sets.get("doc_type")
+    if dt_set is not None and dt_set not in classes:
+        out.append(f"{rid}: class {dt_set!r} is not defined")
+    for k, v in sorted(sets.items()):
+        if k.startswith("fields."):
+            name = k[len("fields."):]
+            specs = [c["fields"] for t, c in classes.items() if dt_set in (None, t) and name in c.get("fields", {})]
+            if not specs:
+                out.append(f"{rid}: no class declares field {name!r}")
+                continue
+            try:
+                normalize_fields({name: v}, specs[0], dt_set or "?")
+            except Fail as e:
+                out.append(f"{rid}: {e}")
+        elif k not in RULE_SET:
+            out.append(f"{rid}: unknown field {k!r} (settable: {', '.join(sorted(RULE_SET))}, fields.<name>)")
+        elif k == "entity" and v not in entities:
+            out.append(f"{rid}: entity {v!r} is not in config.json")
+        elif k == "direction" and v not in ("in", "out"):
+            out.append(f"{rid}: direction is in or out")
+        elif k == "category" and v not in cfg.get("categories", []):
+            out.append(f"{rid}: category {v!r} is not in config.json")
+        elif k == "tags" and not (isinstance(v, list) and all(isinstance(t, str) and t for t in v)):
+            out.append(f"{rid}: tags is a list of words")
+    return out
+
+
+def rules_problems(doc, classes, cfg, layer):
+    if not isinstance(doc, dict) or set(doc) - {"rules"} or not isinstance(doc.get("rules"), list):
+        return [f"rules[{layer}]: expected {{\"rules\": [...]}}"]
+    seen = set()
+    return [f"rules[{layer}].{m}" for rule in doc["rules"] for m in rule_problems(rule, classes, cfg, seen)]
+
+
+def load_rules(archive):
+    user = slugify(os.environ.get("PAPERWORK_USER", ""), 64)
+    paths = {"archive": archive.p(STATE, "rules.json"),
+             "user": archive.p(STATE, "rules", user + ".json") if user else None}
+    rules, problems = [], []
+    for layer in LAYERS:
+        path = paths[layer]
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            doc = read_json(path)
+        except ValueError as e:
+            problems.append(f"rules[{layer}]: not valid JSON: {e}")
+            continue
+        found = rules_problems(doc, archive.classes, archive.config, layer)
+        problems += found
+        if not found:
+            rules += [dict(r, layer=layer) for r in doc["rules"]]
+    if problems:
+        raise Fail("rules: " + "; ".join(problems))
+    return rules
+
+
+def match_rules(rules, record, text):
+    """The rules whose conditions all hold. `record` carries data, counterparty and entity."""
+    d = record["data"]
+    party = d["buyer"] if d.get("direction") == "out" else d["seller"]
+    block = squash(text)
+    hits = []
+    for r in rules:
+        w = r["when"]
+        checks = {
+            "counterparty": lambda: record.get("counterparty") == w["counterparty"],
+            "vat_id": lambda: bool(norm_vat(party.get("vat_id"))) and norm_vat(party.get("vat_id")) == norm_vat(w["vat_id"]),
+            "text": lambda: all(squash(t) in block for t in w["text"]),
+            "regex": lambda: re.search(w["regex"], text, re.I | re.M) is not None,
+            "doc_type": lambda: d["doc_type"] == w["doc_type"],
+            "entity": lambda: record.get("entity") == w["entity"],
+        }
+        if all(checks[k]() for k in w):
+            hits.append(r)
+    return hits
+
+
+def decide(matches):
+    """Field -> (value, rule id), and the conflicts. The archive layer decides first, the user layer fills gaps."""
+    decided, conflicts, blocked = {}, [], set()
+    tags = {}
+    for layer in LAYERS:
+        wanted = {}
+        for r in (m for m in matches if m["layer"] == layer):
+            for k, v in r["set"].items():
+                if k == "tags":
+                    for t in v:
+                        tags.setdefault(t, r["id"])
+                else:
+                    wanted.setdefault(k, []).append((len(r["when"]), v, r["id"]))
+        for k, cands in sorted(wanted.items()):
+            if k in decided or k in blocked:
+                continue
+            top = max(n for n, _, _ in cands)
+            best = [(v, rid) for n, v, rid in cands if n == top]
+            if any(v != best[0][0] for v, _ in best):
+                blocked.add(k)
+                conflicts.append(f"rules {', '.join(sorted({rid for _, rid in best}))} disagree on {k}: "
+                                 + " vs ".join(json.dumps(v, ensure_ascii=False) for v in
+                                               sorted({json.dumps(v, ensure_ascii=False) for v, _ in best})))
+            else:
+                decided[k] = best[0]
+    if tags:
+        decided["tags"] = (list(tags), min(tags.values()))
+    return decided, conflicts
+
+
+def apply_rules(archive, record):
+    """Let the rules set fields on record["data"]. A person's edit beats a rule."""
+    d = record["data"]
+    party = d["buyer"] if d.get("direction") == "out" else d["seller"]
+    view = {"data": d, "counterparty": archive.resolve_counterparty(party, create=False),
+            "entity": d.get("entity") or resolve_entity(archive.config, d)[0]}
+    matches = match_rules(archive.rules, view, archive.text(record))
+    decided, conflicts = decide(matches)
+    edited = {e["field"] for e in record.get("edits", [])}
+    data = json.loads(json.dumps(d))
+    log, rule_fields = [], {}
+    for k, (value, rid) in sorted(decided.items()):
+        if k in edited:
+            continue
+        rule_fields[k] = rid
+        old = get_path(data, k)
+        if k == "tags":
+            value = sorted(set(old or []) | set(value))
+        elif old not in (None, "", [], {}) and old != value:
+            log.append({"field": k, "from": old, "to": value, "rule": rid})
+        set_path(data, k, value)
+    record["rule_log"], record["rule_conflicts"] = log, conflicts
+    record["rule_fields"] = rule_fields
+    applied = set(rule_fields.values())
+    if "tags" in rule_fields:
+        applied |= {m["id"] for m in matches if "tags" in m["set"]}
+    record["rules"] = sorted(applied)
+    if rule_fields:
+        record["data"] = normalize_proposal(data, archive.classes)
+
+
 def check(record, archive):
     """All checks of one record. Returns [{id, severity, message}]."""
     d = record["data"]
@@ -1429,6 +1614,18 @@ def compute(record, archive):
     if d.get("category") and d["category"] not in archive.config.get("categories", []):
         record["checks"].append({"id": "category", "severity": "warning",
                                  "message": f"category {d['category']!r} is not in config.json"})
+    for msg in record.get("rule_conflicts", []):
+        record["checks"].append({"id": "rule:conflict", "severity": "error", "message": msg})
+    for entry in record.get("rule_log", []):
+        record["checks"].append({"id": "rule:override", "severity": "warning",
+                                 "message": f"rule {entry['rule']} changed {entry['field']} "
+                                            f"from {entry['from']!r} to {entry['to']!r}"})
+    if "entity" in record.get("rule_fields", {}):
+        found = resolve_entity(archive.config, dict(d, entity=None))[0]
+        if found and found != d.get("entity"):
+            record["checks"].append({"id": "rule:entity", "severity": "error",
+                                     "message": f"rule {record['rule_fields']['entity']} sets entity {d.get('entity')} "
+                                                f"but the document is addressed to {found}"})
     cls = archive.classes.get(d["doc_type"])
     if cls and not any(c["severity"] == "error" for c in record["checks"]):
         problem = path_problem(record, archive, cls)
@@ -1731,6 +1928,7 @@ def extract(archive, record, report):
     if xml_path:
         try:
             record["data"] = normalize_proposal(parse_einvoice(xml_path), archive.classes)
+            apply_rules(archive, record)
             record["source"] = "xml"
             report["from_xml"].append(sha[:8])
             return
@@ -1743,6 +1941,7 @@ def extract(archive, record, report):
         v = matches[0]
         try:
             record["data"] = normalize_proposal(apply_template(v["template"], text), archive.classes)
+            apply_rules(archive, record)
             record["source"] = f"template:{v['slug']}"
             report["from_template"].append({"id": sha[:8], "vendor": v["slug"]})
             return
@@ -1844,6 +2043,7 @@ def cmd_record(args):
         if r.get("data") and r.get("source") in ("claude", "user") and not args.force:
             raise Fail("this document already has fields; use `paperwork set` to change them or --force to replace")
         r["data"] = normalize_proposal(proposal, archive.classes)
+        apply_rules(archive, r)
         r["source"] = "claude" if not args.user else "user"
         recompute_all(archive)
         save_all(archive)
@@ -1896,6 +2096,7 @@ def cmd_set(args):
         normalized = normalize_proposal(data, archive.classes)
         r["data"] = normalized
         r["edits"] = r.get("edits", []) + [dict(c, at=now()) for c in changes]
+        apply_rules(archive, r)
         if r.get("source") == "claude" or (r.get("source") or "").startswith("template:"):
             r["source_before_edit"] = r.get("source_before_edit") or r["source"]
         r["source"] = "user"

@@ -286,6 +286,67 @@ class Archive(unittest.TestCase):
         cfg.update(changes)
         write_json(path, cfg)
 
+    def write_rules(self, rules, user=None):
+        name = "rules.json" if not user else os.path.join("rules", user + ".json")
+        path = os.path.join(self.root, "_paperwork", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_json(path, {"rules": rules})
+
+    def test_rule_sets_class_and_category(self):
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]},
+                           "set": {"category": "hosting", "tags": ["server"]}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        code, view, err = self.propose(doc, hoster_proposal())
+        self.assertEqual(code, 0, (view, err))
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "hosting")
+        self.assertEqual(rec["data"]["tags"], ["server"])
+        self.assertEqual(rec["rules"], ["hoster"])
+        self.assertEqual(rec["rule_fields"], {"category": "hoster", "tags": "hoster"})
+
+    def test_rule_overrides_proposal_with_a_warning(self):
+        self.write_rules([{"id": "is-receipt", "when": {"counterparty": "muster-hosting"}, "set": {"doc_type": "rcpt"}}])
+        # first document creates the counterparty, second is ruled
+        for n in ("A-1", "A-2"):
+            self.drop(n + ".pdf", text_pdf([hoster_invoice(number=n)]))
+        self.pw("ingest")
+        a = self.pending_id("A-1")
+        b = self.pending_id("A-2")
+        self.propose(a, hoster_proposal(number="A-1"))
+        code, view, _ = self.propose(b, hoster_proposal(number="A-2"))
+        self.assertIn("rule:override", [c["id"] for c in view["warnings"]])
+
+    def test_rule_conflict_goes_to_review(self):
+        self.write_rules([{"id": "a", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}},
+                          {"id": "b", "when": {"text": ["Gesamtbetrag"]}, "set": {"category": "software"}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        code, view, _ = self.propose(self.only_pending()[0]["id"], hoster_proposal())
+        self.assertEqual(code, 3)
+        self.assertIn("rule:conflict", [c["id"] for c in view["problems"]])
+
+    def test_user_rules_only_fill_gaps(self):
+        self.write_rules([{"id": "arch", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        self.write_rules([{"id": "mine", "when": {"text": ["Cloud Server"]},
+                           "set": {"category": "software", "tags": ["mine"]}}], user="erika")
+        os.environ["PAPERWORK_USER"] = "erika"
+        self.addCleanup(os.environ.pop, "PAPERWORK_USER", None)
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        code, view, _ = self.propose(self.only_pending()[0]["id"], hoster_proposal())
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual((rec["data"]["category"], rec["data"]["tags"]), ("hosting", ["mine"]))
+
+    def test_bad_rules_fail_fast(self):
+        self.write_rules([{"id": "broken", "when": {"regex": "("}, "set": {"category": "hosting"}}])
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("broken", err)
+        self.write_rules([{"id": "noclass", "when": {"text": ["x"]}, "set": {"doc_type": "invoice"}}])
+        self.assertIn("noclass", self.pw("status")[2])
+
     def test_upgrade_replans_zero_moves(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")
