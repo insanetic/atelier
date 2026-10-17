@@ -2653,10 +2653,13 @@ def cmd_export(args):
                    for suffix in ("", "-de")}
         for scope in scopes:
             folder = archive.p(EXPORTS, scope)
-            for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-                if re.fullmatch(r"class-.+\.csv", name) and name not in current:
-                    os.remove(os.path.join(folder, name))
-                    removed.append(archive.rel(os.path.join(folder, name)))
+            if os.path.islink(folder) or not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                if re.fullmatch(r"class-.+\.csv", name) and name not in current and os.path.isfile(path):
+                    os.remove(path)
+                    removed.append(archive.rel(path))
         for dialect in (["csv", "de"] if args.dialect == "both" else [args.dialect]):
             suffix = "" if dialect == "csv" else "-de"
             for scope, rs in scopes.items():

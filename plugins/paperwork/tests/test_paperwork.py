@@ -824,6 +824,8 @@ class Archive(unittest.TestCase):
         self.assertEqual(self.csv_rows("kranich", "class-contract.csv"), [])
         mine = os.path.join(exports, "all", "classic.csv")
         write_json(mine, {})
+        folder = os.path.join(exports, "all", "class-folder.csv")
+        os.mkdir(folder)
         self.write_config(classes={"contract": {}, "policy": {"fields": {"number": {"type": "text"}}}})
         out = self.pw("export")[1]
         self.assertFalse(out["unchanged"])
@@ -832,6 +834,7 @@ class Archive(unittest.TestCase):
                 self.assertFalse(os.path.exists(os.path.join(exports, scope, name)), (scope, name))
             self.assertTrue(os.path.exists(os.path.join(exports, scope, "class-policy-de.csv")), scope)
         self.assertTrue(os.path.exists(mine))
+        self.assertTrue(os.path.isdir(folder))
         self.assertTrue(self.pw("export")[1]["unchanged"])
 
     def test_config_adds_a_class_with_required_fields(self):
