@@ -38,6 +38,7 @@ DUPLICATES = "_duplicates"
 EXPORTS = "exports"
 MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS}
 
+CLASS_COLUMNS = ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"]
 FIELD_TYPES = {"text", "date", "money", "number", "bool", "choice"}
 NAME_TEMPLATE = "{issue_date}_{class}_{counterparty}_{number}_{amount}_{id}"
 FOLDER_TEMPLATE = "{entity}/{year}/{direction}"
@@ -1136,6 +1137,8 @@ def class_problems(classes):
         for name, spec in fields.items():
             if not FIELD_KEY.fullmatch(name):
                 out.append(f"classes.{key}: field name {name!r} must match {FIELD_KEY.pattern}")
+            elif name in CLASS_COLUMNS:
+                out.append(f"classes.{key}: field name '{name}' is reserved")
             elif not isinstance(spec, dict) or spec.get("type") not in FIELD_TYPES:
                 out.append(f"classes.{key}: field {name} needs a type of {', '.join(sorted(FIELD_TYPES))}")
             elif spec["type"] == "choice" and not (isinstance(spec.get("choices"), list) and spec["choices"]):
@@ -2486,7 +2489,6 @@ LINE_COLUMNS = ["id", "line", "entity", "direction", "issue_date", "counterparty
 VAT_COLUMNS = ["entity", "month", "direction", "currency", "rate", "reverse_charge", "documents", "net", "tax", "gross"]
 VENDOR_COLUMNS = ["entity", "year", "counterparty", "name", "vat_ids", "currency", "documents", "net", "gross"]
 ISSUE_COLUMNS = ["id", "entity", "status", "severity", "check", "message", "path"]
-CLASS_COLUMNS = ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"]
 NUMERIC = {"net", "tax", "gross", "quantity", "unit_price", "rate", "tax_rate"}
 
 

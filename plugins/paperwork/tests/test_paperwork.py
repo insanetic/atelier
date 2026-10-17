@@ -691,6 +691,13 @@ class Archive(unittest.TestCase):
         self.assertIn("colour", err)
         self.assertIn("inv", err)
 
+    def test_reserved_field_names_fail(self):
+        for name in ("id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"):
+            self.write_config(classes={"contract": {"fields": {name: {"type": "text"}}}})
+            code, _, err = self.pw("status")
+            self.assertNotEqual(code, 0, name)
+            self.assertIn(f"classes.contract: field name '{name}' is reserved", err)
+
     def test_class_fields_are_exported(self):
         self.write_config(classes={"contract": {"fields": {"start": {"type": "date"}, "notice": {"type": "text"}}}})
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
@@ -703,6 +710,9 @@ class Archive(unittest.TestCase):
         rows = self.csv_rows("all", "class-contract.csv")
         self.assertEqual((rows[0]["start"], rows[0]["notice"]), ("2026-01-01", "3 Monate"))
         self.assertEqual(list(rows[0])[:7], ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"])
+        self.assertEqual(self.csv_rows("nordlicht", "class-contract.csv")[0]["notice"], "3 Monate")
+        self.assertTrue(os.path.exists(os.path.join(self.root, "exports", "all", "class-contract-de.csv")))
+        self.assertTrue(os.path.exists(os.path.join(self.root, "exports", "nordlicht", "class-contract-de.csv")))
         self.assertTrue(self.pw("export")[1]["unchanged"])
 
     def test_config_adds_a_class_with_required_fields(self):
