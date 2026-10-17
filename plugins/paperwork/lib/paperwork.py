@@ -1763,7 +1763,7 @@ def canonical_name(record, cls, values=None):
 
 def folder_problem(record, folder):
     segments = folder.split("/")
-    if any(s in ("", "-", ".", "..") or s.startswith("_") for s in segments):
+    if any(s in ("", "-") or s.startswith(("_", ".")) or "\\" in s for s in segments):
         return f"folder {folder!r} has an empty, dotted or underscore segment"
     if segments[0] != record.get("entity"):
         return f"folder {folder!r} does not start with the entity {record.get('entity')!r}"
@@ -1794,6 +1794,9 @@ def path_problem(record, archive, cls):
     problem = folder_problem(record, folder)
     if problem:
         return "path:folder", problem
+    stem = os.path.splitext(name)[0]
+    if not stem or stem.startswith(".") or "/" in name or "\\" in name:
+        return "path:name", f"file name {name!r} is empty, starts with a dot or contains a slash"
     if len(os.path.join(archive.root, folder, name)) > MAX_PATH:
         return "path:length", f"the path is longer than {MAX_PATH} characters even after shortening"
     return None
@@ -2371,10 +2374,27 @@ def cmd_plan(args):
     return EXIT_OK
 
 
+def misplaced_target(archive, op):
+    """Why a plan op's target is not a place the engine files to, or None. Plans are files: never trust them."""
+    root = os.path.realpath(archive.root)
+    dst = os.path.realpath(archive.p(op["to"]))
+    if os.path.commonpath([root, dst]) != root or dst == root:
+        return "it is outside the archive"
+    top = os.path.relpath(dst, root).split(os.sep)[0]
+    allowed = {DUPLICATES} if "copy" in op else {REVIEW, DUPLICATES}
+    if (top in MANAGED_TOP or top.startswith(("_", "."))) and top not in allowed:
+        return f"it is inside {top}/"
+    return None
+
+
 def cmd_apply(args):
     archive = Archive(args.root)
     with archive.lock():
         plan = read_json(args.plan)
+        for op in plan["ops"]:
+            why = misplaced_target(archive, op)
+            if why:
+                raise Fail(f"refusing the plan: target {op['to']} {why}; nothing was moved")
         done, skipped, entries = [], [], []
         for op in plan["ops"]:
             src, dst = archive.p(op["from"]), archive.p(op["to"])

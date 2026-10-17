@@ -663,6 +663,49 @@ class Archive(unittest.TestCase):
             self.assertTrue(view["target"].startswith("_review/"), (folder, view["target"]))
             self.assertIn("path:folder", [c["id"] for c in view["problems"]])
 
+    def test_file_name_never_escapes(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["currency"] = "EUR/../../escape"
+        self.propose(doc, p)
+        self.pw("accept", doc, "currency", "--reason", "x")
+        view = self.pw("show", doc)[1]
+        self.assertEqual(view["status"], "review")
+        self.assertIn("path:name", [c["id"] for c in view["problems"]])
+        self.assertTrue(view["target"].startswith("_review/"), view["target"])
+        code, _, err = self.pw("accept", doc, "path:name", "--reason", "x")
+        self.assertNotEqual(code, 0)
+        self.assertIn("path:name", err)
+
+    def test_apply_refuses_targets_outside_their_place(self):
+        src = self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        for to in ("../escape.pdf", "nordlicht/../../escape.pdf", "_paperwork/x.pdf", "_inbox/x.pdf",
+                   "exports/x.pdf", ".hidden/x.pdf"):
+            plan = os.path.join(self.tmp.name, "plan.json")
+            write_json(plan, {"plan": "hand", "conflicts": [], "ops": [
+                {"op": "move", "id": doc, "from": "_inbox/a.pdf", "to": to, "sha256": doc}]})
+            code, _, err = self.pw("apply", plan)
+            self.assertEqual(code, pw.EXIT_USAGE, (to, err))
+            self.assertIn(to, err)
+            self.assertTrue(os.path.exists(src), to)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "escape.pdf")))
+
+    def test_hidden_folders_and_names_go_to_review(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        for part, template, check in (("folder", "{entity}/.hidden", "path:folder"), ("name", ".{id}", "path:name")):
+            self.write_config(classes={"inv": {part: template}})
+            self.pw("export")  # recomputes and saves the checks
+            view = self.pw("show", doc)[1]
+            self.assertIn(check, [c["id"] for c in view["problems"]], template)
+            self.assertTrue(view["target"].startswith("_review/"), (template, view["target"]))
+
     def test_long_path_goes_to_review(self):
         self.write_config(classes={"inv": {"folder": "{entity}/" + "x" * 240}})
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
