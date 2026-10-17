@@ -729,10 +729,16 @@ def normalize_alternatives(raw, classes, entities):
         if not isinstance(values, list):
             raise Fail(f"alternatives.{key} is a list, best first")
         values = [str(v).strip() for v in values if str(v).strip()][:MAX_ALTERNATIVES]
-        known = classes if key == "doc_type" else entities
-        for v in values:
-            if known is not None and key != "counterparty" and v not in known:
-                raise Fail(f"alternatives.{key}: {v!r} is not one of {', '.join(known)}")
+        if key == "doc_type":
+            unknown = [v for v in values if v not in classes]
+            valid = classes
+        elif key == "entity" and entities is not None:
+            unknown = [v for v in values if v not in entities]
+            valid = entities
+        else:  # counterparty names are free text; without a config there are no entities to check
+            unknown = []
+        if unknown:
+            raise Fail(f"alternatives.{key}: {unknown[0]!r} is not one of {', '.join(valid)}")
         if values:
             out[key] = values
     return out
@@ -1659,6 +1665,7 @@ def compute(record, archive):
     if not record.get("data"):
         record["checks"] = []
         record["entity"] = record["direction"] = record["counterparty"] = None
+        record["vendor_proposed"] = False
         return
     d = record["data"]
     record["checks"] = check(record, archive)

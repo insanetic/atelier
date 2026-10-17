@@ -316,7 +316,7 @@ class Archive(unittest.TestCase):
         self.assertEqual(self.pw("show", doc[:8])[1]["status"], "filed")
         self.assertFalse(self.pw("vendors")[1]["vendors"][0]["proposed"])
 
-    def test_xml_and_ruled_documents_need_no_confirmation(self):
+    def test_ruled_class_with_confirmed_vendor_needs_no_confirmation(self):
         self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")
@@ -366,6 +366,68 @@ class Archive(unittest.TestCase):
         code, view, err = self.pw("set", doc[:8], "notes=checked")
         self.assertEqual(code, 0, err)
         self.assertEqual(view["status"], "ok")
+
+    def test_claude_proposal_in_review_is_not_confirmed(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        _, view, _ = self.propose(doc, hoster_proposal(gross="191.00", tax="91.00", printed_gross="191,00 €"))
+        self.assertEqual(view["status"], "review")
+        self.assertIs(self.pw("show", doc[:8])[1]["confirmed"], False)
+
+    def test_archive_from_before_the_outcome_replans_with_zero_moves(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        self.pw("confirm", doc[:8])
+        self.file_all()
+        full = self.pw("show", doc[:8])[1]["id"]
+        path = os.path.join(self.root, "_paperwork", "docs", full + ".json")
+        rec = json.loads(read(path))
+        for key in ("recorded_by", "confirmed", "vendor_proposed"):
+            rec.pop(key, None)
+        write_json(path, rec)
+        vpath = os.path.join(self.root, "_paperwork", "vendors.json")
+        vendors = json.loads(read(vpath))
+        for v in vendors["vendors"]:
+            v.pop("proposed", None)
+        write_json(vpath, vendors)
+        self.assertEqual(self.pw("plan")[1]["moves"], 0)
+        view = self.pw("show", doc[:8])[1]
+        self.assertEqual((view["status"], view["confirmed"]), ("filed", True))
+
+    def test_alternatives_keep_three_per_key(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        p = hoster_proposal()
+        p["alternatives"] = {"counterparty": [" A ", "B", "C", "D"], "entity": ["nordlicht"]}
+        _, view, _ = self.propose(self.only_pending()[0]["id"], p)
+        self.assertEqual(view["alternatives"], {"counterparty": ["A", "B", "C"], "entity": ["nordlicht"]})
+
+    def test_confirm_takes_several_ids(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.drop("b.pdf", text_pdf([hoster_invoice(number="RE-2026-0043")]))
+        self.pw("ingest")
+        ids = []
+        for item in self.only_pending():
+            number = "RE-2026-0043" if "RE-2026-0043" in read(item["text"]) else "RE-2026-0042"
+            self.propose(item["id"], hoster_proposal(number=number))
+            ids.append(item["id"][:8])
+        self.assertEqual(self.pw("status")[1]["documents"].get("unconfirmed"), 2)
+        code, _, err = self.pw("confirm", *ids)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.pw("list", "--status", "unconfirmed")[1]["count"], 0)
+
+    def test_reextract_clears_the_proposed_vendor_flag(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        self.pw("reextract", doc[:8])
+        full = self.pw("show", doc[:8])[1]["id"]
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", full + ".json")))
+        self.assertFalse(rec.get("vendor_proposed"))
 
     def test_rules_test_previews_without_writing(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
