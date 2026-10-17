@@ -806,6 +806,33 @@ class Archive(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.root, "exports", "nordlicht", "class-contract-de.csv")))
         self.assertTrue(self.pw("export")[1]["unchanged"])
 
+    def test_class_tables_follow_the_config(self):
+        self.write_config(classes={"contract": {"fields": {"start": {"type": "date"}}},
+                                   "policy": {"fields": {"number": {"type": "text"}}}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"start": "2026-01-01"})
+        self.propose(doc, p)
+        self.pw("export")
+        exports = os.path.join(self.root, "exports")
+        for scope in ("all", "nordlicht", "kranich"):
+            with open(os.path.join(exports, scope, "class-policy.csv"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), ",".join(pw.CLASS_COLUMNS + ["number"]) + "\n")
+        self.assertEqual(self.csv_rows("kranich", "class-contract.csv"), [])
+        mine = os.path.join(exports, "all", "classic.csv")
+        write_json(mine, {})
+        self.write_config(classes={"contract": {}, "policy": {"fields": {"number": {"type": "text"}}}})
+        out = self.pw("export")[1]
+        self.assertFalse(out["unchanged"])
+        for scope in ("all", "nordlicht", "kranich", "privat"):
+            for name in ("class-contract.csv", "class-contract-de.csv"):
+                self.assertFalse(os.path.exists(os.path.join(exports, scope, name)), (scope, name))
+            self.assertTrue(os.path.exists(os.path.join(exports, scope, "class-policy-de.csv")), scope)
+        self.assertTrue(os.path.exists(mine))
+        self.assertTrue(self.pw("export")[1]["unchanged"])
+
     def test_config_adds_a_class_with_required_fields(self):
         self.write_config(classes={"policy": {"label": "insurance policy",
                                               "fields": {"policy_number": {"type": "text"},

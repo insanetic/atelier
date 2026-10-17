@@ -2622,8 +2622,9 @@ def export_rows(archive, records):
     tables = {"documents.csv": (DOC_COLUMNS, docs), "lines.csv": (LINE_COLUMNS, lines),
               "vat_summary.csv": (VAT_COLUMNS, vat_rows), "vendors.csv": (VENDOR_COLUMNS, vendor_rows),
               "issues.csv": (ISSUE_COLUMNS, issues)}
-    for key, rows in sorted(by_class.items()):
-        tables[f"class-{key}.csv"] = (CLASS_COLUMNS + list(classes[key]["fields"]), rows)
+    for key, cls in sorted(classes.items()):
+        if cls.get("fields"):
+            tables[f"class-{key}.csv"] = (CLASS_COLUMNS + list(cls["fields"]), by_class.get(key, []))
     return tables
 
 
@@ -2633,10 +2634,19 @@ def cmd_export(args):
         recompute_all(archive)
         save_all(archive)
         records = list(archive.records.values())
-        written = []
+        written, removed = [], []
         scopes = {"all": records}
         for e in archive.config["entities"]:
             scopes[e["slug"]] = [r for r in records if r.get("entity") == e["slug"]]
+        # class tables of classes that no longer declare fields; exports are the engine's own files
+        current = {f"class-{k}{suffix}.csv" for k, c in archive.classes.items() if c.get("fields")
+                   for suffix in ("", "-de")}
+        for scope in scopes:
+            folder = archive.p(EXPORTS, scope)
+            for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+                if re.fullmatch(r"class-.+\.csv", name) and name not in current:
+                    os.remove(os.path.join(folder, name))
+                    removed.append(archive.rel(os.path.join(folder, name)))
         for dialect in (["csv", "de"] if args.dialect == "both" else [args.dialect]):
             suffix = "" if dialect == "csv" else "-de"
             for scope, rs in scopes.items():
@@ -2645,7 +2655,8 @@ def cmd_export(args):
                     path = archive.p(EXPORTS, scope, stem + suffix + ext)
                     if write_state(path, table_text(cols, rows, dialect)):
                         written.append(archive.rel(path))
-        emit({"written": written, "unchanged": not written, "documents": summary(archive)})
+        emit({"written": written, "removed": removed, "unchanged": not (written or removed),
+              "documents": summary(archive)})
     return EXIT_OK
 
 
