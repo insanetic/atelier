@@ -11,7 +11,7 @@ user-invocable: true
 license: MIT
 metadata:
   author: Stanislav Schmidt
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Review
@@ -32,11 +32,45 @@ has a check id; `paperwork show <id>` prints the record, the derived text and th
    | `duplicate:suspected` | Same counterparty, date and total, no number. Ask; a separate document: `accept <id> duplicate:suspected --reason`. |
    | `duplicate:conflict` | Same number, different totals: usually a corrected invoice. Set `doc_type`/`refers_to`, or accept. |
    | `unsupported` | A HEIC photo, a broken file: ask the user for a PDF or JPEG and drop that into `_inbox`. The original stays in `_review`. |
+   | `path:folder`, `path:name`, `path:length` | The class template or a field value gives an unusable path. These cannot be accepted: fix the field with `set`, or ask the owner to change the template. |
    | Warnings (`ustg14`, `tax:zero`, `entity:shared-address`) | Explain what is at stake (e.g. input tax deduction needs the §14 UStG items); accept only with a reason. |
 
    A waived check stays in the record with its reason. `paperwork reextract <id>` drops the fields so
    the document is read again (the old fields stay in its history).
 3. `paperwork plan`, `paperwork apply <plan>`, `paperwork export`.
+
+## Unconfirmed documents
+
+`paperwork list --status unconfirmed` is a second queue. These documents are filed, but Claude chose
+their class alone or introduced their counterparty. For each, show the choice and its alternatives,
+then `paperwork confirm <id>...` if it is right, or `paperwork set <id> doc_type=... entity=...` if
+not (`set` confirms too). Confirming also confirms the new counterparty. A document in review cannot
+be confirmed; settle it first.
+
+## Rules
+
+When the same correction recurs for a counterparty, VAT ID or phrase, write a rule instead of fixing
+each document. `_paperwork/rules.json` is the archive's; `_paperwork/rules/<user>.json` is one
+person's (the `PAPERWORK_USER` environment variable picks it) and only fills what the archive
+rules leave open.
+
+```json
+{"rules": [{"id": "hetzner-hosting",
+            "when": {"counterparty": "hetzner-online", "text": ["Rechnung"]},
+            "set": {"doc_type": "inv", "category": "hosting"}}]}
+```
+
+- Each rule needs a unique `id`. `when`: `counterparty`, `vat_id`, `text` (all phrases), `regex`,
+  `doc_type`, `entity`. `set`: `doc_type`, `entity`, `direction`, `category`, `tags` (merged),
+  `fields.<name>`. A rule with `fields.<name>` also needs `set.doc_type` or `when.doc_type`.
+- The rule with the most `when` keys wins. Two equally specific rules that disagree give
+  `rule:conflict`, which sends the document to review. A person's `paperwork set` beats any rule.
+- Run `paperwork rules test [--file draft.json]` first: it shows the changes without writing. Save
+  the draft as `_paperwork/proposals/rules-draft.json`, never under `_paperwork/rules/`: a file
+  there becomes a live user layer.
+  Save the file only when they are what the user wants, then `paperwork rules apply` for documents
+  already recorded. Documents a person set are left alone.
+- Checks: `rule:conflict` and `rule:entity` are errors; `rule:override` is a warning.
 
 ## Vendors
 

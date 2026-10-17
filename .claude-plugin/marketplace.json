@@ -36,7 +36,7 @@
     {
       "name": "paperwork",
       "source": "./plugins/paperwork",
-      "description": "Invoices and receipts into an archive that never deletes: inbox, checked extraction, one naming convention per entity, year and direction, duplicates, CSV index"
+      "description": "Invoices and receipts into an archive that never deletes: inbox, checked extraction, configurable document classes, rules, one naming convention per entity, year and direction, duplicates, CSV index"
     }
   ]
 }

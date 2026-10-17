@@ -13,7 +13,7 @@ user-invocable: true
 license: MIT
 metadata:
   author: Stanislav Schmidt
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Inbox
@@ -35,6 +35,8 @@ If `paperwork doctor` says there is no archive or no entities, run the `setup` s
 - **Values as printed, numbers as decimals.** Write amounts as `1234.50` (dot, no thousands
   separator), dates as `YYYY-MM-DD`. Put the exact printed text in `evidence`: the engine checks that
   it appears in the document and that it means the value you wrote.
+- **Only existing classes and entities.** `doc_type` is a class `paperwork schema` lists, the entity
+  one from `config.json`. A new counterparty is fine, but it will be *unconfirmed*.
 - **Unsure is review, not a guess.** Leave a field out rather than invent it; the engine sends the
   document to `_review/` and the `review` skill settles it with the user.
 
@@ -43,9 +45,15 @@ If `paperwork doctor` says there is no archive or no entities, run the `setup` s
 1. `paperwork ingest` hashes and registers every new file, reads text layers, OCRs scans, parses
    e-invoice XML and applies vendor templates. Exact duplicates are recorded as copies.
 2. `paperwork pending` lists what still needs reading: the derived text file, page images for scans
-   and the proposal path to write. `paperwork schema` prints the proposal format.
+   and the proposal path to write. `paperwork schema` prints the proposal format and the classes
+   with their fields. Some items carry `rule_hints`, what a text or regex rule suggests: follow them
+   unless the document clearly contradicts them, and then say so in `notes`.
 3. For each pending document, read its text. For `pdf-scan`, `pdf-mixed` and `image`, **also look at
    the page images**: OCR misreads digits (`23.65.2024`, `14,56`), and the images are the truth.
+   `doc_type` must be a class from `paperwork schema`; fill the `fields` that class declares. When
+   you are unsure between classes, entities or counterparties, add `alternatives`
+   (an object of ranked lists, e.g. `{"doc_type": ["cn", "other"]}`; keys `doc_type`, `entity`,
+   `counterparty`; at most 3 each).
    Write the proposal JSON to the given path (one per document) and run
    `paperwork record <id> <proposal>`. Exit 3 means review; read the problems it prints. If a
    problem is your misreading, fix the proposal and record again with `--force`. If it is the
@@ -55,7 +63,12 @@ If `paperwork doctor` says there is no archive or no entities, run the `setup` s
    `paperwork undo <plan>` reverses it.
 5. `paperwork export` refreshes `exports/` (all entities and each entity; `-de` files for German Excel).
 6. Report: how many were filed per entity, what is in review and why, duplicates, and warnings worth
-   a human look (shared address, 0 % without a note, §14 UStG gaps, OCR-only evidence).
+   a human look (shared address, 0 % without a note, §14 UStG gaps, OCR-only evidence). List the
+   *unconfirmed* documents (`paperwork list --status unconfirmed`: Claude classified them alone or
+   introduced a new counterparty; they are filed anyway) with their alternatives, and offer
+   `paperwork confirm <id>...`. When the same correction recurs, offer a rule in
+   `_paperwork/rules.json` and run `paperwork rules test` before saving it. Rule format and precedence
+   are in the `review` skill, Rules section.
 
 ## Reading a document
 

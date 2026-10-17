@@ -10,7 +10,7 @@ user-invocable: true
 license: MIT
 metadata:
   author: Stanislav Schmidt
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # Setup
@@ -40,13 +40,25 @@ image once (`paperwork doctor` shows the tool versions).
    is the top folder name: lowercase, short, stable.
 3. **Categories and start year.** Keep the default categories unless the user has their own chart of
    accounts; `start_year` is the oldest document they will keep.
-4. `paperwork doctor` must show no problems. Then tell the user to drop files into `_inbox/` and run
+4. **Classes and rules (optional).** The built-in classes (`inv cn rcpt rem notice oc quote contract
+   other`) cover most archives. Ask whether the user files anything else (a contract with a term,
+   a payslip). Add it under `classes` in `config.json`; the README's "Classes and rules" section has
+   an example. Fields are `{"name": {"type": ...}}` with type `text`, `date`, `money`, `number`,
+   `bool` or `choice` (`choice` needs a non-empty `choices` list). `required` lists proposal keys,
+   party keys such as `seller.name`, or `fields.<name>`. Class keys match `[a-z][a-z0-9-]{0,15}`,
+   field names `[a-z][a-z0-9_]{0,31}` and are not `id`, `entity`, `counterparty`, `issue_date`,
+   `status`, `confirmed` or `path`. The folder template must start with `{entity}`.
+   `paperwork schema` shows the result. A first `_paperwork/rules.json` can wait until the same
+   correction has come up twice (see the `review` skill).
+5. `paperwork doctor` must show no problems. Then tell the user to drop files into `_inbox/` and run
    the `inbox` skill.
 
 ## Changing later
 
 Edit `config.json`, then `paperwork export`: every record is re-checked against the new config, and
-`paperwork plan` shows the renames a changed entity would cause. Never rename entity folders by hand.
+`paperwork plan` shows the renames a changed entity would cause. Run `paperwork plan` after every
+change to a `name` or `folder` template too, and show the user the renames before applying. Never
+rename entity folders by hand.
 
 ## Notes worth telling the user
 

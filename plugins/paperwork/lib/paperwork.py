@@ -27,7 +27,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 EXIT_OK, EXIT_CHECK, EXIT_USAGE, EXIT_REVIEW, EXIT_LOCKED, EXIT_TOOL = 0, 1, 2, 3, 4, 5
 
@@ -38,8 +38,35 @@ DUPLICATES = "_duplicates"
 EXPORTS = "exports"
 MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS}
 
-DOC_TYPES = ["inv", "cn", "rcpt", "rem", "notice", "oc", "quote", "contract", "other"]
-MONEY_TYPES = {"inv", "cn", "rcpt"}
+CLASS_COLUMNS = ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"]
+FIELD_TYPES = {"text", "date", "money", "number", "bool", "choice"}
+NAME_TEMPLATE = "{issue_date}_{class}_{counterparty}_{number}_{amount}_{id}"
+FOLDER_TEMPLATE = "{entity}/{year}/{direction}"
+PLACEHOLDERS = {"issue_date", "due_date", "service_date", "year", "class", "counterparty", "number", "amount",
+                "id", "entity", "direction", "category"}
+HOLE = re.compile(r"\{([^{}]*)\}")
+CLASS_KEY = re.compile(r"[a-z][a-z0-9-]{0,15}")
+FIELD_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
+BILLED = ["buyer.name", "invoice_number", "currency", "gross"]
+
+
+def builtin_class(label, money=False, sign=None, required=(), checks=()):
+    return {"label": label, "money": money, "sign": sign, "required": ["issue_date", "seller.name", *required],
+            "checks": list(checks), "name": NAME_TEMPLATE, "folder": FOLDER_TEMPLATE, "fields": {}}
+
+
+BUILTIN_CLASSES = {
+    "inv": builtin_class("invoice", True, "positive", BILLED, ["ustg14"]),
+    "cn": builtin_class("credit note, Storno, Rechnungskorrektur", True, "negative", BILLED),
+    "rcpt": builtin_class("receipt", True, "positive", ["currency", "gross"]),
+    "rem": builtin_class("reminder"),
+    "notice": builtin_class("Bescheid: tax, fee, IHK"),
+    "oc": builtin_class("order confirmation"),
+    "quote": builtin_class("quote"),
+    "contract": builtin_class("contract"),
+    "other": builtin_class("other"),
+}
+CLASS_DEFAULTS = {**builtin_class(""), "required": ["issue_date"]}
 DIRECTIONS = ["in", "out"]
 MEDIA_EXT = {"pdf": "pdf", "xml": "xml", "jpeg": "jpg", "png": "png", "tiff": "tif", "gif": "gif",
              "webp": "webp", "bmp": "bmp"}
@@ -652,11 +679,73 @@ PROPOSAL_KEYS = {
     "doc_type", "language", "issue_date", "service_date", "service_period", "due_date", "seller",
     "buyer", "invoice_number", "refers_to", "currency", "net", "tax", "gross", "reverse_charge",
     "iban", "payment_method", "paid", "category", "tags", "lines", "evidence", "notes",
-    "entity", "direction",
+    "entity", "direction", "fields", "alternatives",
 }
+MAX_ALTERNATIVES = 3
 
 
-def normalize_proposal(p):
+def normalize_fields(raw, specs, doc_type):
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise Fail("fields maps a field name to its value")
+    out = {}
+    for name, v in sorted(raw.items()):
+        spec = specs.get(name)
+        if spec is None:
+            raise Fail(f"unknown field {name!r} for class {doc_type} (declared: {', '.join(sorted(specs)) or 'none'})")
+        if v in (None, ""):
+            continue
+        kind, key = spec["type"], f"fields.{name}"
+        if kind == "date":
+            out[name] = iso_date(v, key)
+        elif kind == "money":
+            out[name] = money(dec(v, key))
+        elif kind == "number":
+            out[name] = plain(dec(v, key))
+        elif kind == "bool":
+            if not isinstance(v, bool):
+                raise Fail(f"{key} is true or false")
+            out[name] = v
+        elif kind == "choice":
+            if v not in spec["choices"]:
+                raise Fail(f"{key} must be one of {', '.join(spec['choices'])}, got {v!r}")
+            out[name] = v
+        else:
+            out[name] = str(v).strip()
+    return out
+
+
+def normalize_alternatives(raw, classes, entities):
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise Fail("alternatives maps doc_type, entity or counterparty to a ranked list")
+    unknown = sorted(set(raw) - {"doc_type", "entity", "counterparty"})
+    if unknown:
+        raise Fail(f"unknown alternatives: {', '.join(unknown)} (doc_type, entity, counterparty)")
+    out = {}
+    for key, values in sorted(raw.items()):
+        values = [values] if isinstance(values, str) else values
+        if not isinstance(values, list):
+            raise Fail(f"alternatives.{key} is a list, best first")
+        values = [str(v).strip() for v in values if str(v).strip()][:MAX_ALTERNATIVES]
+        if key == "doc_type":
+            unknown = [v for v in values if v not in classes]
+            valid = classes
+        elif key == "entity" and entities is not None:
+            unknown = [v for v in values if v not in entities]
+            valid = entities
+        else:  # counterparty names are free text; without a config there are no entities to check
+            unknown = []
+        if unknown:
+            raise Fail(f"alternatives.{key}: {unknown[0]!r} is not one of {', '.join(valid)}")
+        if values:
+            out[key] = values
+    return out
+
+
+def normalize_proposal(p, classes=BUILTIN_CLASSES, entities=None):
     if not isinstance(p, dict):
         raise Fail("a proposal is a JSON object")
     unknown = sorted(set(p) - PROPOSAL_KEYS)
@@ -664,9 +753,10 @@ def normalize_proposal(p):
         raise Fail(f"unknown proposal fields: {', '.join(unknown)} (see `paperwork schema`)")
     d = {}
     doc_type = p.get("doc_type")
-    if doc_type not in DOC_TYPES:
-        raise Fail(f"doc_type must be one of {', '.join(DOC_TYPES)}, got {doc_type!r}")
+    if doc_type not in classes:
+        raise Fail(f"doc_type must be one of {', '.join(classes)}, got {doc_type!r}")
     d["doc_type"] = doc_type
+    d["fields"] = normalize_fields(p.get("fields"), classes[doc_type]["fields"], doc_type)
     for k in ("issue_date", "service_date", "due_date"):
         d[k] = iso_date(p.get(k), k)
     sp = p.get("service_period")
@@ -742,12 +832,12 @@ def normalize_proposal(p):
     if p.get("direction") not in (None, "", *DIRECTIONS):
         raise Fail("direction is in or out")
     d["direction"] = p.get("direction") or None
+    d["alternatives"] = normalize_alternatives(p.get("alternatives"), classes, entities)
     return d
 
 
 SCHEMA = {
-    "doc_type": "inv | cn (credit note, Storno, Rechnungskorrektur) | rcpt (receipt) | rem (reminder) | "
-                "notice (Bescheid: tax, fee, IHK) | oc (order confirmation) | quote | contract | other",
+    "doc_type": "the document class key (see the classes in config.json)",
     "language": "de | en | ...",
     "issue_date": "YYYY-MM-DD, the issue date (Rechnungsdatum)",
     "service_date": "YYYY-MM-DD (Leistungsdatum / Lieferdatum), or null",
@@ -776,7 +866,17 @@ SCHEMA = {
     "evidence": {"issue_date": "the date exactly as printed", "gross": "the total exactly as printed",
                  "net": "as printed", "tax": "as printed", "due_date": "as printed"},
     "notes": "anything a reader needs: what is unusual",
+    "fields": "values of the class's own fields, {name: value}; only for classes that declare fields",
+    "alternatives": {"doc_type": ["up to 3 other class keys, best first"], "entity": ["up to 3 entity slugs"],
+                     "counterparty": ["up to 3 names"]},
 }
+
+
+def merge_classes(cfg):
+    classes = {k: dict(v) for k, v in BUILTIN_CLASSES.items()}
+    for key, over in (cfg.get("classes") or {}).items():
+        classes[key] = {**classes.get(key, {**CLASS_DEFAULTS, "label": key}), **over}
+    return classes
 
 
 # ----------------------------------------------------------------------------------------------
@@ -850,14 +950,19 @@ def convert(raw, kind, spec, key):
 
 
 class Archive:
-    def __init__(self, root):
+    def __init__(self, root, rules_file=None):
         self.root = os.path.abspath(root)
         if not os.path.isfile(self.p(STATE, "config.json")):
             raise Fail(f"not an archive (no {STATE}/config.json): {self.root}; run `paperwork init`")
         self.config = self.load_config()
         self.vendors = read_json(self.p(STATE, "vendors.json"), {"vendors": []})
+        self.rules = load_rules(self, rules_file)
         self._records = None
         self.today = dt.datetime.now(dt.timezone.utc).date()
+
+    @property
+    def classes(self):
+        return merge_classes(self.config)
 
     def p(self, *parts):
         return os.path.join(self.root, *parts)
@@ -956,7 +1061,7 @@ class Archive:
                 return v
         return None
 
-    def resolve_counterparty(self, party, create=True):
+    def resolve_counterparty(self, party, create=True, proposed=False):
         """The registry slug for a party: by VAT ID, then by name. New parties are added."""
         name = (party or {}).get("name")
         vat = norm_vat((party or {}).get("vat_id"))
@@ -977,6 +1082,8 @@ class Archive:
             while self.vendor(slug):
                 slug, n = f"{base}-{n}", n + 1
             hit = {"slug": slug, "names": [], "vat_ids": [], "category": None, "template": None}
+            if proposed:
+                hit["proposed"] = True
             self.vendors["vendors"].append(hit)
         if name and name not in hit["names"]:
             hit["names"] = sorted(set(hit["names"]) | {name})
@@ -1008,6 +1115,89 @@ def config_problems(cfg):
         for v in e.get("vat_ids", []):
             if vat_ok(v) is False:
                 out.append(f"entity {slug}: VAT ID {v} is not valid")
+    out += class_problems(cfg.get("classes", {}))
+    return out
+
+
+def class_problems(classes):
+    if not isinstance(classes, dict):
+        return ["classes must be an object keyed by class key"]
+    out = []
+    for key, c in classes.items():
+        if not CLASS_KEY.fullmatch(key):
+            out.append(f"classes.{key}: the key must match {CLASS_KEY.pattern}")
+            continue
+        if not isinstance(c, dict):
+            out.append(f"classes.{key}: must be an object")
+            continue
+        fields = c.get("fields", BUILTIN_CLASSES.get(key, CLASS_DEFAULTS)["fields"])
+        if not isinstance(fields, dict):
+            out.append(f"classes.{key}: fields must be an object")
+            fields = {}
+        for name, spec in fields.items():
+            if not FIELD_KEY.fullmatch(name):
+                out.append(f"classes.{key}: field name {name!r} must match {FIELD_KEY.pattern}")
+            elif name in CLASS_COLUMNS:
+                out.append(f"classes.{key}: field name '{name}' is reserved")
+            elif not isinstance(spec, dict) or spec.get("type") not in FIELD_TYPES:
+                out.append(f"classes.{key}: field {name} needs a type of {', '.join(sorted(FIELD_TYPES))}")
+            elif spec["type"] == "choice" and not (isinstance(spec.get("choices"), list) and spec["choices"]):
+                out.append(f"classes.{key}: choice field {name} needs a non-empty choices list")
+        required = c.get("required", [])
+        if not isinstance(required, list):
+            out.append(f"classes.{key}: required must be a list")
+            continue
+        for r in required:
+            if not isinstance(r, str) or r == "fields":
+                ok = False
+            elif r.startswith("fields."):
+                ok = r[len("fields."):] in fields
+            else:
+                head, _, tail = r.partition(".")
+                ok = (head in PROPOSAL_KEYS and not tail) or (head in ("seller", "buyer") and tail in PARTY_KEYS)
+            if not ok:
+                out.append(f"classes.{key}: required entry {r!r} is not a proposal key or a declared field")
+        base = BUILTIN_CLASSES.get(key, CLASS_DEFAULTS)
+        for part in ("name", "folder"):
+            template = c.get(part, base[part])
+            if not isinstance(template, str):
+                out.append(f"classes.{key}: {part} must be a template string")
+                continue
+            out += [f"classes.{key}: {m}" for m in template_problems(template, {"fields": fields}, part == "folder", part)]
+        if c.get("sign") not in (None, "positive", "negative"):
+            out.append(f"classes.{key}: sign is positive, negative or null")
+        checks = c.get("checks", [])
+        if not isinstance(checks, list) or any(ch != "ustg14" for ch in checks):
+            out.append(f"classes.{key}: the only known check is ustg14")
+        if not isinstance(c.get("money", False), bool):
+            out.append(f"classes.{key}: money is true or false")
+        if not isinstance(c.get("label", ""), str):
+            out.append(f"classes.{key}: label is a string")
+    return out
+
+
+def template_problems(template, cls, folder=False, part="name"):
+    out = []
+    for hole in HOLE.findall(template):
+        if hole in PLACEHOLDERS:
+            continue
+        if hole.startswith("fields.") and hole[len("fields."):] in cls.get("fields", {}):
+            continue
+        out.append(f"{part} template: unknown placeholder {{{hole}}}")
+    literal = HOLE.sub("", template)
+    if "{" in literal or "}" in literal:
+        out.append(f"{part} template: unbalanced braces in {template!r}")
+    if not template:
+        out.append(f"{part} template must not be empty")
+    if folder:
+        if template.split("/")[0] != "{entity}":
+            out.append(f"{part} template must start with {{entity}}")
+        allowed = r"[A-Za-z0-9._ /-]*"
+    else:
+        allowed = r"[A-Za-z0-9._ -]*"
+    if not re.fullmatch(allowed, literal.replace("{", "").replace("}", "")):
+        out.append(f"{part} template: text outside placeholders may only use letters, digits, space, . _ -"
+                   + (" and /" if folder else ""))
     return out
 
 
@@ -1077,6 +1267,228 @@ def resolve_entity(cfg, d):
     return None, None, "the buyer matches no entity in config.json"
 
 
+# ----------------------------------------------------------------------------------------------
+# Rules
+
+
+RULE_WHEN = {"counterparty", "vat_id", "text", "regex", "doc_type", "entity"}
+RULE_SET = {"doc_type", "entity", "direction", "category", "tags"}
+LAYERS = ("archive", "user")
+
+
+def rule_problems(rule, classes, cfg, seen):
+    rid = rule.get("id") if isinstance(rule, dict) else None
+    if not isinstance(rid, str) or not rid:
+        return ["a rule needs an id"]
+    if rid in seen:
+        return [f"{rid}: the id is used twice"]
+    seen.add(rid)
+    out = []
+    unknown = sorted(set(rule) - {"id", "when", "set"})
+    if unknown:
+        out.append(f"{rid}: unknown keys {', '.join(unknown)}")
+    when, sets = rule.get("when"), rule.get("set")
+    if not isinstance(when, dict) or not when:
+        out.append(f"{rid}: when needs at least one condition")
+        when = {}
+    if not isinstance(sets, dict) or not sets:
+        out.append(f"{rid}: set needs at least one field")
+        sets = {}
+    for k in sorted(set(when) - RULE_WHEN):
+        out.append(f"{rid}: unknown condition {k!r} (known: {', '.join(sorted(RULE_WHEN))})")
+    if "text" in when and not (isinstance(when["text"], list) and when["text"]
+                               and all(isinstance(t, str) and squash(t) for t in when["text"])):
+        out.append(f"{rid}: text is a list of phrases")
+    if "regex" in when:
+        try:
+            re.compile(when["regex"], re.I | re.M)
+        except (re.error, TypeError) as e:
+            out.append(f"{rid}: regex is invalid: {e}")
+    for k in ("counterparty", "vat_id", "doc_type", "entity"):
+        if k in when and not isinstance(when[k], str):
+            out.append(f"{rid}: {k} is a string")
+    entities = {e["slug"] for e in cfg["entities"]}
+    if isinstance(when.get("doc_type"), str) and when["doc_type"] not in classes:
+        out.append(f"{rid}: class {when['doc_type']!r} is not defined")
+    if isinstance(when.get("entity"), str) and when["entity"] not in entities:
+        out.append(f"{rid}: entity {when['entity']!r} is not in config.json")
+    dt_set = sets.get("doc_type")
+    if dt_set is not None and not (isinstance(dt_set, str) and dt_set in classes):
+        dt_set = None
+        out.append(f"{rid}: class {sets['doc_type']!r} is not defined")
+    # the class the document ends up in: a field can only be set where that class is known
+    target = dt_set or (when["doc_type"] if isinstance(when.get("doc_type"), str) and when["doc_type"] in classes
+                        else None)
+    for k, v in sorted(sets.items()):
+        if k.startswith("fields."):
+            name = k[len("fields."):]
+            if target is None:
+                out.append(f"{rid}: setting {k} needs set.doc_type or when.doc_type")
+                continue
+            specs = classes[target].get("fields", {})
+            if name not in specs:
+                out.append(f"{rid}: class {target} does not declare field {name!r}")
+                continue
+            try:
+                normalize_fields({name: v}, specs, target)
+            except Fail as e:
+                out.append(f"{rid}: {e}")
+        elif k not in RULE_SET:
+            out.append(f"{rid}: unknown field {k!r} (settable: {', '.join(sorted(RULE_SET))}, fields.<name>)")
+        elif k == "entity" and not (isinstance(v, str) and v in entities):
+            out.append(f"{rid}: entity {v!r} is not in config.json")
+        elif k == "direction" and v not in ("in", "out"):
+            out.append(f"{rid}: direction is in or out")
+        elif k == "category" and not (isinstance(v, str) and v in cfg.get("categories", [])):
+            out.append(f"{rid}: category {v!r} is not in config.json")
+        elif k == "tags" and not (isinstance(v, list) and all(isinstance(t, str) and t for t in v)):
+            out.append(f"{rid}: tags is a list of words")
+    return out
+
+
+def rules_problems(doc, classes, cfg, layer):
+    if not isinstance(doc, dict) or set(doc) - {"rules"} or not isinstance(doc.get("rules"), list):
+        return [f"rules[{layer}]: expected {{\"rules\": [...]}}"]
+    seen = set()
+    return [f"rules[{layer}].{m}" for rule in doc["rules"] for m in rule_problems(rule, classes, cfg, seen)]
+
+
+def load_rules(archive, rules_file=None):
+    """Both layers. `rules_file` stands in for the archive layer (a draft under test) and is never optional."""
+    user = slugify(os.environ.get("PAPERWORK_USER", ""), 64)
+    paths = {"archive": rules_file or archive.p(STATE, "rules.json"),
+             "user": archive.p(STATE, "rules", user + ".json") if user else None}
+    rules, problems = [], []
+    for layer in LAYERS:
+        path = paths[layer]
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            doc = read_json(path)
+        except ValueError as e:
+            problems.append(f"rules[{layer}]: not valid JSON: {e}")
+            continue
+        found = rules_problems(doc, archive.classes, archive.config, layer)
+        problems += found
+        if not found:
+            rules += [dict(r, layer=layer) for r in doc["rules"]]
+    if problems:
+        raise Fail("rules: " + "; ".join(problems), EXIT_CHECK if rules_file else EXIT_USAGE)
+    return rules
+
+
+def has_phrases(text, phrases):
+    block = squash(text)
+    return all(squash(t) in block for t in phrases)
+
+
+def has_regex(text, pattern):
+    return re.search(pattern, text, re.I | re.M) is not None
+
+
+def match_rules(rules, record, text):
+    """The rules whose conditions all hold. `record` carries data, counterparty and entity."""
+    d = record["data"]
+    party = d["buyer"] if d.get("direction") == "out" else d["seller"]
+    hits = []
+    for r in rules:
+        w = r["when"]
+        checks = {
+            "counterparty": lambda: record.get("counterparty") == w["counterparty"],
+            "vat_id": lambda: bool(norm_vat(party.get("vat_id"))) and norm_vat(party.get("vat_id")) == norm_vat(w["vat_id"]),
+            "text": lambda: has_phrases(text, w["text"]),
+            "regex": lambda: has_regex(text, w["regex"]),
+            "doc_type": lambda: d["doc_type"] == w["doc_type"],
+            "entity": lambda: record.get("entity") == w["entity"],
+        }
+        if all(checks[k]() for k in w):
+            hits.append(r)
+    return hits
+
+
+def decide(matches, skip=()):
+    """Field -> (value, rule id), and the conflicts. The archive layer decides first, the user layer fills gaps.
+    Fields in `skip` (a person edited them) are left alone and cannot conflict."""
+    decided, conflicts, blocked = {}, [], set()
+    tags = {}
+    for layer in LAYERS:
+        wanted = {}
+        for r in (m for m in matches if m["layer"] == layer):
+            for k, v in r["set"].items():
+                if k in skip:
+                    continue
+                if k == "tags":
+                    for t in v:
+                        tags.setdefault(t, r["id"])
+                else:
+                    wanted.setdefault(k, []).append((len(r["when"]), v, r["id"]))
+        for k, cands in sorted(wanted.items()):
+            if k in decided or k in blocked:
+                continue
+            top = max(n for n, _, _ in cands)
+            best = [(v, rid) for n, v, rid in cands if n == top]
+            if any(v != best[0][0] for v, _ in best):
+                blocked.add(k)
+                conflicts.append(f"rules {', '.join(sorted({rid for _, rid in best}))} disagree on {k}: "
+                                 + " vs ".join(json.dumps(v, ensure_ascii=False) for v in
+                                               sorted({json.dumps(v, ensure_ascii=False) for v, _ in best})))
+            else:
+                decided[k] = best[0]
+    if tags:
+        decided["tags"] = (list(tags), min(tags.values()))
+    return decided, conflicts
+
+
+def apply_rules(archive, record):
+    """Let the rules set fields on record["data"]. A person's edit beats a rule."""
+    d = record["data"]
+    party = d["buyer"] if d.get("direction") == "out" else d["seller"]
+    view = {"data": d, "counterparty": archive.resolve_counterparty(party, create=False),
+            "entity": d.get("entity") or resolve_entity(archive.config, d)[0]}
+    matches = match_rules(archive.rules, view, archive.text(record))
+    edited = {e["field"] for e in record.get("edits", [])}
+    decided, conflicts = decide(matches, edited)
+    data = json.loads(json.dumps(d))
+    log, rule_fields = [], {}
+    for k, (value, rid) in sorted(decided.items()):
+        rule_fields[k] = rid
+        old = get_path(data, k)
+        if k == "tags":
+            value = sorted(set(old or []) | set(value))
+        elif old not in (None, "", [], {}) and old != value:
+            log.append({"field": k, "from": old, "to": value, "rule": rid})
+        set_path(data, k, value)
+    logged = {e["field"] for e in log}
+    log += [e for e in record.get("rule_log", [])
+            if e["field"] not in logged and rule_fields.get(e["field"]) == e["rule"]]
+    record["rule_log"], record["rule_conflicts"] = log, conflicts
+    record["rule_fields"] = rule_fields
+    applied = set(rule_fields.values())
+    if "tags" in rule_fields:
+        applied |= {m["id"] for m in matches if "tags" in m["set"]}
+    record["rules"] = sorted(applied)
+    if not rule_fields:
+        return
+    try:
+        record["data"] = normalize_proposal(data, archive.classes)
+    except Fail as e:  # e.g. a ruled class without the proposal's fields: the person decides
+        record["rule_log"], record["rule_fields"] = [], {}
+        record["rule_conflicts"] = conflicts + [f"rules {', '.join(record['rules'])} cannot apply: {e}"]
+
+
+def rule_hints(archive, record):
+    """Field -> value from the rules that need only the document text, the one thing known before reading."""
+    early = [r for r in archive.rules if set(r["when"]) <= {"text", "regex"}]
+    if not early:
+        return {}
+    text = archive.text(record)
+    hits = [r for r in early
+            if ("text" not in r["when"] or has_phrases(text, r["when"]["text"]))
+            and ("regex" not in r["when"] or has_regex(text, r["when"]["regex"]))]
+    decided, _ = decide(hits)
+    return {k: v for k, (v, _) in sorted(decided.items())}
+
+
 def check(record, archive):
     """All checks of one record. Returns [{id, severity, message}]."""
     d = record["data"]
@@ -1085,6 +1497,11 @@ def check(record, archive):
 
     def add(cid, sev, msg):
         out.append({"id": cid, "severity": sev, "message": msg})
+
+    cls = archive.classes.get(d["doc_type"])
+    if cls is None:
+        add("class", "error", f"class {d['doc_type']} is not in config.json")
+        cls = {"money": False, "sign": None, "required": [], "checks": []}
 
     text_doc = record["media"] in ("pdf-text", "xml") or record.get("source") == "xml"
     ev_sev = "error" if text_doc else "warning"
@@ -1112,19 +1529,14 @@ def check(record, archive):
             if printed and d.get(key) is not None:
                 c = amount_candidates(printed)
                 v = Decimal(d[key])
-                if v not in c and not (d["doc_type"] == "cn" and abs(v) in {abs(x) for x in c}):
+                if v not in c and not (cls["sign"] == "negative" and abs(v) in {abs(x) for x in c}):
                     add(f"evidence:{key}", "error", f"{key} {d[key]} is not what {printed!r} says")
-            elif d.get(key) is not None and key == "gross" and d["doc_type"] in MONEY_TYPES:
+            elif d.get(key) is not None and key == "gross" and cls["money"]:
                 add("evidence:gross", "error", "evidence.gross (the total as printed) is missing")
         if d.get("issue_date") and "issue_date" not in d["evidence"]:
             add("evidence:issue_date", "error", "evidence.issue_date (the date as printed) is missing")
 
-    required = ["issue_date", "seller.name"]
-    if d["doc_type"] in ("inv", "cn"):
-        required += ["buyer.name", "invoice_number", "currency", "gross"]
-    elif d["doc_type"] == "rcpt":
-        required += ["currency", "gross"]
-    for key in required:
+    for key in cls["required"]:
         cur = d
         for part in key.split("."):
             cur = (cur or {}).get(part)
@@ -1191,7 +1603,7 @@ def check(record, archive):
                     and not re.search(r"steuerfrei|exempt|innergemeinschaftlich|intra-community|§\s*4|art\.?\s*7|"
                                       r"reverse|steuerschuldumkehr|kleinunternehmer|§\s*19", full):
                 add("tax:zero", "warning", "0 % tax without an exemption or reverse-charge note in the text")
-    elif d["doc_type"] in MONEY_TYPES and gross is not None:
+    elif cls["money"] and gross is not None:
         if net is not None and abs(net - gross) > tol:
             add("tax:missing", "error", f"net {money(net)} and gross {money(gross)} differ but no tax is given")
         else:
@@ -1223,9 +1635,9 @@ def check(record, archive):
     record["lines_status"] = status
 
     if gross is not None:
-        if d["doc_type"] == "cn" and gross > 0:
+        if cls["sign"] == "negative" and gross > 0:
             add("sign", "error", "a credit note has a negative total in this archive")
-        if d["doc_type"] in ("inv", "rcpt") and gross < 0:
+        if cls["sign"] == "positive" and gross < 0:
             add("sign", "error", "an invoice with a negative total: is it a credit note (cn)?")
 
     if d.get("issue_date"):
@@ -1245,7 +1657,7 @@ def check(record, archive):
     if d.get("iban") and iban_ok(d["iban"]) is False:
         add("iban", "warning", f"IBAN {d['iban']} fails its check digits")
 
-    if direction == "in" and d["doc_type"] == "inv":
+    if direction == "in" and "ustg14" in cls["checks"]:
         seller_de = (d["seller"].get("country") == "DE"
                      or norm_vat(d["seller"].get("vat_id")).startswith("DE")
                      or bool(d["seller"].get("tax_number")))
@@ -1274,17 +1686,47 @@ def compute(record, archive):
     if not record.get("data"):
         record["checks"] = []
         record["entity"] = record["direction"] = record["counterparty"] = None
+        record["vendor_proposed"] = False
         return
     d = record["data"]
     record["checks"] = check(record, archive)
     party = d["seller"] if record["direction"] != "out" else d["buyer"]
-    record["counterparty"] = archive.resolve_counterparty(party)
+    by_claude = record.get("source") == "claude" and bool(record.get("recorded_by"))
+    record["counterparty"] = archive.resolve_counterparty(party, proposed=by_claude)
     v = archive.vendor(record["counterparty"]) if record["counterparty"] else None
+    record["vendor_proposed"] = bool(v and v.get("proposed"))
+    if record["vendor_proposed"]:
+        record["checks"].append({"id": "counterparty:new", "severity": "warning",
+                                 "message": f"{record['counterparty']} is a new counterparty proposed by Claude: confirm it"})
     if v and v.get("category") and not d.get("category"):
         d["category"] = v["category"]
     if d.get("category") and d["category"] not in archive.config.get("categories", []):
         record["checks"].append({"id": "category", "severity": "warning",
                                  "message": f"category {d['category']!r} is not in config.json"})
+    for msg in record.get("rule_conflicts", []):
+        record["checks"].append({"id": "rule:conflict", "severity": "error", "message": msg})
+    for entry in record.get("rule_log", []):
+        record["checks"].append({"id": "rule:override", "severity": "warning",
+                                 "message": f"rule {entry['rule']} changed {entry['field']} "
+                                            f"from {entry['from']!r} to {entry['to']!r}"})
+    if "entity" in record.get("rule_fields", {}):
+        found = resolve_entity(archive.config, dict(d, entity=None))[0]
+        if found and found != d.get("entity"):
+            record["checks"].append({"id": "rule:entity", "severity": "error",
+                                     "message": f"rule {record['rule_fields']['entity']} sets entity {d.get('entity')} "
+                                                f"but the document is addressed to {found}"})
+    cls = archive.classes.get(d["doc_type"])
+    if cls and not any(c["severity"] == "error" for c in record["checks"]):
+        problem = path_problem(record, archive, cls)
+        if problem:
+            record["checks"].append({"id": problem[0], "severity": "error", "message": problem[1]})
+
+
+def needs_confirmation(record):
+    """Claude classified this alone: no rule decided the class, or the counterparty is new and unconfirmed."""
+    if record.get("source") != "claude" or record.get("confirmed") or not record.get("recorded_by"):
+        return False
+    return "doc_type" not in record.get("rule_fields", {}) or bool(record.get("vendor_proposed"))
 
 
 def status_of(record, archive=None):
@@ -1296,6 +1738,8 @@ def status_of(record, archive=None):
         return "new"
     if any(c["severity"] == "error" for c in record.get("checks", [])):
         return "review"
+    if needs_confirmation(record):
+        return "unconfirmed"
     if archive is not None and record.get("path") == target_path(record, archive):
         return "filed"
     return "ok"
@@ -1305,12 +1749,75 @@ def status_of(record, archive=None):
 # Names and paths
 
 
-def canonical_name(record):
+def placeholder_values(record, cls):
     d = record["data"]
-    amount = f"{d['gross']}{d['currency'] or ''}" if d.get("gross") is not None else "-"
-    parts = [d.get("issue_date") or "0000-00-00", d["doc_type"], record.get("counterparty") or "unknown",
-             safe_number(d.get("invoice_number") or "-"), amount, record["id"][:8]]
-    return parts, MEDIA_EXT.get(record["kind"], "bin")
+    fields = d.get("fields") or {}
+    issue = d.get("issue_date") or "0000-00-00"
+
+    def val(v):
+        return safe_number(str(v)) if v not in (None, "") else "-"
+
+    values = {
+        "issue_date": issue, "due_date": val(d.get("due_date")), "service_date": val(d.get("service_date")),
+        "year": issue[:4] if issue[:4].isdigit() else "0000", "class": d["doc_type"],
+        "counterparty": record.get("counterparty") or "unknown", "number": safe_number(d.get("invoice_number") or "-"),
+        "amount": f"{d['gross']}{d['currency'] or ''}" if d.get("gross") is not None else "-",
+        "id": record["id"][:8], "entity": val(record.get("entity")), "direction": val(record.get("direction")),
+        "category": val(d.get("category")),
+    }
+    for name in cls.get("fields", {}):
+        values[f"fields.{name}"] = val(fields.get(name))
+    return values
+
+
+def render(template, values):
+    return HOLE.sub(lambda m: values[m.group(1)], template)
+
+
+def canonical_name(record, cls, values=None):
+    values = values or placeholder_values(record, cls)
+    return render(cls["name"], values), MEDIA_EXT.get(record["kind"], "bin")
+
+
+def folder_problem(record, folder):
+    segments = folder.split("/")
+    if any(s in ("", "-") or s.startswith(("_", ".")) or "\\" in s for s in segments):
+        return f"folder {folder!r} has an empty, dotted or underscore segment"
+    if segments[0] != record.get("entity"):
+        return f"folder {folder!r} does not start with the entity {record.get('entity')!r}"
+    return None
+
+
+def rendered_path(record, archive, cls):
+    """(folder, file name with extension), shortened to fit MAX_PATH where the values allow it."""
+    values = placeholder_values(record, cls)
+
+    def paths():
+        stem, ext = canonical_name(record, cls, values)
+        return render(cls["folder"], values), f"{stem}.{ext}"
+
+    def over():
+        return len(os.path.join(archive.root, *paths())) - MAX_PATH
+
+    names = [h for h in HOLE.findall(cls["name"]) if h.startswith("fields.")]
+    for key in ["number", "counterparty", *names]:
+        if over() > 0:
+            values[key] = values[key][: max(1, len(values[key]) - over())]
+    return paths()
+
+
+def path_problem(record, archive, cls):
+    """The first reason the rendered path is unusable, as (check id, message), or None."""
+    folder, name = rendered_path(record, archive, cls)
+    problem = folder_problem(record, folder)
+    if problem:
+        return "path:folder", problem
+    stem = os.path.splitext(name)[0]
+    if not stem or stem.startswith(".") or "/" in name or "\\" in name:
+        return "path:name", f"file name {name!r} is empty, starts with a dot or contains a slash"
+    if len(os.path.join(archive.root, folder, name)) > MAX_PATH:
+        return "path:length", f"the path is longer than {MAX_PATH} characters even after shortening"
+    return None
 
 
 def target_path(record, archive):
@@ -1320,22 +1827,15 @@ def target_path(record, archive):
         return f"{DUPLICATES}/{record['id'][:8]}_duplicate-of-{st_dup[:8]}.{ext}"
     if not record.get("data") and not record.get("unsupported"):
         return record.get("path")  # not read yet: it stays where it is
-    if record.get("unsupported") or any(c["severity"] == "error" for c in record.get("checks", [])):
+    cls = archive.classes.get(record["data"]["doc_type"]) if record.get("data") else None
+    # path problems are re-checked here, never read from the (waivable) checks
+    if (record.get("unsupported") or cls is None or path_problem(record, archive, cls)
+            or any(c["severity"] == "error" for c in record.get("checks", []))):
         if record.get("path", "").startswith(INBOX + "/") or record.get("path", "").startswith(REVIEW + "/"):
             stem = safe_number(os.path.splitext(record.get("original_name") or "")[0], 60)
             return f"{REVIEW}/{record['id'][:8]}_{stem}.{ext}"
         return record.get("path")
-    parts, ext = canonical_name(record)
-    year = (record["data"].get("issue_date") or "0000")[:4]
-    folder = f"{record['entity']}/{year}/{record['direction']}"
-    name = "_".join(parts) + "." + ext
-    over = len(os.path.join(archive.root, folder, name)) - MAX_PATH
-    if over > 0:
-        parts[3] = parts[3][: max(1, len(parts[3]) - over)]
-        over = len(os.path.join(archive.root, folder, "_".join(parts) + "." + ext)) - MAX_PATH
-        if over > 0:
-            parts[2] = parts[2][: max(1, len(parts[2]) - over)]
-        name = "_".join(parts) + "." + ext
+    folder, name = rendered_path(record, archive, cls)
     return f"{folder}/{name}"
 
 
@@ -1528,25 +2028,28 @@ def extract(archive, record, report):
         xml_path = None
     if xml_path:
         try:
-            record["data"] = normalize_proposal(parse_einvoice(xml_path))
+            record["data"] = normalize_proposal(parse_einvoice(xml_path), archive.classes)
+        except (Fail, Exception) as e:  # an unreadable e-invoice falls back to reading the text
+            record["einvoice_error"] = str(e)
+        else:
+            apply_rules(archive, record)
             record["source"] = "xml"
             report["from_xml"].append(sha[:8])
             return
-        except (Fail, Exception) as e:  # an unreadable e-invoice falls back to reading the text
-            record["einvoice_error"] = str(e)
     text = archive.text(record)
     matches = [v for v in archive.vendors["vendors"] if v.get("template")
                and all(squash(m) in squash(text) for m in v["template"].get("match", []))]
     if len(matches) == 1:
         v = matches[0]
         try:
-            record["data"] = normalize_proposal(apply_template(v["template"], text))
-            record["source"] = f"template:{v['slug']}"
-            report["from_template"].append({"id": sha[:8], "vendor": v["slug"]})
-            return
+            record["data"] = normalize_proposal(apply_template(v["template"], text), archive.classes)
         except (Fail, ValueError, re.error, KeyError) as e:
             record["template_error"] = f"{v['slug']}: {e}"
             report["template_failed"].append({"id": sha[:8], "vendor": v["slug"], "error": str(e)})
+        else:
+            apply_rules(archive, record)
+            record["source"] = f"template:{v['slug']}"
+            report["from_template"].append({"id": sha[:8], "vendor": v["slug"]})
 
 
 def now():
@@ -1599,15 +2102,68 @@ def cmd_pending(args):
             item["read_also"] = "the page images: OCR text can be wrong; the images are the truth"
         if r.get("template_error"):
             item["template_error"] = r["template_error"]
+        hints = rule_hints(archive, r)
+        if hints:
+            item["rule_hints"] = hints
         out.append(item)
     emit({"pending": out, "count": len(out),
           "how": "write each proposal (`paperwork schema`) to its proposal path, then `paperwork record <id> <proposal>`"})
     return EXIT_OK
 
 
-def cmd_schema(args):
-    emit(SCHEMA)
+def rule_changes(archive, record):
+    """Apply the rules to a copy of the record; the entry for what would differ, or None."""
+    after = json.loads(json.dumps(record))
+    apply_rules(archive, after)
+    changes = []
+    for k in sorted(set(after.get("rule_fields", {})) | {c["field"] for c in after.get("rule_log", [])}):
+        old, new = get_path(record["data"], k), get_path(after["data"], k)
+        if old != new:
+            changes.append({"field": k, "from": old, "to": new, "rule": after["rule_fields"].get(k)})
+    if not changes and after.get("rules") == record.get("rules") and \
+            after.get("rule_conflicts") == record.get("rule_conflicts"):
+        return None
+    return {"id": record["id"][:12], "rules": after.get("rules", []), "changes": changes,
+            "conflicts": after.get("rule_conflicts", [])}
+
+
+def cmd_rules(args):
+    if args.file and args.action != "test":
+        raise Fail("--file only works with `rules test`; `rules apply` uses _paperwork/rules.json")
+    if args.file and not os.path.isfile(args.file):
+        raise Fail(f"rules[archive]: {args.file} does not exist", EXIT_CHECK)
+    archive = Archive(args.root, rules_file=args.file)
+    applying = args.action == "apply"
+    out = []
+    with archive.lock() if applying else contextlib.nullcontext():
+        for r in sorted(archive.records.values(), key=lambda r: r["id"]):
+            if not r.get("data") or (applying and r.get("source") == "user"):
+                continue
+            entry = rule_changes(archive, r)
+            if entry:
+                if applying:
+                    apply_rules(archive, r)
+                out.append(entry)
+        if applying:
+            recompute_all(archive)
+            save_all(archive)
+    emit({"changes": out, "count": len(out)})
     return EXIT_OK
+
+
+def cmd_schema(args):
+    try:
+        classes = Archive(args.root).classes
+    except Fail:
+        classes = BUILTIN_CLASSES
+    schema = dict(SCHEMA, doc_type={k: c["label"] for k, c in classes.items()})
+    schema["fields"] = {k: c["fields"] for k, c in classes.items() if c["fields"]}
+    emit(schema)
+    return EXIT_OK
+
+
+def entity_slugs(archive):
+    return [e["slug"] for e in archive.config["entities"]]
 
 
 def record_view(r, archive):
@@ -1617,7 +2173,8 @@ def record_view(r, archive):
             "duplicate_of": r.get("duplicate_of"), "copies": r.get("copies"),
             "problems": [c for c in r.get("checks", []) if c["severity"] == "error"],
             "warnings": [c for c in r.get("checks", []) if c["severity"] == "warning"],
-            "waived": r.get("waived", []), "unsupported": r.get("unsupported")}
+            "waived": r.get("waived", []), "unsupported": r.get("unsupported"),
+            "confirmed": not needs_confirmation(r), "alternatives": (r.get("data") or {}).get("alternatives", {})}
 
 
 def cmd_record(args):
@@ -1635,8 +2192,12 @@ def cmd_record(args):
                 raise Fail(f"{args.proposal}: not valid JSON: {e}")
         if r.get("data") and r.get("source") in ("claude", "user") and not args.force:
             raise Fail("this document already has fields; use `paperwork set` to change them or --force to replace")
-        r["data"] = normalize_proposal(proposal)
+        r["data"] = normalize_proposal(proposal, archive.classes, entity_slugs(archive))
+        apply_rules(archive, r)
         r["source"] = "claude" if not args.user else "user"
+        r.pop("confirmed", None)
+        if r["source"] == "claude":
+            r["recorded_by"] = VERSION
         recompute_all(archive)
         save_all(archive)
         view = record_view(r, archive)
@@ -1685,17 +2246,40 @@ def cmd_set(args):
                 value = None
             changes.append({"field": key, "old": get_path(data, key), "new": value})
             set_path(data, key, value)
-        normalized = normalize_proposal(data)
+        normalized = normalize_proposal(data, archive.classes, entity_slugs(archive))
         r["data"] = normalized
         r["edits"] = r.get("edits", []) + [dict(c, at=now()) for c in changes]
+        apply_rules(archive, r)
         if r.get("source") == "claude" or (r.get("source") or "").startswith("template:"):
             r["source_before_edit"] = r.get("source_before_edit") or r["source"]
         r["source"] = "user"
-        recompute_all(archive)
+        r["confirmed"] = {"at": now()}
+        recompute_all(archive)  # the edit may have changed the counterparty
+        v = archive.vendor(r["counterparty"]) if r.get("counterparty") else None
+        if v and v.pop("proposed", None):
+            recompute_all(archive)
         save_all(archive)
         view = record_view(r, archive)
         emit(view)
     return EXIT_REVIEW if view["status"] == "review" else EXIT_OK
+
+
+def cmd_confirm(args):
+    archive = Archive(args.root)
+    with archive.lock():
+        records = [archive.find(i) for i in args.ids]
+        for r in records:
+            if r["status"] == "review" or not r.get("data"):
+                raise Fail(f"{r['id'][:8]} is {r['status']}: fix it before confirming")
+        for r in records:
+            r["confirmed"] = {"at": now()}
+            v = archive.vendor(r["counterparty"]) if r.get("counterparty") else None
+            if v:
+                v.pop("proposed", None)
+        recompute_all(archive)
+        save_all(archive)
+        emit({"confirmed": [r["id"][:12] for r in records], "status": summary(archive)})
+    return EXIT_OK
 
 
 def cmd_accept(args):
@@ -1705,6 +2289,8 @@ def cmd_accept(args):
         ids = {c["id"] for c in r.get("checks", [])}
         if args.check not in ids:
             raise Fail(f"{r['id'][:8]} has no check {args.check!r}; it has: {', '.join(sorted(ids)) or 'none'}")
+        if args.check.startswith("path:"):
+            raise Fail(f"{args.check} cannot be accepted: fix the class templates or the document's fields")
         if not args.reason.strip():
             raise Fail("give a reason")
         r["waived"] = [w for w in r.get("waived", []) if w["check"] != args.check] + [
@@ -1809,10 +2395,27 @@ def cmd_plan(args):
     return EXIT_OK
 
 
+def misplaced_target(archive, op):
+    """Why a plan op's target is not a place the engine files to, or None. Plans are files: never trust them."""
+    root = os.path.realpath(archive.root)
+    dst = os.path.realpath(archive.p(op["to"]))
+    if os.path.commonpath([root, dst]) != root or dst == root:
+        return "it is outside the archive"
+    top = os.path.relpath(dst, root).split(os.sep)[0]
+    allowed = {DUPLICATES} if "copy" in op else {REVIEW, DUPLICATES}
+    if (top in MANAGED_TOP or top.startswith(("_", "."))) and top not in allowed:
+        return f"it is inside {top}/"
+    return None
+
+
 def cmd_apply(args):
     archive = Archive(args.root)
     with archive.lock():
         plan = read_json(args.plan)
+        for op in plan["ops"]:
+            why = misplaced_target(archive, op)
+            if why:
+                raise Fail(f"refusing the plan: target {op['to']} {why}; nothing was moved")
         done, skipped, entries = [], [], []
         for op in plan["ops"]:
             src, dst = archive.p(op["from"]), archive.p(op["to"])
@@ -1921,7 +2524,7 @@ DOC_COLUMNS = ["id", "entity", "direction", "doc_type", "issue_date", "service_d
                "seller_address", "seller_country", "buyer_name", "buyer_vat_id", "billing_address",
                "buyer_country", "invoice_number", "refers_to", "currency", "net", "tax", "gross", "tax_rates",
                "reverse_charge", "paid", "payment_method", "iban", "category", "tags", "lines_status", "status",
-               "duplicate_of", "source", "media", "path", "original_name", "warnings"]
+               "confirmed", "duplicate_of", "source", "media", "path", "original_name", "warnings"]
 LINE_COLUMNS = ["id", "line", "entity", "direction", "issue_date", "counterparty", "invoice_number", "currency",
                 "description", "quantity", "unit", "unit_price", "net", "tax_rate", "gross"]
 VAT_COLUMNS = ["entity", "month", "direction", "currency", "rate", "reverse_charge", "documents", "net", "tax", "gross"]
@@ -1952,7 +2555,8 @@ def table_text(columns, rows, dialect):
 
 def export_rows(archive, records):
     docs, lines, issues = [], [], []
-    vat, vendors = {}, {}
+    vat, vendors, by_class = {}, {}, {}
+    classes = archive.classes
     for r in sorted(records, key=lambda r: (r.get("entity") or "", (r.get("data") or {}).get("issue_date") or "", r["id"])):
         d = r.get("data") or {}
         seller, buyer = d.get("seller") or {}, d.get("buyer") or {}
@@ -1973,7 +2577,7 @@ def export_rows(archive, records):
             "reverse_charge": d.get("reverse_charge") if d else None, "paid": d.get("paid"),
             "payment_method": d.get("payment_method"), "iban": d.get("iban"), "category": d.get("category"),
             "tags": " | ".join(d.get("tags") or []), "lines_status": r.get("lines_status"), "status": r["status"],
-            "duplicate_of": r.get("duplicate_of"), "source": r.get("source"), "media": r.get("media"),
+            "confirmed": str(not needs_confirmation(r)).lower(), "duplicate_of": r.get("duplicate_of"), "source": r.get("source"), "media": r.get("media"),
             "path": r["path"], "original_name": r.get("original_name"),
             "warnings": " | ".join(c["message"] for c in r.get("checks", []) if c["severity"] == "warning"),
         })
@@ -1988,7 +2592,14 @@ def export_rows(archive, records):
         if r.get("unsupported"):
             issues.append({"id": r["id"], "entity": None, "status": r["status"], "severity": "error",
                            "check": "unsupported", "message": r["unsupported"], "path": r["path"]})
-        if r["status"] not in ("ok", "filed") or d.get("doc_type") not in MONEY_TYPES:
+        if r["status"] not in ("ok", "filed", "unconfirmed"):
+            continue
+        if classes.get(d.get("doc_type"), {}).get("fields"):
+            by_class.setdefault(d["doc_type"], []).append({
+                "id": r["id"], "entity": r.get("entity"), "counterparty": r.get("counterparty"),
+                "issue_date": d.get("issue_date"), "status": r["status"], "confirmed": docs[-1]["confirmed"],
+                "path": r["path"], **(d.get("fields") or {})})
+        if not classes.get(d.get("doc_type"), {}).get("money"):
             continue
         month = (d.get("issue_date") or "")[:7]
         for t in tax or [{"rate": "unknown", "net": None, "tax": None}]:
@@ -2018,9 +2629,13 @@ def export_rows(archive, records):
                             "name": " | ".join(reg.get("names", [])), "vat_ids": " | ".join(reg.get("vat_ids", [])),
                             "currency": k[3], "documents": v["documents"], "net": money(v["net"]),
                             "gross": money(v["gross"])})
-    return {"documents.csv": (DOC_COLUMNS, docs), "lines.csv": (LINE_COLUMNS, lines),
-            "vat_summary.csv": (VAT_COLUMNS, vat_rows), "vendors.csv": (VENDOR_COLUMNS, vendor_rows),
-            "issues.csv": (ISSUE_COLUMNS, issues)}
+    tables = {"documents.csv": (DOC_COLUMNS, docs), "lines.csv": (LINE_COLUMNS, lines),
+              "vat_summary.csv": (VAT_COLUMNS, vat_rows), "vendors.csv": (VENDOR_COLUMNS, vendor_rows),
+              "issues.csv": (ISSUE_COLUMNS, issues)}
+    for key, cls in sorted(classes.items()):
+        if cls.get("fields"):
+            tables[f"class-{key}.csv"] = (CLASS_COLUMNS + list(cls["fields"]), by_class.get(key, []))
+    return tables
 
 
 def cmd_export(args):
@@ -2029,10 +2644,22 @@ def cmd_export(args):
         recompute_all(archive)
         save_all(archive)
         records = list(archive.records.values())
-        written = []
+        written, removed = [], []
         scopes = {"all": records}
         for e in archive.config["entities"]:
             scopes[e["slug"]] = [r for r in records if r.get("entity") == e["slug"]]
+        # class tables of classes that no longer declare fields; exports are the engine's own files
+        current = {f"class-{k}{suffix}.csv" for k, c in archive.classes.items() if c.get("fields")
+                   for suffix in ("", "-de")}
+        for scope in scopes:
+            folder = archive.p(EXPORTS, scope)
+            if os.path.islink(folder) or not os.path.isdir(folder):
+                continue
+            for name in sorted(os.listdir(folder)):
+                path = os.path.join(folder, name)
+                if re.fullmatch(r"class-.+\.csv", name) and name not in current and os.path.isfile(path):
+                    os.remove(path)
+                    removed.append(archive.rel(path))
         for dialect in (["csv", "de"] if args.dialect == "both" else [args.dialect]):
             suffix = "" if dialect == "csv" else "-de"
             for scope, rs in scopes.items():
@@ -2041,7 +2668,8 @@ def cmd_export(args):
                     path = archive.p(EXPORTS, scope, stem + suffix + ext)
                     if write_state(path, table_text(cols, rows, dialect)):
                         written.append(archive.rel(path))
-        emit({"written": written, "unchanged": not written, "documents": summary(archive)})
+        emit({"written": written, "removed": removed, "unchanged": not (written or removed),
+              "documents": summary(archive)})
     return EXIT_OK
 
 
@@ -2055,7 +2683,8 @@ def cmd_vendors(args):
         if r.get("counterparty"):
             counts[r["counterparty"]] = counts.get(r["counterparty"], 0) + 1
     emit({"vendors": [{"slug": v["slug"], "names": v["names"], "vat_ids": v["vat_ids"], "category": v.get("category"),
-                       "template": bool(v.get("template")), "documents": counts.get(v["slug"], 0)}
+                       "template": bool(v.get("template")), "proposed": bool(v.get("proposed")),
+                       "documents": counts.get(v["slug"], 0)}
                       for v in sorted(archive.vendors["vendors"], key=lambda v: v["slug"])]})
     return EXIT_OK
 
@@ -2106,7 +2735,7 @@ def template_test(archive, slug, template):
             res["diffs"].append({"field": "match", "error": "the match strings are not all in the text"})
         else:
             try:
-                got = normalize_proposal(apply_template(template, text))
+                got = normalize_proposal(apply_template(template, text), archive.classes)
             except (Fail, ValueError, re.error, KeyError) as e:
                 res["diffs"].append({"field": "template", "error": str(e)})
                 got = None
@@ -2193,6 +2822,8 @@ def parser():
     sp = add("set", cmd_set, "change fields: field=value (dotted: buyer.name=...)")
     sp.add_argument("id")
     sp.add_argument("assignments", nargs="+")
+    sp = add("confirm", cmd_confirm, "confirm documents Claude classified alone (and their new counterparty)")
+    sp.add_argument("ids", nargs="+", metavar="id")
     sp = add("accept", cmd_accept, "waive one check with a reason")
     sp.add_argument("id")
     sp.add_argument("check")
@@ -2222,6 +2853,9 @@ def parser():
     sp.add_argument("action", choices=["test", "set"])
     sp.add_argument("slug")
     sp.add_argument("file", nargs="?")
+    sp = add("rules", cmd_rules, "test the rules (optionally a draft file) or apply them to documents not set by a person")
+    sp.add_argument("action", choices=["test", "apply"])
+    sp.add_argument("--file", help="test: use this file instead of _paperwork/rules.json")
     add("unlock", cmd_unlock, "remove a stale lock")
     return ap
 

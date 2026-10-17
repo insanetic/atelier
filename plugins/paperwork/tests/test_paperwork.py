@@ -143,6 +143,10 @@ def read(path):
         return f.read()
 
 
+def doc_file(docs, prefix):
+    return next(n for n in sorted(os.listdir(docs)) if n.startswith(prefix))
+
+
 def write_json(path, obj):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f)
@@ -174,6 +178,15 @@ def all_files(root):
 
 
 class Units(unittest.TestCase):
+    def test_render(self):
+        self.assertEqual(pw.render("{a}_{b}", {"a": "x", "b": "y"}), "x_y")
+
+    def test_builtin_classes(self):
+        self.assertEqual(set(pw.BUILTIN_CLASSES),
+                         {"inv", "cn", "rcpt", "rem", "notice", "oc", "quote", "contract", "other"})
+        with self.assertRaises(pw.Fail):
+            pw.normalize_proposal({"doc_type": "x"})
+
     def test_amounts(self):
         c = pw.amount_candidates
         self.assertEqual(c("1.250,60 €"), {Decimal("1250.60")})
@@ -252,6 +265,12 @@ class Archive(unittest.TestCase):
         self.assertEqual(code, 0, err)
         return data["pending"]
 
+    def pending_id(self, needle):
+        for item in self.only_pending():
+            if needle in read(item["text"]):
+                return item["id"]
+        self.fail(f"no pending document contains {needle!r}")
+
     def file_all(self):
         code, plan, err = self.pw("plan")
         self.assertEqual(code, 0, err)
@@ -265,6 +284,610 @@ class Archive(unittest.TestCase):
 
     # ------------------------------------------------------------------------------------------
 
+    def write_config(self, **changes):
+        path = os.path.join(self.root, "_paperwork", "config.json")
+        cfg = json.loads(read(path))
+        cfg.update(changes)
+        write_json(path, cfg)
+
+    def write_rules(self, rules, user=None):
+        name = "rules.json" if not user else os.path.join("rules", user + ".json")
+        path = os.path.join(self.root, "_paperwork", name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_json(path, {"rules": rules})
+
+    def test_claude_alone_is_unconfirmed_until_confirmed(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["alternatives"] = {"doc_type": ["rcpt"]}
+        code, view, err = self.propose(doc, p)
+        self.assertEqual(code, 0, (view, err))
+        self.assertEqual(view["status"], "unconfirmed")
+        self.assertIn("counterparty:new", [c["id"] for c in view["warnings"]])
+        self.assertEqual(view["alternatives"], {"doc_type": ["rcpt"]})
+        self.file_all()
+        self.assertEqual(self.pw("show", doc[:8])[1]["status"], "unconfirmed")
+        self.assertEqual(len(self.pw("list", "--status", "unconfirmed")[1]["documents"]), 1)
+        self.assertTrue(self.pw("vendors")[1]["vendors"][0]["proposed"])
+        code, _, err = self.pw("confirm", doc[:8])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.pw("show", doc[:8])[1]["status"], "filed")
+        self.assertFalse(self.pw("vendors")[1]["vendors"][0]["proposed"])
+
+    def test_ruled_class_with_confirmed_vendor_needs_no_confirmation(self):
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        self.pw("confirm", doc[:8])  # confirms the new vendor once
+        self.drop("b.pdf", text_pdf([hoster_invoice(number="RE-2")]))
+        self.pw("ingest")
+        code, view, _ = self.propose(self.only_pending()[0]["id"], hoster_proposal(number="RE-2"))
+        self.assertEqual(view["status"], "ok")
+
+    def test_alternatives_must_be_known(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        p = hoster_proposal()
+        p["alternatives"] = {"doc_type": ["invoice"]}
+        code, _, err = self.propose(self.only_pending()[0]["id"], p)
+        self.assertEqual(code, 2)
+        self.assertIn("alternatives", err)
+
+    def test_records_from_before_the_outcome_stay_confirmed(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        path = os.path.join(self.root, "_paperwork", "docs", self.pw("show", doc[:8])[1]["id"] + ".json")
+        rec = json.loads(read(path))
+        del rec["recorded_by"]
+        write_json(path, rec)
+        self.pw("vendor", "muster-hosting", "alias", "Muster Hosting AG")  # any recompute
+        self.assertEqual(self.pw("show", doc[:8])[1]["status"], "ok")
+
+    def test_confirm_refuses_a_document_in_review_and_edits_confirm(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal(gross="191.00", tax="91.00", printed_gross="191,00 €"))
+        code, _, err = self.pw("confirm", doc[:8])
+        self.assertNotEqual(code, 0)
+        self.assertIn("review", err)
+
+    def test_set_confirms(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        code, view, err = self.pw("set", doc[:8], "notes=checked")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(view["status"], "ok")
+        self.assertNotIn("counterparty:new", [c["id"] for c in view["warnings"]])
+
+    def test_claude_proposal_in_review_is_not_confirmed(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        _, view, _ = self.propose(doc, hoster_proposal(gross="191.00", tax="91.00", printed_gross="191,00 €"))
+        self.assertEqual(view["status"], "review")
+        self.assertIs(self.pw("show", doc[:8])[1]["confirmed"], False)
+
+    def test_archive_from_before_the_outcome_replans_with_zero_moves(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        self.pw("confirm", doc[:8])
+        self.file_all()
+        full = self.pw("show", doc[:8])[1]["id"]
+        path = os.path.join(self.root, "_paperwork", "docs", full + ".json")
+        rec = json.loads(read(path))
+        for key in ("recorded_by", "confirmed", "vendor_proposed"):
+            rec.pop(key, None)
+        write_json(path, rec)
+        vpath = os.path.join(self.root, "_paperwork", "vendors.json")
+        vendors = json.loads(read(vpath))
+        for v in vendors["vendors"]:
+            v.pop("proposed", None)
+        write_json(vpath, vendors)
+        self.assertEqual(self.pw("plan")[1]["moves"], 0)
+        view = self.pw("show", doc[:8])[1]
+        self.assertEqual((view["status"], view["confirmed"]), ("filed", True))
+
+    def test_alternatives_keep_three_per_key(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        p = hoster_proposal()
+        p["alternatives"] = {"counterparty": [" A ", "B", "C", "D"], "entity": ["nordlicht"]}
+        _, view, _ = self.propose(self.only_pending()[0]["id"], p)
+        self.assertEqual(view["alternatives"], {"counterparty": ["A", "B", "C"], "entity": ["nordlicht"]})
+
+    def test_confirm_takes_several_ids(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.drop("b.pdf", text_pdf([hoster_invoice(number="RE-2026-0043")]))
+        self.pw("ingest")
+        ids = []
+        for item in self.only_pending():
+            number = "RE-2026-0043" if "RE-2026-0043" in read(item["text"]) else "RE-2026-0042"
+            self.propose(item["id"], hoster_proposal(number=number))
+            ids.append(item["id"][:8])
+        self.assertEqual(self.pw("status")[1]["documents"].get("unconfirmed"), 2)
+        code, _, err = self.pw("confirm", *ids)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.pw("list", "--status", "unconfirmed")[1]["count"], 0)
+
+    def test_reextract_clears_the_proposed_vendor_flag(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        self.pw("reextract", doc[:8])
+        full = self.pw("show", doc[:8])[1]["id"]
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", full + ".json")))
+        self.assertFalse(rec.get("vendor_proposed"))
+
+    def test_rules_test_previews_without_writing(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        docs = os.path.join(self.root, "_paperwork", "docs")
+        before = {n: read(os.path.join(docs, n)) for n in os.listdir(docs)}
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        code, out, err = self.pw("rules", "test")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["changes"][0]["changes"][0]["to"], "hosting")
+        self.assertEqual(before, {n: read(os.path.join(docs, n)) for n in os.listdir(docs)})
+        code, out, _ = self.pw("rules", "apply")
+        self.assertEqual(json.loads(read(os.path.join(docs, doc_file(docs, doc))))["data"]["category"], "hosting")
+
+    def test_rules_test_file_must_be_valid(self):
+        bad = os.path.join(self.root, "draft.json")
+        write_json(bad, {"rules": [{"id": "x", "when": {"bogus": 1}, "set": {"category": "hosting"}}]})
+        code, _, err = self.pw("rules", "test", "--file", bad)
+        self.assertEqual(code, 1)
+        self.assertIn("bogus", err)
+
+    def ingest_hoster(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        return doc
+
+    def draft(self, category):
+        path = os.path.join(self.root, "draft.json")
+        write_json(path, {"rules": [{"id": "draft", "when": {"text": ["Cloud Server"]}, "set": {"category": category}}]})
+        return path
+
+    def test_rules_test_file_replaces_archive_layer(self):
+        self.ingest_hoster()
+        self.write_rules([{"id": "disk", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        code, out, err = self.pw("rules", "test", "--file", self.draft("software"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["changes"][0]["changes"][0]["to"], "software")
+        self.assertEqual(out["changes"][0]["rules"], ["draft"])
+
+    def test_rules_test_file_repairs_broken_rules_json(self):
+        self.ingest_hoster()
+        with open(os.path.join(self.root, "_paperwork", "rules.json"), "w") as f:
+            f.write("{broken")
+        self.assertNotEqual(self.pw("status")[0], 0)
+        code, out, err = self.pw("rules", "test", "--file", self.draft("software"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["changes"][0]["changes"][0]["to"], "software")
+        self.assertNotEqual(self.pw("status")[0], 0)
+
+    def test_rules_apply_rejects_file(self):
+        code, _, err = self.pw("rules", "apply", "--file", self.draft("software"))
+        self.assertEqual(code, 2)
+        self.assertIn("--file", err)
+
+    def test_rules_apply_leaves_user_records_and_unchanged_out(self):
+        doc = self.ingest_hoster()
+        self.pw("set", doc, "notes=mine")
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        docs = os.path.join(self.root, "_paperwork", "docs")
+        before = read(os.path.join(docs, doc_file(docs, doc)))
+        code, out, err = self.pw("rules", "apply")
+        self.assertEqual((code, out["changes"]), (0, []), err)
+        self.assertEqual(before, read(os.path.join(docs, doc_file(docs, doc))))
+
+    def test_pending_carries_text_rule_hints(self):
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        self.assertEqual(self.only_pending()[0]["rule_hints"], {"doc_type": "inv"})
+
+    def test_rule_sets_class_and_category(self):
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]},
+                           "set": {"category": "hosting", "tags": ["server"]}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        code, view, err = self.propose(doc, hoster_proposal())
+        self.assertEqual(code, 0, (view, err))
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "hosting")
+        self.assertEqual(rec["data"]["tags"], ["server"])
+        self.assertEqual(rec["rules"], ["hoster"])
+        self.assertEqual(rec["rule_fields"], {"category": "hoster", "tags": "hoster"})
+
+    def test_rule_overrides_proposal_with_a_warning(self):
+        self.write_rules([{"id": "is-receipt", "when": {"counterparty": "muster-hosting"}, "set": {"doc_type": "rcpt"}}])
+        # first document creates the counterparty, second is ruled
+        for n in ("A-1", "A-2"):
+            self.drop(n + ".pdf", text_pdf([hoster_invoice(number=n)]))
+        self.pw("ingest")
+        a = self.pending_id("A-1")
+        b = self.pending_id("A-2")
+        self.propose(a, hoster_proposal(number="A-1"))
+        code, view, _ = self.propose(b, hoster_proposal(number="A-2"))
+        self.assertIn("rule:override", [c["id"] for c in view["warnings"]])
+
+    def test_rule_conflict_goes_to_review(self):
+        self.write_rules([{"id": "a", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}},
+                          {"id": "b", "when": {"text": ["Gesamtbetrag"]}, "set": {"category": "software"}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        code, view, _ = self.propose(self.only_pending()[0]["id"], hoster_proposal())
+        self.assertEqual(code, 3)
+        self.assertIn("rule:conflict", [c["id"] for c in view["problems"]])
+
+    def test_user_rules_only_fill_gaps(self):
+        self.write_rules([{"id": "arch", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        self.write_rules([{"id": "mine", "when": {"text": ["Cloud Server"]},
+                           "set": {"category": "software", "tags": ["mine"]}}], user="erika")
+        os.environ["PAPERWORK_USER"] = "erika"
+        self.addCleanup(os.environ.pop, "PAPERWORK_USER", None)
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        code, view, _ = self.propose(self.only_pending()[0]["id"], hoster_proposal())
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual((rec["data"]["category"], rec["data"]["tags"]), ("hosting", ["mine"]))
+
+    def ruled(self, rules, **proposal):
+        self.write_rules(rules)
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        return self.propose(self.only_pending()[0]["id"], hoster_proposal(**proposal))
+
+    def test_edit_clears_a_rule_conflict(self):
+        code, view, _ = self.ruled([{"id": "a", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}},
+                                    {"id": "b", "when": {"text": ["Gesamtbetrag"]}, "set": {"category": "software"}}])
+        self.assertEqual(code, 3)
+        code, view, err = self.pw("set", view["id"], "category=hosting")
+        self.assertEqual(code, 0, (view, err))
+        self.assertNotIn("rule:conflict", [c["id"] for c in view["problems"]])
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "hosting")
+
+    def test_edit_beats_rule(self):
+        code, view, _ = self.ruled([{"id": "a", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        self.pw("set", view["id"], "category=software")
+        self.pw("set", view["id"], "notes=later")
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "software")
+
+    def test_more_specific_rule_wins(self):
+        code, view, err = self.ruled([
+            {"id": "broad", "when": {"text": ["Cloud Server"]}, "set": {"category": "software"}},
+            {"id": "narrow", "when": {"text": ["Cloud Server"], "regex": "Gesamtbetrag"}, "set": {"category": "hosting"}}])
+        self.assertEqual(code, 0, (view, err))
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "hosting")
+
+    def test_rule_entity_must_match_the_billed_party(self):
+        code, view, _ = self.ruled([{"id": "wrong", "when": {"text": ["Cloud Server"]}, "set": {"entity": "kranich"}}])
+        self.assertEqual(code, 3)
+        self.assertIn("rule:entity", [c["id"] for c in view["problems"]])
+
+    def test_override_warning_survives_a_later_set(self):
+        code, view, _ = self.ruled([{"id": "is-receipt", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "rcpt"}}])
+        self.assertIn("rule:override", [c["id"] for c in view["warnings"]])
+        code, view, _ = self.pw("set", view["id"], "notes=later")
+        self.assertIn("rule:override", [c["id"] for c in view["warnings"]])
+
+    def test_rule_values_of_the_wrong_type_are_reported(self):
+        self.write_rules([{"id": "listy", "when": {"text": ["x"]}, "set": {"doc_type": ["inv"], "entity": ["a"]}}])
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("rules[archive].listy", err)
+
+    def test_bad_rules_fail_fast(self):
+        self.write_rules([{"id": "broken", "when": {"regex": "("}, "set": {"category": "hosting"}}])
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("broken", err)
+        self.write_rules([{"id": "noclass", "when": {"text": ["x"]}, "set": {"doc_type": "invoice"}}])
+        self.assertIn("noclass", self.pw("status")[2])
+
+    def test_rule_fields_need_their_class(self):
+        self.write_config(classes={"contract": {"fields": {"pn": {"type": "text"}}}})
+        for rule in ({"id": "loose", "when": {"text": ["x"]}, "set": {"fields.pn": "P-1"}},
+                     {"id": "wrong", "when": {"text": ["x"]}, "set": {"doc_type": "inv", "fields.pn": "P-1"}}):
+            self.write_rules([rule])
+            code, _, err = self.pw("status")
+            self.assertNotEqual(code, 0, rule)
+            self.assertIn(f"rules[archive].{rule['id']}", err)
+        for when in ({"text": ["x"], "doc_type": "contract"}, {"text": ["x"]}):
+            sets = {"fields.pn": "P-1"} if "doc_type" in when else {"doc_type": "contract", "fields.pn": "P-1"}
+            self.write_rules([{"id": "ok", "when": when, "set": sets}])
+            code, _, err = self.pw("status")
+            self.assertEqual(code, 0, err)
+
+    def contract_with_pn(self):
+        self.write_config(classes={"contract": {"fields": {"pn": {"type": "text"}}}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"pn": "P-1"})
+        return doc, p
+
+    def test_rule_that_cannot_apply_sends_the_record_to_review(self):
+        doc, p = self.contract_with_pn()
+        self.write_rules([{"id": "to-inv", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        code, view, err = self.propose(doc, p)
+        self.assertEqual(code, 3, err)
+        self.assertIn("rule:conflict", [c["id"] for c in view["problems"]])
+        self.assertIn("to-inv", " ".join(c["message"] for c in view["problems"]))
+        self.assertEqual(self.pw("show", doc)[1]["data"]["doc_type"], "contract")
+
+    def test_rules_apply_survives_a_rule_that_cannot_apply(self):
+        doc, p = self.contract_with_pn()
+        self.propose(doc, p)
+        self.write_rules([{"id": "to-inv", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        code, out, err = self.pw("rules", "apply")
+        self.assertEqual(code, 0, err)
+        view = self.pw("show", doc)[1]
+        self.assertEqual((view["status"], view["data"]["doc_type"]), ("review", "contract"))
+        self.assertIn("rule:conflict", [c["id"] for c in view["problems"]])
+        # a class that lost a field
+        self.write_rules([{"id": "cat", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        self.write_config(classes={"contract": {}})
+        code, out, err = self.pw("rules", "apply")
+        self.assertEqual(code, 0, err)
+        self.assertIn("rule:conflict", [c["id"] for c in self.pw("show", doc)[1]["problems"]])
+
+    def test_upgrade_replans_zero_moves(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        self.propose(self.only_pending()[0]["id"], hoster_proposal())
+        self.file_all()
+        self.write_config(classes={})  # explicit empty: built-ins only
+        self.assertEqual(self.pw("plan")[1]["moves"], 0)
+
+    def test_folder_and_name_templates(self):
+        self.write_config(classes={"inv": {"folder": "{entity}/{year}"},
+                                   "contract": {"fields": {"start": {"type": "date"}},
+                                                "folder": "{entity}/contracts/{counterparty}",
+                                                "name": "{fields.start}_{class}_{counterparty}_{id}"}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.drop("b.pdf", text_pdf([hoster_invoice(number="V-1", extra=["Vertrag ab 01.01.2026"])]))
+        self.pw("ingest")
+        a = self.pending_id("RE-2026-0042")
+        b = self.pending_id("V-1")
+        self.propose(a, hoster_proposal())
+        p = hoster_proposal(number="V-1")
+        p.update(doc_type="contract", fields={"start": "2026-01-01"})
+        self.propose(b, p)
+        targets = sorted(m["to"] for m in self.pw("plan")[1]["by_destination"]["to archive"])
+        self.assertIn(f"nordlicht/contracts/muster-hosting/2026-01-01_contract_muster-hosting_{b[:8]}.pdf", targets)
+        self.assertTrue(any(t.startswith("nordlicht/2026/2026-03-14_inv_") for t in targets))
+
+    def test_unsafe_folder_goes_to_review(self):
+        self.write_config(classes={"contract": {"fields": {"area": {"type": "text"}},
+                                                "folder": "{entity}/{fields.area}"}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"area": ".."})
+        code, view, _ = self.propose(doc, p)
+        self.assertEqual(code, 3)
+        self.assertIn("path:folder", [c["id"] for c in view["problems"]])
+        self.assertTrue(view["target"].startswith("_review/"))
+        code, _, err = self.pw("accept", doc, "path:folder", "--reason", "x")
+        self.assertNotEqual(code, 0)
+        self.assertIn("path:folder", err)
+        self.assertTrue(self.pw("show", doc)[1]["target"].startswith("_review/"))
+
+    def test_folder_templates_never_escape(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        for folder in ("{entity}/../x", "{entity}/_review/x", "{year}/{entity}", "{entity}//x"):
+            self.write_config(classes={"inv": {"folder": folder}})
+            if self.pw("status")[0] != 0:
+                continue  # rejected at load: no move target either
+            self.pw("export")  # recomputes and saves the checks
+            self.assertEqual(self.pw("plan")[1]["by_destination"].get("to archive", []), [])
+            view = self.pw("show", doc)[1]
+            self.assertTrue(view["target"].startswith("_review/"), (folder, view["target"]))
+            self.assertIn("path:folder", [c["id"] for c in view["problems"]])
+
+    def test_file_name_never_escapes(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["currency"] = "EUR/../../escape"
+        self.propose(doc, p)
+        self.pw("accept", doc, "currency", "--reason", "x")
+        view = self.pw("show", doc)[1]
+        self.assertEqual(view["status"], "review")
+        self.assertIn("path:name", [c["id"] for c in view["problems"]])
+        self.assertTrue(view["target"].startswith("_review/"), view["target"])
+        code, _, err = self.pw("accept", doc, "path:name", "--reason", "x")
+        self.assertNotEqual(code, 0)
+        self.assertIn("path:name", err)
+
+    def test_apply_refuses_targets_outside_their_place(self):
+        src = self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        for to in ("../escape.pdf", "nordlicht/../../escape.pdf", "_paperwork/x.pdf", "_inbox/x.pdf",
+                   "exports/x.pdf", ".hidden/x.pdf"):
+            plan = os.path.join(self.tmp.name, "plan.json")
+            write_json(plan, {"plan": "hand", "conflicts": [], "ops": [
+                {"op": "move", "id": doc, "from": "_inbox/a.pdf", "to": to, "sha256": doc}]})
+            code, _, err = self.pw("apply", plan)
+            self.assertEqual(code, pw.EXIT_USAGE, (to, err))
+            self.assertIn(to, err)
+            self.assertTrue(os.path.exists(src), to)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "escape.pdf")))
+
+    def test_hidden_folders_and_names_go_to_review(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        for part, template, check in (("folder", "{entity}/.hidden", "path:folder"), ("name", ".{id}", "path:name")):
+            self.write_config(classes={"inv": {part: template}})
+            self.pw("export")  # recomputes and saves the checks
+            view = self.pw("show", doc)[1]
+            self.assertIn(check, [c["id"] for c in view["problems"]], template)
+            self.assertTrue(view["target"].startswith("_review/"), (template, view["target"]))
+
+    def test_long_path_goes_to_review(self):
+        self.write_config(classes={"inv": {"folder": "{entity}/" + "x" * 240}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        _, view, _ = self.propose(doc, hoster_proposal())
+        self.assertIn("path:length", [c["id"] for c in view["problems"]])
+        self.assertTrue(view["target"].startswith("_review/"))
+
+    def test_long_path_is_shortened_to_fit(self):
+        self.write_config(classes={"inv": {"folder": "{entity}/pad"}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        _, view, _ = self.propose(doc, hoster_proposal())
+        fit = pw.MAX_PATH - len(os.path.join(self.root, view["target"]))
+        self.write_config(classes={"inv": {"folder": "{entity}/" + "x" * (3 + fit + 5)}})
+        view = self.pw("show", doc)[1]
+        self.assertTrue(view["target"].startswith("nordlicht/xxx"), view["target"])
+        self.assertLessEqual(len(os.path.join(self.root, view["target"])), pw.MAX_PATH)
+
+    def test_bad_template_fails(self):
+        self.write_config(classes={"inv": {"name": "{issue_date}_{colour}"}})
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("colour", err)
+        self.assertIn("inv", err)
+
+    def test_reserved_field_names_fail(self):
+        for name in ("id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"):
+            self.write_config(classes={"contract": {"fields": {name: {"type": "text"}}}})
+            code, _, err = self.pw("status")
+            self.assertNotEqual(code, 0, name)
+            self.assertIn(f"classes.contract: field name '{name}' is reserved", err)
+
+    def test_class_fields_are_exported(self):
+        self.write_config(classes={"contract": {"fields": {"start": {"type": "date"}, "notice": {"type": "text"}}}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"start": "2026-01-01", "notice": "3 Monate"})
+        self.propose(doc, p)
+        self.pw("export")
+        rows = self.csv_rows("all", "class-contract.csv")
+        self.assertEqual((rows[0]["start"], rows[0]["notice"]), ("2026-01-01", "3 Monate"))
+        self.assertEqual(list(rows[0])[:7], ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"])
+        self.assertEqual(self.csv_rows("nordlicht", "class-contract.csv")[0]["notice"], "3 Monate")
+        self.assertTrue(os.path.exists(os.path.join(self.root, "exports", "all", "class-contract-de.csv")))
+        self.assertTrue(os.path.exists(os.path.join(self.root, "exports", "nordlicht", "class-contract-de.csv")))
+        self.assertTrue(self.pw("export")[1]["unchanged"])
+
+    def test_class_tables_follow_the_config(self):
+        self.write_config(classes={"contract": {"fields": {"start": {"type": "date"}}},
+                                   "policy": {"fields": {"number": {"type": "text"}}}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"start": "2026-01-01"})
+        self.propose(doc, p)
+        self.pw("export")
+        exports = os.path.join(self.root, "exports")
+        for scope in ("all", "nordlicht", "kranich"):
+            with open(os.path.join(exports, scope, "class-policy.csv"), encoding="utf-8") as f:
+                self.assertEqual(f.read(), ",".join(pw.CLASS_COLUMNS + ["number"]) + "\n")
+        self.assertEqual(self.csv_rows("kranich", "class-contract.csv"), [])
+        mine = os.path.join(exports, "all", "classic.csv")
+        write_json(mine, {})
+        folder = os.path.join(exports, "all", "class-folder.csv")
+        os.mkdir(folder)
+        self.write_config(classes={"contract": {}, "policy": {"fields": {"number": {"type": "text"}}}})
+        out = self.pw("export")[1]
+        self.assertFalse(out["unchanged"])
+        for scope in ("all", "nordlicht", "kranich", "privat"):
+            for name in ("class-contract.csv", "class-contract-de.csv"):
+                self.assertFalse(os.path.exists(os.path.join(exports, scope, name)), (scope, name))
+            self.assertTrue(os.path.exists(os.path.join(exports, scope, "class-policy-de.csv")), scope)
+        self.assertTrue(os.path.exists(mine))
+        self.assertTrue(os.path.isdir(folder))
+        self.assertTrue(self.pw("export")[1]["unchanged"])
+
+    def test_config_adds_a_class_with_required_fields(self):
+        self.write_config(classes={"policy": {"label": "insurance policy",
+                                              "fields": {"policy_number": {"type": "text"},
+                                                         "start": {"type": "date"}},
+                                              "required": ["issue_date", "seller.name", "fields.policy_number"]}})
+        self.drop("a.pdf", text_pdf([hoster_invoice(extra=["Versicherungsschein Nr. VS-77"])]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["doc_type"] = "policy"
+        code, view, _ = self.propose(doc, p)
+        self.assertEqual(code, 3)
+        self.assertIn("required:fields.policy_number", [c["id"] for c in view["problems"]])
+        p["fields"] = {"policy_number": "VS-77", "start": "2026-01-01"}
+        path = os.path.join(self.root, "_paperwork", "proposals", doc + ".json")
+        write_json(path, p)
+        code, view, err = self.pw("record", doc, path, "--force")
+        self.assertEqual(code, 0, (view, err))
+
+    def test_bad_class_config_fails(self):
+        self.write_config(classes={"Bad Key": {}})
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("classes", err)
+        self.write_config(classes={"policy": {"fields": {"x": {"type": "colour"}}}})
+        code, _, err = self.pw("status")
+        self.assertIn("policy", err)
+
+    def test_bad_class_values_are_reported(self):
+        self.write_config(classes={"policy": {"required": [1, "fields"], "money": "yes", "label": 5,
+                                              "checks": [["ustg14"], 3]}})
+        code, _, err = self.pw("status")
+        self.assertEqual(code, pw.EXIT_USAGE, err)
+        for part in ("required entry 1", "required entry 'fields'", "money is true or false",
+                     "label is a string", "the only known check is ustg14"):
+            self.assertIn(f"classes.policy: {part}", err)
+
+    def test_removed_class_goes_to_review(self):
+        self.write_config(classes={"policy": {}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["doc_type"] = "policy"
+        self.assertEqual(self.propose(doc, p)[0], 0)
+        self.write_config(classes={})
+        self.pw("ingest")  # any recompute
+        view = self.pw("show", doc[:8])[1]
+        self.assertEqual(view["status"], "review")
+        self.assertIn("class", [c["id"] for c in view["problems"]])
+
     def test_inbox_to_archive_round_trip(self):
         # The file name lies: the content decides everything.
         self.drop("Telekom_Rechnung_Mai.pdf", text_pdf([hoster_invoice()]))
@@ -277,6 +900,9 @@ class Archive(unittest.TestCase):
         self.assertIn("Rechnungsnummer: RE-2026-0042", read(pending[0]["text"]))
         code, view, err = self.propose(pending[0]["id"], hoster_proposal())
         self.assertEqual(code, 0, (view, err))
+        self.assertEqual(view["status"], "unconfirmed")
+        self.assertEqual(self.pw("confirm", view["id"][:8])[0], 0)
+        view = self.pw("show", view["id"][:8])[1]
         self.assertEqual(view["status"], "ok")
         self.assertEqual((view["entity"], view["direction"], view["counterparty"]), ("nordlicht", "in", "muster-hosting"))
         before = all_files(self.root)
@@ -391,7 +1017,8 @@ class Archive(unittest.TestCase):
             self.propose(item["id"], hoster_proposal(number=number))
         _, listing, _ = self.pw("list")
         statuses = sorted((d["number"], d["status"]) for d in listing["documents"])
-        self.assertEqual(statuses, [("RE-2026-0042", "duplicate"), ("RE-2026-0042", "ok"), ("RE-2026-0043", "ok")])
+        self.assertEqual(statuses, [("RE-2026-0042", "duplicate"), ("RE-2026-0042", "unconfirmed"),
+                                    ("RE-2026-0043", "unconfirmed")])
 
     def test_credit_note_sign(self):
         lines = [x.replace("Rechnung", "Gutschrift") for x in hoster_invoice(net="-100,00", tax="-19,00", gross="-119,00")]
@@ -451,13 +1078,14 @@ class Archive(unittest.TestCase):
         text = read(pend[0]["text"])
         self.assertIn("Muster Hosting", text)
         code, view, _ = self.propose(pend[0]["id"], hoster_proposal())
-        self.assertIn(view["status"], ("ok", "review"))
+        self.assertIn(view["status"], ("unconfirmed", "review"))
 
     def test_template_learns_a_vendor(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")
         doc = self.only_pending()[0]["id"]
         self.propose(doc, hoster_proposal())
+        self.pw("confirm", doc[:8])  # a template is tested against confirmed documents only
         template = {
             "match": ["Muster Hosting GmbH", HOSTER_VAT],
             "fixed": {"doc_type": "inv", "currency": "EUR",
@@ -616,6 +1244,10 @@ class Guard(unittest.TestCase):
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/proposals/abc.json"}))
         self.assertIsNone(self.verdict("Edit", {"file_path": "/data/Belege/_paperwork/config.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/templates/x.json"}))
+        self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json"}))
+        self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/erika.json"}))
+        self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json.bak"}))
+        self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/../docs/x.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/tmp/a.json"}))
 
 

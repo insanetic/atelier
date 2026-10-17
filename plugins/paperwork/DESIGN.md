@@ -1,6 +1,6 @@
 # paperwork: design
 
-Version 0.1.
+Version 0.2.
 
 ## What it is
 
@@ -38,7 +38,8 @@ Nothing is ever deleted.
 ├── _review/                              # failed a check, or entity/type unclear
 ├── _duplicates/                          # linked to their original, never deleted
 ├── _paperwork/
-│   ├── config.json                       # entities, naming, categories, tolerances
+│   ├── config.json                       # entities, classes (fields, required, checks, name and folder templates), categories, tolerances
+│   ├── rules.json                        # archive rules; rules/<user>.json holds one person's
 │   ├── vendors.json                      # counterparties: aliases, VAT IDs, IBANs, templates
 │   ├── docs/<sha256>.json                # one record per document: the source of truth
 │   ├── derived/<sha256>/                 # text layer, OCR text, embedded XML, page renders
@@ -111,7 +112,7 @@ never changes it.
   "checks": [{"id": "net_plus_tax_is_gross", "result": "pass"}],
   "duplicate_of": null,
   "related": [],
-  "tools": {"engine": "0.1.0", "pdftotext": "24.08.0"}
+  "tools": {"engine": "0.2.0", "pdftotext": "24.08.0"}
 }
 ```
 
@@ -140,8 +141,41 @@ Every field has a `source`: `xml`, `template:<vendor>`, `claude`, or `user`. Fie
 
 ### Statuses
 
-`new` → `extracted` → `ok` or `review` → `filed`. Also `duplicate` and `missing` (the file is gone from where the
-record says; the record stays).
+`new` → `extracted` → `ok`, `unconfirmed` or `review` → `filed`. Also `duplicate` and `missing` (the file is gone
+from where the record says; the record stays).
+
+## Classes and rules
+
+A **class** is the one place that decides a document type's fields, checks, file name and folder. The
+built-ins (`inv cn rcpt rem notice oc quote contract other`) reproduce the 0.1.0 names and folders;
+`classes` in `config.json` is shallow-merged over them. A proposal's `doc_type` must be a class key.
+Every rendered path is checked before a move, live and never from stored checks: `path:folder` (an empty
+segment, or one starting with `_` or `.`), `path:name` (an empty name, a leading `.`, or a slash) and
+`path:length`. They send the document to review and `accept` refuses them. `apply` also refuses a plan
+whose target lies outside the archive or in an engine folder other than `_review/` and `_duplicates/`.
+
+**Rules** set values on documents that match (`when`: counterparty, VAT ID, text, regex, doc type,
+entity). There are two layers: `_paperwork/rules.json` for the archive and `_paperwork/rules/<user>.json`
+for one person (`PAPERWORK_USER`).
+
+- The archive layer is applied first; the user layer only fills what is still open.
+- The most specific rule (most `when` keys) wins. A tie with different values is `rule:conflict` and the
+  document goes to review.
+- A person's edit (`paperwork set`) beats a rule and clears a conflict on that field.
+- Rules are applied when fields are set (extract, record, set) and saved with a log. Only
+  `paperwork rules apply` re-applies them to documents already recorded. `rules test` previews
+  without writing; its `--file` stands in for `rules.json`. Keep that draft outside
+  `_paperwork/rules/`, since a file there becomes a user layer.
+- A rule that sets `fields.<name>` names its class with `set.doc_type` or `when.doc_type`. A rule
+  the document's data cannot take (a class without the proposal's fields) is a `rule:conflict`.
+
+A document ends in one of three outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| `ok` / `filed` | No check failed (warnings do not block) and a rule, a template, XML or a person decided the class |
+| `unconfirmed` | Filed, but Claude recorded it and classified it alone or introduced a new counterparty. `paperwork confirm` settles it |
+| `review` | A check failed or a rule conflicts. Held back until a person decides |
 
 ## Reading a document
 
@@ -217,6 +251,7 @@ byte-identical files.
 | `vat_summary.csv` | entity × month × direction × tax rate: net, tax, gross |
 | `vendors.csv` | counterparty: totals per entity and year |
 | `issues.csv` | open problem: review reasons, warnings, missing files, suspected duplicates |
+| `class-<key>.csv` | document of a class that declares fields: id, entity, counterparty, issue date, status, confirmed, path, then the fields |
 
 Two dialects: canonical (UTF-8, `,`, dot decimal, ISO dates) and `--dialect de` (UTF-8 with BOM, `;`, decimal
 comma) for German Excel.
@@ -240,6 +275,9 @@ paperwork pending                        # what needs Claude: documents without 
 paperwork schema                         # the proposal format
 paperwork record <id> fields.json        # check a proposal, store it as ok or review
 paperwork set <id> field=value ...       # a user's correction, recorded in the record's edits
+paperwork confirm <id> [<id>...]         # confirm what Claude classified alone
+paperwork rules test [--file f]          # preview rules (f stands in for rules.json), writes nothing
+paperwork rules apply                    # re-apply rules to documents a person did not set
 paperwork accept <id> <check> --reason   # waive one check, recorded with its reason
 paperwork reextract <id>                 # drop the fields so it is read again (kept in history)
 paperwork list [--status s] | show <id> | status
@@ -272,8 +310,9 @@ they are recomputed with every change and show as status `duplicate` or a `dupli
 
 A PreToolUse hook on Bash, Write, Edit, MultiEdit and NotebookEdit (`hooks/guard.py`, host `python3`, standard
 library) refuses `rm`, `mv`, overwriting `cp`, `trash`, `unlink`, redirects, in-place edits, `find -delete` and
-`git clean` that touch an archive, and edits of anything there except `_paperwork/config.json`, `_paperwork/proposals/`
-and `_paperwork/templates/`. `paperwork` itself is allowed, and so is `cp -n` into `_inbox/`. It makes "never delete"
+`git clean` that touch an archive, and edits of anything there except `_paperwork/config.json`,
+`_paperwork/rules.json`, `_paperwork/rules/`, `_paperwork/proposals/` and `_paperwork/templates/`. `paperwork`
+itself is allowed, and so is `cp -n` into `_inbox/`. It makes "never delete"
 enforced, not promised, for the shell commands it can parse.
 
 ## Testing

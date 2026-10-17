@@ -53,7 +53,7 @@ fi
 
 cwd="$(pwd -P)"
 case "$cwd/" in "$root"/*) work="$cwd" ;; *) work="$root" ;; esac
-run -e PAPERWORK_ROOT="$root" -v "$root:$root" -v "$plugin/lib:/opt/paperwork/lib:ro" -w "$work" \
+run -e PAPERWORK_ROOT="$root" -e PAPERWORK_USER -v "$root:$root" -v "$plugin/lib:/opt/paperwork/lib:ro" -w "$work" \
   "$tag" python3 -I /opt/paperwork/lib/paperwork.py "$@"
 code=$?
 if [ "${1:-}" = init ] && [ "$code" = 0 ]; then
