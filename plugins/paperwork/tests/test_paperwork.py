@@ -174,6 +174,9 @@ def all_files(root):
 
 
 class Units(unittest.TestCase):
+    def test_render(self):
+        self.assertEqual(pw.render("{a}_{b}", {"a": "x", "b": "y"}), "x_y")
+
     def test_builtin_classes(self):
         self.assertEqual(set(pw.BUILTIN_CLASSES),
                          {"inv", "cn", "rcpt", "rem", "notice", "oc", "quote", "contract", "other"})
@@ -258,6 +261,12 @@ class Archive(unittest.TestCase):
         self.assertEqual(code, 0, err)
         return data["pending"]
 
+    def pending_id(self, needle):
+        for item in self.only_pending():
+            if needle in read(item["text"]):
+                return item["id"]
+        self.fail(f"no pending document contains {needle!r}")
+
     def file_all(self):
         code, plan, err = self.pw("plan")
         self.assertEqual(code, 0, err)
@@ -276,6 +285,52 @@ class Archive(unittest.TestCase):
         cfg = json.loads(read(path))
         cfg.update(changes)
         write_json(path, cfg)
+
+    def test_upgrade_replans_zero_moves(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        self.propose(self.only_pending()[0]["id"], hoster_proposal())
+        self.file_all()
+        self.write_config(classes={})  # explicit empty: built-ins only
+        self.assertEqual(self.pw("plan")[1]["moves"], 0)
+
+    def test_folder_and_name_templates(self):
+        self.write_config(classes={"inv": {"folder": "{entity}/{year}"},
+                                   "contract": {"fields": {"start": {"type": "date"}},
+                                                "folder": "{entity}/contracts/{counterparty}",
+                                                "name": "{fields.start}_{class}_{counterparty}_{id}"}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.drop("b.pdf", text_pdf([hoster_invoice(number="V-1", extra=["Vertrag ab 01.01.2026"])]))
+        self.pw("ingest")
+        a = self.pending_id("RE-2026-0042")
+        b = self.pending_id("V-1")
+        self.propose(a, hoster_proposal())
+        p = hoster_proposal(number="V-1")
+        p.update(doc_type="contract", fields={"start": "2026-01-01"})
+        self.propose(b, p)
+        targets = sorted(m["to"] for m in self.pw("plan")[1]["by_destination"]["to archive"])
+        self.assertIn(f"nordlicht/contracts/muster-hosting/2026-01-01_contract_muster-hosting_{b[:8]}.pdf", targets)
+        self.assertTrue(any(t.startswith("nordlicht/2026/2026-03-14_inv_") for t in targets))
+
+    def test_unsafe_folder_goes_to_review(self):
+        self.write_config(classes={"contract": {"fields": {"area": {"type": "text"}},
+                                                "folder": "{entity}/{fields.area}"}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"area": ".."})
+        code, view, _ = self.propose(doc, p)
+        self.assertEqual(code, 3)
+        self.assertIn("path:folder", [c["id"] for c in view["problems"]])
+        self.assertTrue(view["target"].startswith("_review/"))
+
+    def test_bad_template_fails(self):
+        self.write_config(classes={"inv": {"name": "{issue_date}_{colour}"}})
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("colour", err)
+        self.assertIn("inv", err)
 
     def test_config_adds_a_class_with_required_fields(self):
         self.write_config(classes={"policy": {"label": "insurance policy",

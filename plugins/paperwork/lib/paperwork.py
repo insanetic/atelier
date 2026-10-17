@@ -41,6 +41,9 @@ MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS}
 FIELD_TYPES = {"text", "date", "money", "number", "bool", "choice"}
 NAME_TEMPLATE = "{issue_date}_{class}_{counterparty}_{number}_{amount}_{id}"
 FOLDER_TEMPLATE = "{entity}/{year}/{direction}"
+PLACEHOLDERS = {"issue_date", "due_date", "service_date", "year", "class", "counterparty", "number", "amount",
+                "id", "entity", "direction", "category"}
+HOLE = re.compile(r"\{([^{}]*)\}")
 CLASS_KEY = re.compile(r"[a-z][a-z0-9-]{0,15}")
 FIELD_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 BILLED = ["buyer.name", "invoice_number", "currency", "gross"]
@@ -1113,10 +1116,36 @@ def class_problems(classes):
                 ok = (head in PROPOSAL_KEYS and not tail) or (head in ("seller", "buyer") and tail in PARTY_KEYS)
             if not ok:
                 out.append(f"classes.{key}: required entry {r!r} is not a proposal key or a declared field")
+        base = BUILTIN_CLASSES.get(key, CLASS_DEFAULTS)
+        for part in ("name", "folder"):
+            template = c.get(part, base[part])
+            if not isinstance(template, str):
+                out.append(f"classes.{key}: {part} must be a template string")
+                continue
+            out += [f"classes.{key}: {m}" for m in template_problems(template, {"fields": fields}, part == "folder", part)]
         if c.get("sign") not in (None, "positive", "negative"):
             out.append(f"classes.{key}: sign is positive, negative or null")
         if not set(c.get("checks", [])) <= {"ustg14"}:
             out.append(f"classes.{key}: the only known check is ustg14")
+    return out
+
+
+def template_problems(template, cls, folder=False, part="name"):
+    out = []
+    for hole in HOLE.findall(template):
+        if hole in PLACEHOLDERS:
+            continue
+        if hole.startswith("fields.") and hole[len("fields."):] in cls.get("fields", {}):
+            continue
+        out.append(f"{part} template: unknown placeholder {{{hole}}}")
+    literal = HOLE.sub("", template)
+    if "{" in literal or "}" in literal:
+        out.append(f"{part} template: unbalanced braces in {template!r}")
+    if folder:
+        if template.split("/")[0] != "{entity}":
+            out.append(f"{part} template must start with {{entity}}")
+    elif not re.fullmatch(r"[A-Za-z0-9._ -]*", literal):
+        out.append(f"{part} template: text outside placeholders may only use letters, digits, space, . _ -")
     return out
 
 
@@ -1394,6 +1423,11 @@ def compute(record, archive):
     if d.get("category") and d["category"] not in archive.config.get("categories", []):
         record["checks"].append({"id": "category", "severity": "warning",
                                  "message": f"category {d['category']!r} is not in config.json"})
+    cls = archive.classes.get(d["doc_type"])
+    if cls and not any(c["severity"] == "error" for c in record["checks"]):
+        problem = folder_problem(record, render(cls["folder"], placeholder_values(record, cls)))
+        if problem:
+            record["checks"].append({"id": "path:folder", "severity": "error", "message": problem})
 
 
 def status_of(record, archive=None):
@@ -1414,12 +1448,42 @@ def status_of(record, archive=None):
 # Names and paths
 
 
-def canonical_name(record):
+def placeholder_values(record, cls):
     d = record["data"]
-    amount = f"{d['gross']}{d['currency'] or ''}" if d.get("gross") is not None else "-"
-    parts = [d.get("issue_date") or "0000-00-00", d["doc_type"], record.get("counterparty") or "unknown",
-             safe_number(d.get("invoice_number") or "-"), amount, record["id"][:8]]
-    return parts, MEDIA_EXT.get(record["kind"], "bin")
+    fields = d.get("fields") or {}
+    issue = d.get("issue_date") or "0000-00-00"
+
+    def val(v):
+        return safe_number(str(v)) if v not in (None, "") else "-"
+
+    values = {
+        "issue_date": issue, "due_date": val(d.get("due_date")), "service_date": val(d.get("service_date")),
+        "year": issue[:4] if issue[:4].isdigit() else "0000", "class": d["doc_type"],
+        "counterparty": record.get("counterparty") or "unknown", "number": safe_number(d.get("invoice_number") or "-"),
+        "amount": f"{d['gross']}{d['currency'] or ''}" if d.get("gross") is not None else "-",
+        "id": record["id"][:8], "entity": val(record.get("entity")), "direction": val(record.get("direction")),
+        "category": val(d.get("category")),
+    }
+    for name in cls.get("fields", {}):
+        values[f"fields.{name}"] = val(fields.get(name))
+    return values
+
+
+def render(template, values):
+    return HOLE.sub(lambda m: values[m.group(1)], template)
+
+
+def canonical_name(record, cls):
+    return render(cls["name"], placeholder_values(record, cls)), MEDIA_EXT.get(record["kind"], "bin")
+
+
+def folder_problem(record, folder):
+    segments = folder.split("/")
+    if any(s in ("", "-", ".", "..") or s.startswith("_") for s in segments):
+        return f"folder {folder!r} has an empty, dotted or underscore segment"
+    if segments[0] != record.get("entity"):
+        return f"folder {folder!r} does not start with the entity {record.get('entity')!r}"
+    return None
 
 
 def target_path(record, archive):
@@ -1434,17 +1498,21 @@ def target_path(record, archive):
             stem = safe_number(os.path.splitext(record.get("original_name") or "")[0], 60)
             return f"{REVIEW}/{record['id'][:8]}_{stem}.{ext}"
         return record.get("path")
-    parts, ext = canonical_name(record)
-    year = (record["data"].get("issue_date") or "0000")[:4]
-    folder = f"{record['entity']}/{year}/{record['direction']}"
-    name = "_".join(parts) + "." + ext
-    over = len(os.path.join(archive.root, folder, name)) - MAX_PATH
-    if over > 0:
-        parts[3] = parts[3][: max(1, len(parts[3]) - over)]
-        over = len(os.path.join(archive.root, folder, "_".join(parts) + "." + ext)) - MAX_PATH
-        if over > 0:
-            parts[2] = parts[2][: max(1, len(parts[2]) - over)]
-        name = "_".join(parts) + "." + ext
+    cls = archive.classes[record["data"]["doc_type"]]
+    values = placeholder_values(record, cls)
+
+    def paths():
+        return render(cls["folder"], values), render(cls["name"], values) + "." + ext
+
+    def over():
+        folder, name = paths()
+        return len(os.path.join(archive.root, folder, name)) - MAX_PATH
+
+    names = [h for h in HOLE.findall(cls["name"]) if h.startswith("fields.")]
+    for key in ["number", "counterparty", *names]:
+        if over() > 0:
+            values[key] = values[key][: max(1, len(values[key]) - over())]
+    folder, name = paths()
     return f"{folder}/{name}"
 
 
