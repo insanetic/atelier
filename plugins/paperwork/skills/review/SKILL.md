@@ -54,11 +54,12 @@ person's (the `PAPERWORK_USER` environment variable picks it) and only fills wha
 rules leave open.
 
 ```json
-{"rules": [{"when": {"counterparty": "hetzner-online", "text": ["Rechnung"]},
+{"rules": [{"id": "hetzner-hosting",
+            "when": {"counterparty": "hetzner-online", "text": ["Rechnung"]},
             "set": {"doc_type": "inv", "category": "hosting"}}]}
 ```
 
-- `when`: `counterparty`, `vat_id`, `text` (all phrases), `regex`, `doc_type`, `entity`.
+- Each rule needs a unique `id`. `when`: `counterparty`, `vat_id`, `text` (all phrases), `regex`, `doc_type`, `entity`.
   `set`: `doc_type`, `entity`, `direction`, `category`, `tags` (merged), `fields.<name>`.
 - The rule with the most `when` keys wins. Two equally specific rules that disagree give
   `rule:conflict`, which sends the document to review. A person's `paperwork set` beats any rule.

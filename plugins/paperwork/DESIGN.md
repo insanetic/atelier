@@ -141,8 +141,8 @@ Every field has a `source`: `xml`, `template:<vendor>`, `claude`, or `user`. Fie
 
 ### Statuses
 
-`new` → `extracted` → `ok` or `review` → `filed`. Also `duplicate` and `missing` (the file is gone from where the
-record says; the record stays).
+`new` → `extracted` → `ok`, `unconfirmed` or `review` → `filed`. Also `duplicate` and `missing` (the file is gone
+from where the record says; the record stays).
 
 ## Classes and rules
 
@@ -166,7 +166,7 @@ A document ends in one of three outcomes:
 
 | Outcome | Meaning |
 |---|---|
-| `ok` / `filed` | Every check passed and a rule, a template, XML or a person decided the class |
+| `ok` / `filed` | No check failed (warnings do not block) and a rule, a template, XML or a person decided the class |
 | `unconfirmed` | Filed, but Claude classified it alone, or introduced a new counterparty. `paperwork confirm` settles it |
 | `review` | A check failed or a rule conflicts. Held back until a person decides |
 
@@ -302,8 +302,9 @@ they are recomputed with every change and show as status `duplicate` or a `dupli
 
 A PreToolUse hook on Bash, Write, Edit, MultiEdit and NotebookEdit (`hooks/guard.py`, host `python3`, standard
 library) refuses `rm`, `mv`, overwriting `cp`, `trash`, `unlink`, redirects, in-place edits, `find -delete` and
-`git clean` that touch an archive, and edits of anything there except `_paperwork/config.json`, `_paperwork/rules.json`,
-`_paperwork/rules/`, `_paperwork/proposals/` and `_paperwork/templates/`. `paperwork` itself is allowed, and so is `cp -n` into `_inbox/`. It makes "never delete"
+`git clean` that touch an archive, and edits of anything there except `_paperwork/config.json`,
+`_paperwork/rules.json`, `_paperwork/rules/`, `_paperwork/proposals/` and `_paperwork/templates/`. `paperwork`
+itself is allowed, and so is `cp -n` into `_inbox/`. It makes "never delete"
 enforced, not promised, for the shell commands it can parse.
 
 ## Testing

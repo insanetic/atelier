@@ -52,7 +52,8 @@ If `paperwork doctor` says there is no archive or no entities, run the `setup` s
    the page images**: OCR misreads digits (`23.65.2024`, `14,56`), and the images are the truth.
    `doc_type` must be a class from `paperwork schema`; fill the `fields` that class declares. When
    you are unsure between classes, entities or counterparties, add `alternatives`
-   (`{doc_type, entity, counterparty}`, best first, at most 3).
+   (an object of ranked lists, e.g. `{"doc_type": ["cn", "other"]}`; keys `doc_type`, `entity`,
+   `counterparty`; at most 3 each).
    Write the proposal JSON to the given path (one per document) and run
    `paperwork record <id> <proposal>`. Exit 3 means review; read the problems it prints. If a
    problem is your misreading, fix the proposal and record again with `--force`. If it is the
@@ -66,7 +67,8 @@ If `paperwork doctor` says there is no archive or no entities, run the `setup` s
    *unconfirmed* documents (`paperwork list --status unconfirmed`: Claude classified them alone or
    introduced a new counterparty; they are filed anyway) with their alternatives, and offer
    `paperwork confirm <id>...`. When the same correction recurs, offer a rule in
-   `_paperwork/rules.json` (see the `review` skill) and run `paperwork rules test` before saving it.
+   `_paperwork/rules.json` and run `paperwork rules test` before saving it. Rule format and precedence
+   are in the `review` skill, Rules section.
 
 ## Reading a document
 

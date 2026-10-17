@@ -74,10 +74,15 @@ match, so a recurring correction is made once.
 ```
 
 ```json
-{"rules": [{"when": {"counterparty": "hetzner-online"}, "set": {"doc_type": "inv", "category": "hosting"}}]}
+{"rules": [{"id": "hetzner-hosting", "when": {"counterparty": "hetzner-online"},
+            "set": {"doc_type": "inv", "category": "hosting"}}]}
 ```
 
-Rules live in `_paperwork/rules.json` (the archive) and `_paperwork/rules/<user>.json` (one person,
+Templates take the placeholders `{issue_date}`, `{due_date}`, `{service_date}`, `{year}`, `{class}`,
+`{counterparty}`, `{number}`, `{amount}`, `{id}`, `{entity}`, `{direction}`, `{category}` and
+`{fields.<name>}` for a field the class declares. A folder template must start with `{entity}`.
+
+Each rule needs a unique `id`. Rules live in `_paperwork/rules.json` (the archive) and `_paperwork/rules/<user>.json` (one person,
 chosen by `PAPERWORK_USER`). The archive's come first, the most specific rule wins, and two equal
 rules that disagree send the document to review. A correction made with `paperwork set` beats a rule.
 

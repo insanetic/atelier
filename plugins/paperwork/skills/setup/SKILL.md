@@ -42,11 +42,14 @@ image once (`paperwork doctor` shows the tool versions).
    accounts; `start_year` is the oldest document they will keep.
 4. **Classes and rules (optional).** The built-in classes (`inv cn rcpt rem notice oc quote contract
    other`) cover most archives. Ask whether the user files anything else (a contract with a term,
-   a payslip). Add it under `classes` in `config.json`: `label`, `fields` (types `text`, `date`,
-   `money`, `number`, `bool`, `choice`), `required`, and optionally `name` and `folder` templates
-   (the folder must start with `{entity}`). `paperwork schema` shows the result. A first
-   `_paperwork/rules.json` can wait until the same correction has come up twice (see the `review`
-   skill).
+   a payslip). Add it under `classes` in `config.json`; the README's "Classes and rules" section has
+   an example. Fields are `{"name": {"type": ...}}` with type `text`, `date`, `money`, `number`,
+   `bool` or `choice` (`choice` needs a non-empty `choices` list). `required` lists proposal keys,
+   party keys such as `seller.name`, or `fields.<name>`. Class keys match `[a-z][a-z0-9-]{0,15}`,
+   field names `[a-z][a-z0-9_]{0,31}` and are not `id`, `entity`, `counterparty`, `issue_date`,
+   `status`, `confirmed` or `path`. The folder template must start with `{entity}`.
+   `paperwork schema` shows the result. A first `_paperwork/rules.json` can wait until the same
+   correction has come up twice (see the `review` skill).
 5. `paperwork doctor` must show no problems. Then tell the user to drop files into `_inbox/` and run
    the `inbox` skill.
 
@@ -54,7 +57,8 @@ image once (`paperwork doctor` shows the tool versions).
 
 Edit `config.json`, then `paperwork export`: every record is re-checked against the new config, and
 `paperwork plan` shows the renames a changed entity would cause. Run `paperwork plan` after every
-change to a `name` or `folder` template too, and show the user the renames before applying. Never rename entity folders by hand.
+change to a `name` or `folder` template too, and show the user the renames before applying. Never
+rename entity folders by hand.
 
 ## Notes worth telling the user
 

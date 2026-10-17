@@ -22,7 +22,7 @@ Answer from `exports/` (run `paperwork export` first if the archive changed). Re
 |---|---|
 | `documents.csv` | One row per document: entity, direction, type, dates, counterparty, parties, billing address, number, currency, net, tax, gross, rates, reverse charge, category, status, confirmed, path, warnings |
 | `lines.csv` | Line items, keyed by document `id` |
-| `vat_summary.csv` | Entity × month × direction × currency × tax rate (only ok/filed invoices, receipts, credit notes) |
+| `vat_summary.csv` | Entity × month × direction × currency × tax rate (ok, filed and unconfirmed invoices, receipts, credit notes) |
 | `class-<key>.csv` | Documents of a class that declares fields (`exports/<scope>/`): id, entity, counterparty, issue date, status, confirmed, path, then the class's fields |
 | `vendors.csv` | Entity × year × counterparty totals |
 | `issues.csv` | Open problems and warnings |
