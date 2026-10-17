@@ -174,6 +174,12 @@ def all_files(root):
 
 
 class Units(unittest.TestCase):
+    def test_builtin_classes(self):
+        self.assertEqual(set(pw.BUILTIN_CLASSES),
+                         {"inv", "cn", "rcpt", "rem", "notice", "oc", "quote", "contract", "other"})
+        with self.assertRaises(pw.Fail):
+            pw.normalize_proposal({"doc_type": "x"})
+
     def test_amounts(self):
         c = pw.amount_candidates
         self.assertEqual(c("1.250,60 €"), {Decimal("1250.60")})
@@ -264,6 +270,54 @@ class Archive(unittest.TestCase):
             return list(csv.DictReader(f))
 
     # ------------------------------------------------------------------------------------------
+
+    def write_config(self, **changes):
+        path = os.path.join(self.root, "_paperwork", "config.json")
+        cfg = json.loads(read(path))
+        cfg.update(changes)
+        write_json(path, cfg)
+
+    def test_config_adds_a_class_with_required_fields(self):
+        self.write_config(classes={"policy": {"label": "insurance policy",
+                                              "fields": {"policy_number": {"type": "text"},
+                                                         "start": {"type": "date"}},
+                                              "required": ["issue_date", "seller.name", "fields.policy_number"]}})
+        self.drop("a.pdf", text_pdf([hoster_invoice(extra=["Versicherungsschein Nr. VS-77"])]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["doc_type"] = "policy"
+        code, view, _ = self.propose(doc, p)
+        self.assertEqual(code, 3)
+        self.assertIn("required:fields.policy_number", [c["id"] for c in view["problems"]])
+        p["fields"] = {"policy_number": "VS-77", "start": "2026-01-01"}
+        path = os.path.join(self.root, "_paperwork", "proposals", doc + ".json")
+        write_json(path, p)
+        code, view, err = self.pw("record", doc, path, "--force")
+        self.assertEqual(code, 0, (view, err))
+
+    def test_bad_class_config_fails(self):
+        self.write_config(classes={"Bad Key": {}})
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("classes", err)
+        self.write_config(classes={"policy": {"fields": {"x": {"type": "colour"}}}})
+        code, _, err = self.pw("status")
+        self.assertIn("policy", err)
+
+    def test_removed_class_goes_to_review(self):
+        self.write_config(classes={"policy": {}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["doc_type"] = "policy"
+        self.assertEqual(self.propose(doc, p)[0], 0)
+        self.write_config(classes={})
+        self.pw("ingest")  # any recompute
+        view = self.pw("show", doc[:8])[1]
+        self.assertEqual(view["status"], "review")
+        self.assertIn("class", [c["id"] for c in view["problems"]])
 
     def test_inbox_to_archive_round_trip(self):
         # The file name lies: the content decides everything.

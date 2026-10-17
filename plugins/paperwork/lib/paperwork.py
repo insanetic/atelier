@@ -38,8 +38,31 @@ DUPLICATES = "_duplicates"
 EXPORTS = "exports"
 MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS}
 
-DOC_TYPES = ["inv", "cn", "rcpt", "rem", "notice", "oc", "quote", "contract", "other"]
-MONEY_TYPES = {"inv", "cn", "rcpt"}
+FIELD_TYPES = {"text", "date", "money", "number", "bool", "choice"}
+NAME_TEMPLATE = "{issue_date}_{class}_{counterparty}_{number}_{amount}_{id}"
+FOLDER_TEMPLATE = "{entity}/{year}/{direction}"
+CLASS_KEY = re.compile(r"[a-z][a-z0-9-]{0,15}")
+FIELD_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
+BILLED = ["buyer.name", "invoice_number", "currency", "gross"]
+
+
+def builtin_class(label, money=False, sign=None, required=(), checks=()):
+    return {"label": label, "money": money, "sign": sign, "required": ["issue_date", "seller.name", *required],
+            "checks": list(checks), "name": NAME_TEMPLATE, "folder": FOLDER_TEMPLATE, "fields": {}}
+
+
+BUILTIN_CLASSES = {
+    "inv": builtin_class("invoice", True, "positive", BILLED, ["ustg14"]),
+    "cn": builtin_class("credit note, Storno, Rechnungskorrektur", True, "negative", BILLED),
+    "rcpt": builtin_class("receipt", True, "positive", ["currency", "gross"]),
+    "rem": builtin_class("reminder"),
+    "notice": builtin_class("Bescheid: tax, fee, IHK"),
+    "oc": builtin_class("order confirmation"),
+    "quote": builtin_class("quote"),
+    "contract": builtin_class("contract"),
+    "other": builtin_class("other"),
+}
+CLASS_DEFAULTS = {**builtin_class(""), "required": ["issue_date"]}
 DIRECTIONS = ["in", "out"]
 MEDIA_EXT = {"pdf": "pdf", "xml": "xml", "jpeg": "jpg", "png": "png", "tiff": "tif", "gif": "gif",
              "webp": "webp", "bmp": "bmp"}
@@ -652,11 +675,43 @@ PROPOSAL_KEYS = {
     "doc_type", "language", "issue_date", "service_date", "service_period", "due_date", "seller",
     "buyer", "invoice_number", "refers_to", "currency", "net", "tax", "gross", "reverse_charge",
     "iban", "payment_method", "paid", "category", "tags", "lines", "evidence", "notes",
-    "entity", "direction",
+    "entity", "direction", "fields",
 }
 
 
-def normalize_proposal(p):
+def normalize_fields(raw, specs, doc_type):
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise Fail("fields maps a field name to its value")
+    out = {}
+    for name, v in sorted(raw.items()):
+        spec = specs.get(name)
+        if spec is None:
+            raise Fail(f"unknown field {name!r} for class {doc_type} (declared: {', '.join(sorted(specs)) or 'none'})")
+        if v in (None, ""):
+            continue
+        kind, key = spec["type"], f"fields.{name}"
+        if kind == "date":
+            out[name] = iso_date(v, key)
+        elif kind == "money":
+            out[name] = money(dec(v, key))
+        elif kind == "number":
+            out[name] = plain(dec(v, key))
+        elif kind == "bool":
+            if not isinstance(v, bool):
+                raise Fail(f"{key} is true or false")
+            out[name] = v
+        elif kind == "choice":
+            if v not in spec["choices"]:
+                raise Fail(f"{key} must be one of {', '.join(spec['choices'])}, got {v!r}")
+            out[name] = v
+        else:
+            out[name] = str(v).strip()
+    return out
+
+
+def normalize_proposal(p, classes=BUILTIN_CLASSES):
     if not isinstance(p, dict):
         raise Fail("a proposal is a JSON object")
     unknown = sorted(set(p) - PROPOSAL_KEYS)
@@ -664,9 +719,10 @@ def normalize_proposal(p):
         raise Fail(f"unknown proposal fields: {', '.join(unknown)} (see `paperwork schema`)")
     d = {}
     doc_type = p.get("doc_type")
-    if doc_type not in DOC_TYPES:
-        raise Fail(f"doc_type must be one of {', '.join(DOC_TYPES)}, got {doc_type!r}")
+    if doc_type not in classes:
+        raise Fail(f"doc_type must be one of {', '.join(classes)}, got {doc_type!r}")
     d["doc_type"] = doc_type
+    d["fields"] = normalize_fields(p.get("fields"), classes[doc_type]["fields"], doc_type)
     for k in ("issue_date", "service_date", "due_date"):
         d[k] = iso_date(p.get(k), k)
     sp = p.get("service_period")
@@ -746,8 +802,7 @@ def normalize_proposal(p):
 
 
 SCHEMA = {
-    "doc_type": "inv | cn (credit note, Storno, Rechnungskorrektur) | rcpt (receipt) | rem (reminder) | "
-                "notice (Bescheid: tax, fee, IHK) | oc (order confirmation) | quote | contract | other",
+    "doc_type": "the document class key (see the classes in config.json)",
     "language": "de | en | ...",
     "issue_date": "YYYY-MM-DD, the issue date (Rechnungsdatum)",
     "service_date": "YYYY-MM-DD (Leistungsdatum / Lieferdatum), or null",
@@ -776,7 +831,15 @@ SCHEMA = {
     "evidence": {"issue_date": "the date exactly as printed", "gross": "the total exactly as printed",
                  "net": "as printed", "tax": "as printed", "due_date": "as printed"},
     "notes": "anything a reader needs: what is unusual",
+    "fields": "values of the class's own fields, {name: value}; only for classes that declare fields",
 }
+
+
+def merge_classes(cfg):
+    classes = {k: dict(v) for k, v in BUILTIN_CLASSES.items()}
+    for key, over in (cfg.get("classes") or {}).items():
+        classes[key] = {**classes.get(key, {**CLASS_DEFAULTS, "label": key}), **over}
+    return classes
 
 
 # ----------------------------------------------------------------------------------------------
@@ -858,6 +921,10 @@ class Archive:
         self.vendors = read_json(self.p(STATE, "vendors.json"), {"vendors": []})
         self._records = None
         self.today = dt.datetime.now(dt.timezone.utc).date()
+
+    @property
+    def classes(self):
+        return merge_classes(self.config)
 
     def p(self, *parts):
         return os.path.join(self.root, *parts)
@@ -1008,6 +1075,48 @@ def config_problems(cfg):
         for v in e.get("vat_ids", []):
             if vat_ok(v) is False:
                 out.append(f"entity {slug}: VAT ID {v} is not valid")
+    out += class_problems(cfg.get("classes", {}))
+    return out
+
+
+def class_problems(classes):
+    if not isinstance(classes, dict):
+        return ["classes must be an object keyed by class key"]
+    out = []
+    for key, c in classes.items():
+        if not CLASS_KEY.fullmatch(key):
+            out.append(f"classes.{key}: the key must match {CLASS_KEY.pattern}")
+            continue
+        if not isinstance(c, dict):
+            out.append(f"classes.{key}: must be an object")
+            continue
+        fields = c.get("fields", BUILTIN_CLASSES.get(key, CLASS_DEFAULTS)["fields"])
+        if not isinstance(fields, dict):
+            out.append(f"classes.{key}: fields must be an object")
+            fields = {}
+        for name, spec in fields.items():
+            if not FIELD_KEY.fullmatch(name):
+                out.append(f"classes.{key}: field name {name!r} must match {FIELD_KEY.pattern}")
+            elif not isinstance(spec, dict) or spec.get("type") not in FIELD_TYPES:
+                out.append(f"classes.{key}: field {name} needs a type of {', '.join(sorted(FIELD_TYPES))}")
+            elif spec["type"] == "choice" and not (isinstance(spec.get("choices"), list) and spec["choices"]):
+                out.append(f"classes.{key}: choice field {name} needs a non-empty choices list")
+        required = c.get("required", [])
+        if not isinstance(required, list):
+            out.append(f"classes.{key}: required must be a list")
+            continue
+        for r in required:
+            if r.startswith("fields."):
+                ok = r[len("fields."):] in fields
+            else:
+                head, _, tail = str(r).partition(".")
+                ok = (head in PROPOSAL_KEYS and not tail) or (head in ("seller", "buyer") and tail in PARTY_KEYS)
+            if not ok:
+                out.append(f"classes.{key}: required entry {r!r} is not a proposal key or a declared field")
+        if c.get("sign") not in (None, "positive", "negative"):
+            out.append(f"classes.{key}: sign is positive, negative or null")
+        if not set(c.get("checks", [])) <= {"ustg14"}:
+            out.append(f"classes.{key}: the only known check is ustg14")
     return out
 
 
@@ -1086,6 +1195,11 @@ def check(record, archive):
     def add(cid, sev, msg):
         out.append({"id": cid, "severity": sev, "message": msg})
 
+    cls = archive.classes.get(d["doc_type"])
+    if cls is None:
+        add("class", "error", f"class {d['doc_type']} is not in config.json")
+        cls = {"money": False, "sign": None, "required": [], "checks": []}
+
     text_doc = record["media"] in ("pdf-text", "xml") or record.get("source") == "xml"
     ev_sev = "error" if text_doc else "warning"
     full = squash(archive.text(record)) + squash(archive.text(record, "raw"))
@@ -1112,19 +1226,14 @@ def check(record, archive):
             if printed and d.get(key) is not None:
                 c = amount_candidates(printed)
                 v = Decimal(d[key])
-                if v not in c and not (d["doc_type"] == "cn" and abs(v) in {abs(x) for x in c}):
+                if v not in c and not (cls["sign"] == "negative" and abs(v) in {abs(x) for x in c}):
                     add(f"evidence:{key}", "error", f"{key} {d[key]} is not what {printed!r} says")
-            elif d.get(key) is not None and key == "gross" and d["doc_type"] in MONEY_TYPES:
+            elif d.get(key) is not None and key == "gross" and cls["money"]:
                 add("evidence:gross", "error", "evidence.gross (the total as printed) is missing")
         if d.get("issue_date") and "issue_date" not in d["evidence"]:
             add("evidence:issue_date", "error", "evidence.issue_date (the date as printed) is missing")
 
-    required = ["issue_date", "seller.name"]
-    if d["doc_type"] in ("inv", "cn"):
-        required += ["buyer.name", "invoice_number", "currency", "gross"]
-    elif d["doc_type"] == "rcpt":
-        required += ["currency", "gross"]
-    for key in required:
+    for key in cls["required"]:
         cur = d
         for part in key.split("."):
             cur = (cur or {}).get(part)
@@ -1191,7 +1300,7 @@ def check(record, archive):
                     and not re.search(r"steuerfrei|exempt|innergemeinschaftlich|intra-community|§\s*4|art\.?\s*7|"
                                       r"reverse|steuerschuldumkehr|kleinunternehmer|§\s*19", full):
                 add("tax:zero", "warning", "0 % tax without an exemption or reverse-charge note in the text")
-    elif d["doc_type"] in MONEY_TYPES and gross is not None:
+    elif cls["money"] and gross is not None:
         if net is not None and abs(net - gross) > tol:
             add("tax:missing", "error", f"net {money(net)} and gross {money(gross)} differ but no tax is given")
         else:
@@ -1223,9 +1332,9 @@ def check(record, archive):
     record["lines_status"] = status
 
     if gross is not None:
-        if d["doc_type"] == "cn" and gross > 0:
+        if cls["sign"] == "negative" and gross > 0:
             add("sign", "error", "a credit note has a negative total in this archive")
-        if d["doc_type"] in ("inv", "rcpt") and gross < 0:
+        if cls["sign"] == "positive" and gross < 0:
             add("sign", "error", "an invoice with a negative total: is it a credit note (cn)?")
 
     if d.get("issue_date"):
@@ -1245,7 +1354,7 @@ def check(record, archive):
     if d.get("iban") and iban_ok(d["iban"]) is False:
         add("iban", "warning", f"IBAN {d['iban']} fails its check digits")
 
-    if direction == "in" and d["doc_type"] == "inv":
+    if direction == "in" and "ustg14" in cls["checks"]:
         seller_de = (d["seller"].get("country") == "DE"
                      or norm_vat(d["seller"].get("vat_id")).startswith("DE")
                      or bool(d["seller"].get("tax_number")))
@@ -1528,7 +1637,7 @@ def extract(archive, record, report):
         xml_path = None
     if xml_path:
         try:
-            record["data"] = normalize_proposal(parse_einvoice(xml_path))
+            record["data"] = normalize_proposal(parse_einvoice(xml_path), archive.classes)
             record["source"] = "xml"
             report["from_xml"].append(sha[:8])
             return
@@ -1540,7 +1649,7 @@ def extract(archive, record, report):
     if len(matches) == 1:
         v = matches[0]
         try:
-            record["data"] = normalize_proposal(apply_template(v["template"], text))
+            record["data"] = normalize_proposal(apply_template(v["template"], text), archive.classes)
             record["source"] = f"template:{v['slug']}"
             report["from_template"].append({"id": sha[:8], "vendor": v["slug"]})
             return
@@ -1606,7 +1715,13 @@ def cmd_pending(args):
 
 
 def cmd_schema(args):
-    emit(SCHEMA)
+    try:
+        classes = Archive(args.root).classes
+    except Fail:
+        classes = BUILTIN_CLASSES
+    schema = dict(SCHEMA, doc_type={k: c["label"] for k, c in classes.items()})
+    schema["fields"] = {k: c["fields"] for k, c in classes.items() if c["fields"]}
+    emit(schema)
     return EXIT_OK
 
 
@@ -1635,7 +1750,7 @@ def cmd_record(args):
                 raise Fail(f"{args.proposal}: not valid JSON: {e}")
         if r.get("data") and r.get("source") in ("claude", "user") and not args.force:
             raise Fail("this document already has fields; use `paperwork set` to change them or --force to replace")
-        r["data"] = normalize_proposal(proposal)
+        r["data"] = normalize_proposal(proposal, archive.classes)
         r["source"] = "claude" if not args.user else "user"
         recompute_all(archive)
         save_all(archive)
@@ -1685,7 +1800,7 @@ def cmd_set(args):
                 value = None
             changes.append({"field": key, "old": get_path(data, key), "new": value})
             set_path(data, key, value)
-        normalized = normalize_proposal(data)
+        normalized = normalize_proposal(data, archive.classes)
         r["data"] = normalized
         r["edits"] = r.get("edits", []) + [dict(c, at=now()) for c in changes]
         if r.get("source") == "claude" or (r.get("source") or "").startswith("template:"):
@@ -1953,6 +2068,7 @@ def table_text(columns, rows, dialect):
 def export_rows(archive, records):
     docs, lines, issues = [], [], []
     vat, vendors = {}, {}
+    classes = archive.classes
     for r in sorted(records, key=lambda r: (r.get("entity") or "", (r.get("data") or {}).get("issue_date") or "", r["id"])):
         d = r.get("data") or {}
         seller, buyer = d.get("seller") or {}, d.get("buyer") or {}
@@ -1988,7 +2104,7 @@ def export_rows(archive, records):
         if r.get("unsupported"):
             issues.append({"id": r["id"], "entity": None, "status": r["status"], "severity": "error",
                            "check": "unsupported", "message": r["unsupported"], "path": r["path"]})
-        if r["status"] not in ("ok", "filed") or d.get("doc_type") not in MONEY_TYPES:
+        if r["status"] not in ("ok", "filed") or not classes.get(d.get("doc_type"), {}).get("money"):
             continue
         month = (d.get("issue_date") or "")[:7]
         for t in tax or [{"rate": "unknown", "net": None, "tax": None}]:
@@ -2106,7 +2222,7 @@ def template_test(archive, slug, template):
             res["diffs"].append({"field": "match", "error": "the match strings are not all in the text"})
         else:
             try:
-                got = normalize_proposal(apply_template(template, text))
+                got = normalize_proposal(apply_template(template, text), archive.classes)
             except (Fail, ValueError, re.error, KeyError) as e:
                 res["diffs"].append({"field": "template", "error": str(e)})
                 got = None
