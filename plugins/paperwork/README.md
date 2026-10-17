@@ -36,7 +36,7 @@ OneDrive/Belege/
 ├── _inbox/              drop anything here: PDFs, scans, photos, XRechnung/ZUGFeRD; any names, any subfolders
 ├── _review/             failed a check or needs a decision
 ├── _duplicates/         copies and second versions, linked to their original
-├── _paperwork/          config.json, vendors.json, one record per document, derived text, journal
+├── _paperwork/          config.json, rules.json, rules/<user>.json, vendors.json, one record per document, derived text, journal
 ├── <entity>/<YYYY>/in/  received documents
 ├── <entity>/<YYYY>/out/ issued documents
 └── exports/             all/*.csv and <entity>/*.csv, plus -de variants for German Excel
@@ -48,9 +48,42 @@ OneDrive/Belege/
 2024-02-28_cn_amazon-eu_DE426JLXAEUC_-24.04EUR_0c14567a.pdf
 ```
 
-Types: `inv`, `cn` (credit note, Storno), `rcpt`, `rem`, `notice` (Bescheid), `oc`, `quote`,
-`contract`, `other`. The `id` is the start of the file's SHA-256: names never clash, and a file found
+Types (the built-in classes): `inv`, `cn` (credit note, Storno), `rcpt`, `rem`, `notice` (Bescheid),
+`oc`, `quote`, `contract`, `other`. Names and folders come from the class's `name` and `folder`
+templates; the defaults give exactly the names above. The `id` is the start of the file's SHA-256: names never clash, and a file found
 anywhere leads back to its record. ASCII only, so OneDrive on macOS and Windows agree.
+
+## Classes and rules
+
+A class decides a document type's fields, checks, file name and folder. Add your own, or override
+a built-in, under `classes` in `_paperwork/config.json`. A rule sets values for documents that
+match, so a recurring correction is made once.
+
+```json
+{
+  "classes": {
+    "payslip": {
+      "label": "Payslip",
+      "fields": {"employee": {"type": "text"}, "period": {"type": "text"}},
+      "required": ["fields.employee"],
+      "name": "{issue_date}_{class}_{fields.employee}_{id}",
+      "folder": "{entity}/{year}/hr"
+    }
+  }
+}
+```
+
+```json
+{"rules": [{"when": {"counterparty": "hetzner-online"}, "set": {"doc_type": "inv", "category": "hosting"}}]}
+```
+
+Rules live in `_paperwork/rules.json` (the archive) and `_paperwork/rules/<user>.json` (one person,
+chosen by `PAPERWORK_USER`). The archive's come first, the most specific rule wins, and two equal
+rules that disagree send the document to review. A correction made with `paperwork set` beats a rule.
+
+A document Claude classified alone, or whose counterparty is new, is filed with status
+`unconfirmed`. `paperwork list --status unconfirmed` shows the queue; `paperwork confirm <id>...`
+settles it. Documents recorded before 0.2.0 are never unconfirmed.
 
 ## How a document is read
 
@@ -87,6 +120,9 @@ paperwork pending                     # what needs reading (no file names)
 paperwork schema                      # the proposal format
 paperwork record <id> proposal.json   # check and store; exit 3 = review
 paperwork set <id> entity=acme gross=36.98
+paperwork confirm <id> [<id>...]      # accept what Claude classified alone
+paperwork rules test [--file draft.json]   # preview rules, writes nothing
+paperwork rules apply                 # re-apply rules to documents a person did not set
 paperwork accept <id> <check> --reason "..."
 paperwork plan                        # moves and renames, nothing done yet
 paperwork apply <plan>                # journaled; never overwrites; copies across volumes
@@ -104,8 +140,8 @@ Exit codes: 0 ok, 1 a check failed, 2 usage, 3 needs review, 4 locked, 5 Docker 
 - No code path deletes or overwrites a document. Records, the journal and exports are the engine's
   own files.
 - The guard hook denies `rm`, `mv`, overwriting `cp`, redirects, in-place edits, `find -delete` and
-  `git clean` that touch the archive, and edits of anything but `config.json`, proposals and
-  templates. It parses shell commands; a script that deletes files from inside an interpreter is
+  `git clean` that touch the archive, and edits of anything but `config.json`, `rules.json`,
+  `rules/`, proposals and templates. It parses shell commands; a script that deletes files from inside an interpreter is
   beyond what a hook can see.
 - OCR quality bounds what the engine can verify on scans: evidence that is not in the OCR text is a
   warning there, not an error, and Claude reads the page images.

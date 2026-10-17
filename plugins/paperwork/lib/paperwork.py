@@ -27,7 +27,7 @@ import unicodedata
 import xml.etree.ElementTree as ET
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 EXIT_OK, EXIT_CHECK, EXIT_USAGE, EXIT_REVIEW, EXIT_LOCKED, EXIT_TOOL = 0, 1, 2, 3, 4, 5
 
