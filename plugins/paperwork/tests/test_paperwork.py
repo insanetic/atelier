@@ -339,6 +339,54 @@ class Archive(unittest.TestCase):
         rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
         self.assertEqual((rec["data"]["category"], rec["data"]["tags"]), ("hosting", ["mine"]))
 
+    def ruled(self, rules, **proposal):
+        self.write_rules(rules)
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        return self.propose(self.only_pending()[0]["id"], hoster_proposal(**proposal))
+
+    def test_edit_clears_a_rule_conflict(self):
+        code, view, _ = self.ruled([{"id": "a", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}},
+                                    {"id": "b", "when": {"text": ["Gesamtbetrag"]}, "set": {"category": "software"}}])
+        self.assertEqual(code, 3)
+        code, view, err = self.pw("set", view["id"], "category=hosting")
+        self.assertEqual(code, 0, (view, err))
+        self.assertNotIn("rule:conflict", [c["id"] for c in view["problems"]])
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "hosting")
+
+    def test_edit_beats_rule(self):
+        code, view, _ = self.ruled([{"id": "a", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        self.pw("set", view["id"], "category=software")
+        self.pw("set", view["id"], "notes=later")
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "software")
+
+    def test_more_specific_rule_wins(self):
+        code, view, err = self.ruled([
+            {"id": "broad", "when": {"text": ["Cloud Server"]}, "set": {"category": "software"}},
+            {"id": "narrow", "when": {"text": ["Cloud Server"], "regex": "Gesamtbetrag"}, "set": {"category": "hosting"}}])
+        self.assertEqual(code, 0, (view, err))
+        rec = json.loads(read(os.path.join(self.root, "_paperwork", "docs", view["id"] + ".json")))
+        self.assertEqual(rec["data"]["category"], "hosting")
+
+    def test_rule_entity_must_match_the_billed_party(self):
+        code, view, _ = self.ruled([{"id": "wrong", "when": {"text": ["Cloud Server"]}, "set": {"entity": "kranich"}}])
+        self.assertEqual(code, 3)
+        self.assertIn("rule:entity", [c["id"] for c in view["problems"]])
+
+    def test_override_warning_survives_a_later_set(self):
+        code, view, _ = self.ruled([{"id": "is-receipt", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "rcpt"}}])
+        self.assertIn("rule:override", [c["id"] for c in view["warnings"]])
+        code, view, _ = self.pw("set", view["id"], "notes=later")
+        self.assertIn("rule:override", [c["id"] for c in view["warnings"]])
+
+    def test_rule_values_of_the_wrong_type_are_reported(self):
+        self.write_rules([{"id": "listy", "when": {"text": ["x"]}, "set": {"doc_type": ["inv"], "entity": ["a"]}}])
+        code, _, err = self.pw("status")
+        self.assertNotEqual(code, 0)
+        self.assertIn("rules[archive].listy", err)
+
     def test_bad_rules_fail_fast(self):
         self.write_rules([{"id": "broken", "when": {"regex": "("}, "set": {"category": "hosting"}}])
         code, _, err = self.pw("status")

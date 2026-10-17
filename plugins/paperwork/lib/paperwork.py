@@ -1268,8 +1268,9 @@ def rule_problems(rule, classes, cfg, seen):
     if isinstance(when.get("entity"), str) and when["entity"] not in entities:
         out.append(f"{rid}: entity {when['entity']!r} is not in config.json")
     dt_set = sets.get("doc_type")
-    if dt_set is not None and dt_set not in classes:
-        out.append(f"{rid}: class {dt_set!r} is not defined")
+    if dt_set is not None and not (isinstance(dt_set, str) and dt_set in classes):
+        dt_set = None
+        out.append(f"{rid}: class {sets['doc_type']!r} is not defined")
     for k, v in sorted(sets.items()):
         if k.startswith("fields."):
             name = k[len("fields."):]
@@ -1283,11 +1284,11 @@ def rule_problems(rule, classes, cfg, seen):
                 out.append(f"{rid}: {e}")
         elif k not in RULE_SET:
             out.append(f"{rid}: unknown field {k!r} (settable: {', '.join(sorted(RULE_SET))}, fields.<name>)")
-        elif k == "entity" and v not in entities:
+        elif k == "entity" and not (isinstance(v, str) and v in entities):
             out.append(f"{rid}: entity {v!r} is not in config.json")
         elif k == "direction" and v not in ("in", "out"):
             out.append(f"{rid}: direction is in or out")
-        elif k == "category" and v not in cfg.get("categories", []):
+        elif k == "category" and not (isinstance(v, str) and v in cfg.get("categories", [])):
             out.append(f"{rid}: category {v!r} is not in config.json")
         elif k == "tags" and not (isinstance(v, list) and all(isinstance(t, str) and t for t in v)):
             out.append(f"{rid}: tags is a list of words")
@@ -1345,14 +1346,17 @@ def match_rules(rules, record, text):
     return hits
 
 
-def decide(matches):
-    """Field -> (value, rule id), and the conflicts. The archive layer decides first, the user layer fills gaps."""
+def decide(matches, skip=()):
+    """Field -> (value, rule id), and the conflicts. The archive layer decides first, the user layer fills gaps.
+    Fields in `skip` (a person edited them) are left alone and cannot conflict."""
     decided, conflicts, blocked = {}, [], set()
     tags = {}
     for layer in LAYERS:
         wanted = {}
         for r in (m for m in matches if m["layer"] == layer):
             for k, v in r["set"].items():
+                if k in skip:
+                    continue
                 if k == "tags":
                     for t in v:
                         tags.setdefault(t, r["id"])
@@ -1382,13 +1386,11 @@ def apply_rules(archive, record):
     view = {"data": d, "counterparty": archive.resolve_counterparty(party, create=False),
             "entity": d.get("entity") or resolve_entity(archive.config, d)[0]}
     matches = match_rules(archive.rules, view, archive.text(record))
-    decided, conflicts = decide(matches)
     edited = {e["field"] for e in record.get("edits", [])}
+    decided, conflicts = decide(matches, edited)
     data = json.loads(json.dumps(d))
     log, rule_fields = [], {}
     for k, (value, rid) in sorted(decided.items()):
-        if k in edited:
-            continue
         rule_fields[k] = rid
         old = get_path(data, k)
         if k == "tags":
@@ -1396,6 +1398,9 @@ def apply_rules(archive, record):
         elif old not in (None, "", [], {}) and old != value:
             log.append({"field": k, "from": old, "to": value, "rule": rid})
         set_path(data, k, value)
+    logged = {e["field"] for e in log}
+    log += [e for e in record.get("rule_log", [])
+            if e["field"] not in logged and rule_fields.get(e["field"]) == e["rule"]]
     record["rule_log"], record["rule_conflicts"] = log, conflicts
     record["rule_fields"] = rule_fields
     applied = set(rule_fields.values())
@@ -1928,12 +1933,13 @@ def extract(archive, record, report):
     if xml_path:
         try:
             record["data"] = normalize_proposal(parse_einvoice(xml_path), archive.classes)
+        except (Fail, Exception) as e:  # an unreadable e-invoice falls back to reading the text
+            record["einvoice_error"] = str(e)
+        else:
             apply_rules(archive, record)
             record["source"] = "xml"
             report["from_xml"].append(sha[:8])
             return
-        except (Fail, Exception) as e:  # an unreadable e-invoice falls back to reading the text
-            record["einvoice_error"] = str(e)
     text = archive.text(record)
     matches = [v for v in archive.vendors["vendors"] if v.get("template")
                and all(squash(m) in squash(text) for m in v["template"].get("match", []))]
@@ -1941,13 +1947,13 @@ def extract(archive, record, report):
         v = matches[0]
         try:
             record["data"] = normalize_proposal(apply_template(v["template"], text), archive.classes)
-            apply_rules(archive, record)
-            record["source"] = f"template:{v['slug']}"
-            report["from_template"].append({"id": sha[:8], "vendor": v["slug"]})
-            return
         except (Fail, ValueError, re.error, KeyError) as e:
             record["template_error"] = f"{v['slug']}: {e}"
             report["template_failed"].append({"id": sha[:8], "vendor": v["slug"], "error": str(e)})
+        else:
+            apply_rules(archive, record)
+            record["source"] = f"template:{v['slug']}"
+            report["from_template"].append({"id": sha[:8], "vendor": v["slug"]})
 
 
 def now():
