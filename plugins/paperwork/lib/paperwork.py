@@ -1411,6 +1411,20 @@ def apply_rules(archive, record):
         record["data"] = normalize_proposal(data, archive.classes)
 
 
+def rule_hints(archive, record):
+    """Field -> value from the rules that need only the document text, the one thing known before reading."""
+    early = [r for r in archive.rules if set(r["when"]) <= {"text", "regex"}]
+    if not early:
+        return {}
+    text = archive.text(record)
+    block = squash(text)
+    hits = [r for r in early
+            if ("text" not in r["when"] or all(squash(t) in block for t in r["when"]["text"]))
+            and ("regex" not in r["when"] or re.search(r["when"]["regex"], text, re.I | re.M))]
+    decided, _ = decide(hits)
+    return {k: v for k, (v, _) in sorted(decided.items())}
+
+
 def check(record, archive):
     """All checks of one record. Returns [{id, severity, message}]."""
     d = record["data"]
@@ -2006,9 +2020,61 @@ def cmd_pending(args):
             item["read_also"] = "the page images: OCR text can be wrong; the images are the truth"
         if r.get("template_error"):
             item["template_error"] = r["template_error"]
+        hints = rule_hints(archive, r)
+        if hints:
+            item["rule_hints"] = hints
         out.append(item)
     emit({"pending": out, "count": len(out),
           "how": "write each proposal (`paperwork schema`) to its proposal path, then `paperwork record <id> <proposal>`"})
+    return EXIT_OK
+
+
+def rule_changes(archive, record):
+    """Apply the rules to a copy of the record; the entry for what would differ, or None."""
+    after = json.loads(json.dumps(record))
+    apply_rules(archive, after)
+    changes = []
+    for k in sorted(set(after.get("rule_fields", {})) | {c["field"] for c in after.get("rule_log", [])}):
+        old, new = get_path(record["data"], k), get_path(after["data"], k)
+        if old != new:
+            changes.append({"field": k, "from": old, "to": new, "rule": after["rule_fields"].get(k)})
+    if not changes and after.get("rules") == record.get("rules") and \
+            after.get("rule_conflicts") == record.get("rule_conflicts"):
+        return None
+    return {"id": record["id"][:12], "rules": after.get("rules", []), "changes": changes,
+            "conflicts": after.get("rule_conflicts", [])}
+
+
+def cmd_rules(args):
+    archive = Archive(args.root)
+    if args.action == "test" and args.file:
+        try:
+            doc = read_json(args.file)
+        except (ValueError, OSError) as e:
+            raise Fail(f"rules[archive]: {args.file} is not valid JSON: {e}", EXIT_CHECK)
+        found = rules_problems(doc, archive.classes, archive.config, "archive")
+        if found:
+            raise Fail("; ".join(found), EXIT_CHECK)
+        archive.rules = [r for r in archive.rules if r["layer"] == "user"] + \
+            [dict(r, layer="archive") for r in doc["rules"]]
+    out = []
+    if args.action == "test":
+        for r in sorted(archive.records.values(), key=lambda r: r["id"]):
+            if r.get("data"):
+                entry = rule_changes(archive, r)
+                if entry:
+                    out.append(entry)
+    else:
+        with archive.lock():
+            for r in sorted(archive.records.values(), key=lambda r: r["id"]):
+                if r.get("data") and r.get("source") != "user":
+                    entry = rule_changes(archive, r)
+                    if entry:
+                        apply_rules(archive, r)
+                        out.append(entry)
+            recompute_all(archive)
+            save_all(archive)
+    emit({"changes": out, "count": len(out)})
     return EXIT_OK
 
 
@@ -2640,6 +2706,9 @@ def parser():
     sp.add_argument("action", choices=["test", "set"])
     sp.add_argument("slug")
     sp.add_argument("file", nargs="?")
+    sp = add("rules", cmd_rules, "test the rules (optionally a draft file) or apply them to documents not set by a person")
+    sp.add_argument("action", choices=["test", "apply"])
+    sp.add_argument("--file", help="test: use this file instead of _paperwork/rules.json")
     add("unlock", cmd_unlock, "remove a stale lock")
     return ap
 

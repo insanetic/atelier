@@ -3,7 +3,7 @@
 
 Denies Bash commands that would remove, move, overwrite or rewrite files inside a registered archive
 (the paperwork engine itself is allowed), and Write/Edit calls on anything there except the files
-Claude is meant to write: _paperwork/config.json, _paperwork/proposals/ and _paperwork/templates/.
+Claude is meant to write: _paperwork/config.json, _paperwork/rules.json, _paperwork/rules/, _paperwork/proposals/ and _paperwork/templates/.
 Copying into _inbox/ is allowed with `cp -n` (never overwrite).
 
 Archives: $PAPERWORK_HOME and the lines of ~/.config/paperwork/roots (written by `paperwork init`).
@@ -15,8 +15,8 @@ import os
 import shlex
 import sys
 
-WRITABLE = ("_paperwork/proposals/", "_paperwork/templates/")
-WRITABLE_FILES = ("_paperwork/config.json",)
+WRITABLE = ("_paperwork/proposals/", "_paperwork/templates/", "_paperwork/rules/")
+WRITABLE_FILES = ("_paperwork/config.json", "_paperwork/rules.json")
 DESTRUCTIVE = {"rm", "rmdir", "unlink", "shred", "truncate", "trash", "srm", "ln", "install", "dd", "tee",
                "touch", "chmod", "chown", "chflags", "xattr", "rename", "ditto", "unzip", "tar", "setfacl",
                "mkfile", "split", "patch"}

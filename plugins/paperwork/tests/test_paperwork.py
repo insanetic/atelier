@@ -143,6 +143,10 @@ def read(path):
         return f.read()
 
 
+def doc_file(docs, prefix):
+    return next(n for n in sorted(os.listdir(docs)) if n.startswith(prefix))
+
+
 def write_json(path, obj):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f)
@@ -291,6 +295,34 @@ class Archive(unittest.TestCase):
         path = os.path.join(self.root, "_paperwork", name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         write_json(path, {"rules": rules})
+
+    def test_rules_test_previews_without_writing(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        docs = os.path.join(self.root, "_paperwork", "docs")
+        before = {n: read(os.path.join(docs, n)) for n in os.listdir(docs)}
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        code, out, err = self.pw("rules", "test")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["changes"][0]["changes"][0]["to"], "hosting")
+        self.assertEqual(before, {n: read(os.path.join(docs, n)) for n in os.listdir(docs)})
+        code, out, _ = self.pw("rules", "apply")
+        self.assertEqual(json.loads(read(os.path.join(docs, doc_file(docs, doc))))["data"]["category"], "hosting")
+
+    def test_rules_test_file_must_be_valid(self):
+        bad = os.path.join(self.root, "draft.json")
+        write_json(bad, {"rules": [{"id": "x", "when": {"bogus": 1}, "set": {"category": "hosting"}}]})
+        code, _, err = self.pw("rules", "test", "--file", bad)
+        self.assertEqual(code, 1)
+        self.assertIn("bogus", err)
+
+    def test_pending_carries_text_rule_hints(self):
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        self.assertEqual(self.only_pending()[0]["rule_hints"], {"doc_type": "inv"})
 
     def test_rule_sets_class_and_category(self):
         self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]},
@@ -874,6 +906,8 @@ class Guard(unittest.TestCase):
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/proposals/abc.json"}))
         self.assertIsNone(self.verdict("Edit", {"file_path": "/data/Belege/_paperwork/config.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/templates/x.json"}))
+        self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json"}))
+        self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/erika.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/tmp/a.json"}))
 
 
