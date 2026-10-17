@@ -2486,6 +2486,7 @@ LINE_COLUMNS = ["id", "line", "entity", "direction", "issue_date", "counterparty
 VAT_COLUMNS = ["entity", "month", "direction", "currency", "rate", "reverse_charge", "documents", "net", "tax", "gross"]
 VENDOR_COLUMNS = ["entity", "year", "counterparty", "name", "vat_ids", "currency", "documents", "net", "gross"]
 ISSUE_COLUMNS = ["id", "entity", "status", "severity", "check", "message", "path"]
+CLASS_COLUMNS = ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"]
 NUMERIC = {"net", "tax", "gross", "quantity", "unit_price", "rate", "tax_rate"}
 
 
@@ -2511,7 +2512,7 @@ def table_text(columns, rows, dialect):
 
 def export_rows(archive, records):
     docs, lines, issues = [], [], []
-    vat, vendors = {}, {}
+    vat, vendors, by_class = {}, {}, {}
     classes = archive.classes
     for r in sorted(records, key=lambda r: (r.get("entity") or "", (r.get("data") or {}).get("issue_date") or "", r["id"])):
         d = r.get("data") or {}
@@ -2548,7 +2549,14 @@ def export_rows(archive, records):
         if r.get("unsupported"):
             issues.append({"id": r["id"], "entity": None, "status": r["status"], "severity": "error",
                            "check": "unsupported", "message": r["unsupported"], "path": r["path"]})
-        if r["status"] not in ("ok", "filed", "unconfirmed") or not classes.get(d.get("doc_type"), {}).get("money"):
+        if r["status"] not in ("ok", "filed", "unconfirmed"):
+            continue
+        if classes.get(d.get("doc_type"), {}).get("fields"):
+            by_class.setdefault(d["doc_type"], []).append({
+                "id": r["id"], "entity": r.get("entity"), "counterparty": r.get("counterparty"),
+                "issue_date": d.get("issue_date"), "status": r["status"], "confirmed": docs[-1]["confirmed"],
+                "path": r["path"], **(d.get("fields") or {})})
+        if not classes.get(d.get("doc_type"), {}).get("money"):
             continue
         month = (d.get("issue_date") or "")[:7]
         for t in tax or [{"rate": "unknown", "net": None, "tax": None}]:
@@ -2578,9 +2586,12 @@ def export_rows(archive, records):
                             "name": " | ".join(reg.get("names", [])), "vat_ids": " | ".join(reg.get("vat_ids", [])),
                             "currency": k[3], "documents": v["documents"], "net": money(v["net"]),
                             "gross": money(v["gross"])})
-    return {"documents.csv": (DOC_COLUMNS, docs), "lines.csv": (LINE_COLUMNS, lines),
-            "vat_summary.csv": (VAT_COLUMNS, vat_rows), "vendors.csv": (VENDOR_COLUMNS, vendor_rows),
-            "issues.csv": (ISSUE_COLUMNS, issues)}
+    tables = {"documents.csv": (DOC_COLUMNS, docs), "lines.csv": (LINE_COLUMNS, lines),
+              "vat_summary.csv": (VAT_COLUMNS, vat_rows), "vendors.csv": (VENDOR_COLUMNS, vendor_rows),
+              "issues.csv": (ISSUE_COLUMNS, issues)}
+    for key, rows in sorted(by_class.items()):
+        tables[f"class-{key}.csv"] = (CLASS_COLUMNS + list(classes[key]["fields"]), rows)
+    return tables
 
 
 def cmd_export(args):

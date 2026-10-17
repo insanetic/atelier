@@ -691,6 +691,20 @@ class Archive(unittest.TestCase):
         self.assertIn("colour", err)
         self.assertIn("inv", err)
 
+    def test_class_fields_are_exported(self):
+        self.write_config(classes={"contract": {"fields": {"start": {"type": "date"}, "notice": {"type": "text"}}}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"start": "2026-01-01", "notice": "3 Monate"})
+        self.propose(doc, p)
+        self.pw("export")
+        rows = self.csv_rows("all", "class-contract.csv")
+        self.assertEqual((rows[0]["start"], rows[0]["notice"]), ("2026-01-01", "3 Monate"))
+        self.assertEqual(list(rows[0])[:7], ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"])
+        self.assertTrue(self.pw("export")[1]["unchanged"])
+
     def test_config_adds_a_class_with_required_fields(self):
         self.write_config(classes={"policy": {"label": "insurance policy",
                                               "fields": {"policy_number": {"type": "text"},
