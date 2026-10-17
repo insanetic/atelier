@@ -605,6 +605,54 @@ class Archive(unittest.TestCase):
         self.write_rules([{"id": "noclass", "when": {"text": ["x"]}, "set": {"doc_type": "invoice"}}])
         self.assertIn("noclass", self.pw("status")[2])
 
+    def test_rule_fields_need_their_class(self):
+        self.write_config(classes={"contract": {"fields": {"pn": {"type": "text"}}}})
+        for rule in ({"id": "loose", "when": {"text": ["x"]}, "set": {"fields.pn": "P-1"}},
+                     {"id": "wrong", "when": {"text": ["x"]}, "set": {"doc_type": "inv", "fields.pn": "P-1"}}):
+            self.write_rules([rule])
+            code, _, err = self.pw("status")
+            self.assertNotEqual(code, 0, rule)
+            self.assertIn(f"rules[archive].{rule['id']}", err)
+        for when in ({"text": ["x"], "doc_type": "contract"}, {"text": ["x"]}):
+            sets = {"fields.pn": "P-1"} if "doc_type" in when else {"doc_type": "contract", "fields.pn": "P-1"}
+            self.write_rules([{"id": "ok", "when": when, "set": sets}])
+            code, _, err = self.pw("status")
+            self.assertEqual(code, 0, err)
+
+    def contract_with_pn(self):
+        self.write_config(classes={"contract": {"fields": {"pn": {"type": "text"}}}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p.update(doc_type="contract", fields={"pn": "P-1"})
+        return doc, p
+
+    def test_rule_that_cannot_apply_sends_the_record_to_review(self):
+        doc, p = self.contract_with_pn()
+        self.write_rules([{"id": "to-inv", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        code, view, err = self.propose(doc, p)
+        self.assertEqual(code, 3, err)
+        self.assertIn("rule:conflict", [c["id"] for c in view["problems"]])
+        self.assertIn("to-inv", " ".join(c["message"] for c in view["problems"]))
+        self.assertEqual(self.pw("show", doc)[1]["data"]["doc_type"], "contract")
+
+    def test_rules_apply_survives_a_rule_that_cannot_apply(self):
+        doc, p = self.contract_with_pn()
+        self.propose(doc, p)
+        self.write_rules([{"id": "to-inv", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        code, out, err = self.pw("rules", "apply")
+        self.assertEqual(code, 0, err)
+        view = self.pw("show", doc)[1]
+        self.assertEqual((view["status"], view["data"]["doc_type"]), ("review", "contract"))
+        self.assertIn("rule:conflict", [c["id"] for c in view["problems"]])
+        # a class that lost a field
+        self.write_rules([{"id": "cat", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        self.write_config(classes={"contract": {}})
+        code, out, err = self.pw("rules", "apply")
+        self.assertEqual(code, 0, err)
+        self.assertIn("rule:conflict", [c["id"] for c in self.pw("show", doc)[1]["problems"]])
+
     def test_upgrade_replans_zero_moves(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")

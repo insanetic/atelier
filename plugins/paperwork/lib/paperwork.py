@@ -1309,15 +1309,21 @@ def rule_problems(rule, classes, cfg, seen):
     if dt_set is not None and not (isinstance(dt_set, str) and dt_set in classes):
         dt_set = None
         out.append(f"{rid}: class {sets['doc_type']!r} is not defined")
+    # the class the document ends up in: a field can only be set where that class is known
+    target = dt_set or (when["doc_type"] if isinstance(when.get("doc_type"), str) and when["doc_type"] in classes
+                        else None)
     for k, v in sorted(sets.items()):
         if k.startswith("fields."):
             name = k[len("fields."):]
-            specs = [c["fields"] for t, c in classes.items() if dt_set in (None, t) and name in c.get("fields", {})]
-            if not specs:
-                out.append(f"{rid}: no class declares field {name!r}")
+            if target is None:
+                out.append(f"{rid}: setting {k} needs set.doc_type or when.doc_type")
+                continue
+            specs = classes[target].get("fields", {})
+            if name not in specs:
+                out.append(f"{rid}: class {target} does not declare field {name!r}")
                 continue
             try:
-                normalize_fields({name: v}, specs[0], dt_set or "?")
+                normalize_fields({name: v}, specs, target)
             except Fail as e:
                 out.append(f"{rid}: {e}")
         elif k not in RULE_SET:
@@ -1454,8 +1460,13 @@ def apply_rules(archive, record):
     if "tags" in rule_fields:
         applied |= {m["id"] for m in matches if "tags" in m["set"]}
     record["rules"] = sorted(applied)
-    if rule_fields:
+    if not rule_fields:
+        return
+    try:
         record["data"] = normalize_proposal(data, archive.classes)
+    except Fail as e:  # e.g. a ruled class without the proposal's fields: the person decides
+        record["rule_log"], record["rule_fields"] = [], {}
+        record["rule_conflicts"] = conflicts + [f"rules {', '.join(record['rules'])} cannot apply: {e}"]
 
 
 def rule_hints(archive, record):
