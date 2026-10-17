@@ -296,6 +296,77 @@ class Archive(unittest.TestCase):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         write_json(path, {"rules": rules})
 
+    def test_claude_alone_is_unconfirmed_until_confirmed(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        p = hoster_proposal()
+        p["alternatives"] = {"doc_type": ["rcpt"]}
+        code, view, err = self.propose(doc, p)
+        self.assertEqual(code, 0, (view, err))
+        self.assertEqual(view["status"], "unconfirmed")
+        self.assertIn("counterparty:new", [c["id"] for c in view["warnings"]])
+        self.assertEqual(view["alternatives"], {"doc_type": ["rcpt"]})
+        self.file_all()
+        self.assertEqual(self.pw("show", doc[:8])[1]["status"], "unconfirmed")
+        self.assertEqual(len(self.pw("list", "--status", "unconfirmed")[1]["documents"]), 1)
+        self.assertTrue(self.pw("vendors")[1]["vendors"][0]["proposed"])
+        code, _, err = self.pw("confirm", doc[:8])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.pw("show", doc[:8])[1]["status"], "filed")
+        self.assertFalse(self.pw("vendors")[1]["vendors"][0]["proposed"])
+
+    def test_xml_and_ruled_documents_need_no_confirmation(self):
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        self.pw("confirm", doc[:8])  # confirms the new vendor once
+        self.drop("b.pdf", text_pdf([hoster_invoice(number="RE-2")]))
+        self.pw("ingest")
+        code, view, _ = self.propose(self.only_pending()[0]["id"], hoster_proposal(number="RE-2"))
+        self.assertEqual(view["status"], "ok")
+
+    def test_alternatives_must_be_known(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        p = hoster_proposal()
+        p["alternatives"] = {"doc_type": ["invoice"]}
+        code, _, err = self.propose(self.only_pending()[0]["id"], p)
+        self.assertEqual(code, 2)
+        self.assertIn("alternatives", err)
+
+    def test_records_from_before_the_outcome_stay_confirmed(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        path = os.path.join(self.root, "_paperwork", "docs", self.pw("show", doc[:8])[1]["id"] + ".json")
+        rec = json.loads(read(path))
+        del rec["recorded_by"]
+        write_json(path, rec)
+        self.pw("vendor", "muster-hosting", "alias", "Muster Hosting AG")  # any recompute
+        self.assertEqual(self.pw("show", doc[:8])[1]["status"], "ok")
+
+    def test_confirm_refuses_a_document_in_review_and_edits_confirm(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal(gross="191.00", tax="91.00", printed_gross="191,00 €"))
+        code, _, err = self.pw("confirm", doc[:8])
+        self.assertNotEqual(code, 0)
+        self.assertIn("review", err)
+
+    def test_set_confirms(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        code, view, err = self.pw("set", doc[:8], "notes=checked")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(view["status"], "ok")
+
     def test_rules_test_previews_without_writing(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")
@@ -612,6 +683,9 @@ class Archive(unittest.TestCase):
         self.assertIn("Rechnungsnummer: RE-2026-0042", read(pending[0]["text"]))
         code, view, err = self.propose(pending[0]["id"], hoster_proposal())
         self.assertEqual(code, 0, (view, err))
+        self.assertEqual(view["status"], "unconfirmed")
+        self.assertEqual(self.pw("confirm", view["id"][:8])[0], 0)
+        view = self.pw("show", view["id"][:8])[1]
         self.assertEqual(view["status"], "ok")
         self.assertEqual((view["entity"], view["direction"], view["counterparty"]), ("nordlicht", "in", "muster-hosting"))
         before = all_files(self.root)
@@ -726,7 +800,8 @@ class Archive(unittest.TestCase):
             self.propose(item["id"], hoster_proposal(number=number))
         _, listing, _ = self.pw("list")
         statuses = sorted((d["number"], d["status"]) for d in listing["documents"])
-        self.assertEqual(statuses, [("RE-2026-0042", "duplicate"), ("RE-2026-0042", "ok"), ("RE-2026-0043", "ok")])
+        self.assertEqual(statuses, [("RE-2026-0042", "duplicate"), ("RE-2026-0042", "unconfirmed"),
+                                    ("RE-2026-0043", "unconfirmed")])
 
     def test_credit_note_sign(self):
         lines = [x.replace("Rechnung", "Gutschrift") for x in hoster_invoice(net="-100,00", tax="-19,00", gross="-119,00")]
@@ -786,13 +861,14 @@ class Archive(unittest.TestCase):
         text = read(pend[0]["text"])
         self.assertIn("Muster Hosting", text)
         code, view, _ = self.propose(pend[0]["id"], hoster_proposal())
-        self.assertIn(view["status"], ("ok", "review"))
+        self.assertIn(view["status"], ("unconfirmed", "review"))
 
     def test_template_learns_a_vendor(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")
         doc = self.only_pending()[0]["id"]
         self.propose(doc, hoster_proposal())
+        self.pw("confirm", doc[:8])  # a template is tested against confirmed documents only
         template = {
             "match": ["Muster Hosting GmbH", HOSTER_VAT],
             "fixed": {"doc_type": "inv", "currency": "EUR",

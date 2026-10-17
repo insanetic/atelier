@@ -678,8 +678,9 @@ PROPOSAL_KEYS = {
     "doc_type", "language", "issue_date", "service_date", "service_period", "due_date", "seller",
     "buyer", "invoice_number", "refers_to", "currency", "net", "tax", "gross", "reverse_charge",
     "iban", "payment_method", "paid", "category", "tags", "lines", "evidence", "notes",
-    "entity", "direction", "fields",
+    "entity", "direction", "fields", "alternatives",
 }
+MAX_ALTERNATIVES = 3
 
 
 def normalize_fields(raw, specs, doc_type):
@@ -714,7 +715,30 @@ def normalize_fields(raw, specs, doc_type):
     return out
 
 
-def normalize_proposal(p, classes=BUILTIN_CLASSES):
+def normalize_alternatives(raw, classes, entities):
+    if raw in (None, {}):
+        return {}
+    if not isinstance(raw, dict):
+        raise Fail("alternatives maps doc_type, entity or counterparty to a ranked list")
+    unknown = sorted(set(raw) - {"doc_type", "entity", "counterparty"})
+    if unknown:
+        raise Fail(f"unknown alternatives: {', '.join(unknown)} (doc_type, entity, counterparty)")
+    out = {}
+    for key, values in sorted(raw.items()):
+        values = [values] if isinstance(values, str) else values
+        if not isinstance(values, list):
+            raise Fail(f"alternatives.{key} is a list, best first")
+        values = [str(v).strip() for v in values if str(v).strip()][:MAX_ALTERNATIVES]
+        known = classes if key == "doc_type" else entities
+        for v in values:
+            if known is not None and key != "counterparty" and v not in known:
+                raise Fail(f"alternatives.{key}: {v!r} is not one of {', '.join(known)}")
+        if values:
+            out[key] = values
+    return out
+
+
+def normalize_proposal(p, classes=BUILTIN_CLASSES, entities=None):
     if not isinstance(p, dict):
         raise Fail("a proposal is a JSON object")
     unknown = sorted(set(p) - PROPOSAL_KEYS)
@@ -801,6 +825,7 @@ def normalize_proposal(p, classes=BUILTIN_CLASSES):
     if p.get("direction") not in (None, "", *DIRECTIONS):
         raise Fail("direction is in or out")
     d["direction"] = p.get("direction") or None
+    d["alternatives"] = normalize_alternatives(p.get("alternatives"), classes, entities)
     return d
 
 
@@ -835,6 +860,8 @@ SCHEMA = {
                  "net": "as printed", "tax": "as printed", "due_date": "as printed"},
     "notes": "anything a reader needs: what is unusual",
     "fields": "values of the class's own fields, {name: value}; only for classes that declare fields",
+    "alternatives": {"doc_type": ["up to 3 other class keys, best first"], "entity": ["up to 3 entity slugs"],
+                     "counterparty": ["up to 3 names"]},
 }
 
 
@@ -1027,7 +1054,7 @@ class Archive:
                 return v
         return None
 
-    def resolve_counterparty(self, party, create=True):
+    def resolve_counterparty(self, party, create=True, proposed=False):
         """The registry slug for a party: by VAT ID, then by name. New parties are added."""
         name = (party or {}).get("name")
         vat = norm_vat((party or {}).get("vat_id"))
@@ -1048,6 +1075,8 @@ class Archive:
             while self.vendor(slug):
                 slug, n = f"{base}-{n}", n + 1
             hit = {"slug": slug, "names": [], "vat_ids": [], "category": None, "template": None}
+            if proposed:
+                hit["proposed"] = True
             self.vendors["vendors"].append(hit)
         if name and name not in hit["names"]:
             hit["names"] = sorted(set(hit["names"]) | {name})
@@ -1634,8 +1663,13 @@ def compute(record, archive):
     d = record["data"]
     record["checks"] = check(record, archive)
     party = d["seller"] if record["direction"] != "out" else d["buyer"]
-    record["counterparty"] = archive.resolve_counterparty(party)
+    by_claude = record.get("source") == "claude" and bool(record.get("recorded_by"))
+    record["counterparty"] = archive.resolve_counterparty(party, proposed=by_claude)
     v = archive.vendor(record["counterparty"]) if record["counterparty"] else None
+    record["vendor_proposed"] = bool(v and v.get("proposed"))
+    if record["vendor_proposed"]:
+        record["checks"].append({"id": "counterparty:new", "severity": "warning",
+                                 "message": f"{record['counterparty']} is a new counterparty proposed by Claude: confirm it"})
     if v and v.get("category") and not d.get("category"):
         d["category"] = v["category"]
     if d.get("category") and d["category"] not in archive.config.get("categories", []):
@@ -1660,6 +1694,13 @@ def compute(record, archive):
             record["checks"].append({"id": problem[0], "severity": "error", "message": problem[1]})
 
 
+def needs_confirmation(record):
+    """Claude classified this alone: no rule decided the class, or the counterparty is new and unconfirmed."""
+    if record.get("source") != "claude" or record.get("confirmed") or not record.get("recorded_by"):
+        return False
+    return "doc_type" not in record.get("rule_fields", {}) or bool(record.get("vendor_proposed"))
+
+
 def status_of(record, archive=None):
     if record.get("unsupported"):
         return "review"
@@ -1669,6 +1710,8 @@ def status_of(record, archive=None):
         return "new"
     if any(c["severity"] == "error" for c in record.get("checks", [])):
         return "review"
+    if needs_confirmation(record):
+        return "unconfirmed"
     if archive is not None and record.get("path") == target_path(record, archive):
         return "filed"
     return "ok"
@@ -2088,6 +2131,10 @@ def cmd_schema(args):
     return EXIT_OK
 
 
+def entity_slugs(archive):
+    return [e["slug"] for e in archive.config["entities"]]
+
+
 def record_view(r, archive):
     return {"id": r["id"], "status": r["status"], "path": r["path"], "target": target_path(r, archive),
             "entity": r.get("entity"), "direction": r.get("direction"), "counterparty": r.get("counterparty"),
@@ -2095,7 +2142,8 @@ def record_view(r, archive):
             "duplicate_of": r.get("duplicate_of"), "copies": r.get("copies"),
             "problems": [c for c in r.get("checks", []) if c["severity"] == "error"],
             "warnings": [c for c in r.get("checks", []) if c["severity"] == "warning"],
-            "waived": r.get("waived", []), "unsupported": r.get("unsupported")}
+            "waived": r.get("waived", []), "unsupported": r.get("unsupported"),
+            "confirmed": not needs_confirmation(r), "alternatives": (r.get("data") or {}).get("alternatives", {})}
 
 
 def cmd_record(args):
@@ -2113,9 +2161,12 @@ def cmd_record(args):
                 raise Fail(f"{args.proposal}: not valid JSON: {e}")
         if r.get("data") and r.get("source") in ("claude", "user") and not args.force:
             raise Fail("this document already has fields; use `paperwork set` to change them or --force to replace")
-        r["data"] = normalize_proposal(proposal, archive.classes)
+        r["data"] = normalize_proposal(proposal, archive.classes, entity_slugs(archive))
         apply_rules(archive, r)
         r["source"] = "claude" if not args.user else "user"
+        r.pop("confirmed", None)
+        if r["source"] == "claude":
+            r["recorded_by"] = VERSION
         recompute_all(archive)
         save_all(archive)
         view = record_view(r, archive)
@@ -2164,18 +2215,37 @@ def cmd_set(args):
                 value = None
             changes.append({"field": key, "old": get_path(data, key), "new": value})
             set_path(data, key, value)
-        normalized = normalize_proposal(data, archive.classes)
+        normalized = normalize_proposal(data, archive.classes, entity_slugs(archive))
         r["data"] = normalized
         r["edits"] = r.get("edits", []) + [dict(c, at=now()) for c in changes]
         apply_rules(archive, r)
         if r.get("source") == "claude" or (r.get("source") or "").startswith("template:"):
             r["source_before_edit"] = r.get("source_before_edit") or r["source"]
         r["source"] = "user"
+        r["confirmed"] = {"at": now()}
         recompute_all(archive)
         save_all(archive)
         view = record_view(r, archive)
         emit(view)
     return EXIT_REVIEW if view["status"] == "review" else EXIT_OK
+
+
+def cmd_confirm(args):
+    archive = Archive(args.root)
+    with archive.lock():
+        records = [archive.find(i) for i in args.ids]
+        for r in records:
+            if r["status"] == "review" or not r.get("data"):
+                raise Fail(f"{r['id'][:8]} is {r['status']}: fix it before confirming")
+        for r in records:
+            r["confirmed"] = {"at": now()}
+            v = archive.vendor(r["counterparty"]) if r.get("counterparty") else None
+            if v:
+                v.pop("proposed", None)
+        recompute_all(archive)
+        save_all(archive)
+        emit({"confirmed": [r["id"][:12] for r in records], "status": summary(archive)})
+    return EXIT_OK
 
 
 def cmd_accept(args):
@@ -2403,7 +2473,7 @@ DOC_COLUMNS = ["id", "entity", "direction", "doc_type", "issue_date", "service_d
                "seller_address", "seller_country", "buyer_name", "buyer_vat_id", "billing_address",
                "buyer_country", "invoice_number", "refers_to", "currency", "net", "tax", "gross", "tax_rates",
                "reverse_charge", "paid", "payment_method", "iban", "category", "tags", "lines_status", "status",
-               "duplicate_of", "source", "media", "path", "original_name", "warnings"]
+               "confirmed", "duplicate_of", "source", "media", "path", "original_name", "warnings"]
 LINE_COLUMNS = ["id", "line", "entity", "direction", "issue_date", "counterparty", "invoice_number", "currency",
                 "description", "quantity", "unit", "unit_price", "net", "tax_rate", "gross"]
 VAT_COLUMNS = ["entity", "month", "direction", "currency", "rate", "reverse_charge", "documents", "net", "tax", "gross"]
@@ -2456,7 +2526,7 @@ def export_rows(archive, records):
             "reverse_charge": d.get("reverse_charge") if d else None, "paid": d.get("paid"),
             "payment_method": d.get("payment_method"), "iban": d.get("iban"), "category": d.get("category"),
             "tags": " | ".join(d.get("tags") or []), "lines_status": r.get("lines_status"), "status": r["status"],
-            "duplicate_of": r.get("duplicate_of"), "source": r.get("source"), "media": r.get("media"),
+            "confirmed": str(not needs_confirmation(r)).lower(), "duplicate_of": r.get("duplicate_of"), "source": r.get("source"), "media": r.get("media"),
             "path": r["path"], "original_name": r.get("original_name"),
             "warnings": " | ".join(c["message"] for c in r.get("checks", []) if c["severity"] == "warning"),
         })
@@ -2471,7 +2541,7 @@ def export_rows(archive, records):
         if r.get("unsupported"):
             issues.append({"id": r["id"], "entity": None, "status": r["status"], "severity": "error",
                            "check": "unsupported", "message": r["unsupported"], "path": r["path"]})
-        if r["status"] not in ("ok", "filed") or not classes.get(d.get("doc_type"), {}).get("money"):
+        if r["status"] not in ("ok", "filed", "unconfirmed") or not classes.get(d.get("doc_type"), {}).get("money"):
             continue
         month = (d.get("issue_date") or "")[:7]
         for t in tax or [{"rate": "unknown", "net": None, "tax": None}]:
@@ -2538,7 +2608,8 @@ def cmd_vendors(args):
         if r.get("counterparty"):
             counts[r["counterparty"]] = counts.get(r["counterparty"], 0) + 1
     emit({"vendors": [{"slug": v["slug"], "names": v["names"], "vat_ids": v["vat_ids"], "category": v.get("category"),
-                       "template": bool(v.get("template")), "documents": counts.get(v["slug"], 0)}
+                       "template": bool(v.get("template")), "proposed": bool(v.get("proposed")),
+                       "documents": counts.get(v["slug"], 0)}
                       for v in sorted(archive.vendors["vendors"], key=lambda v: v["slug"])]})
     return EXIT_OK
 
@@ -2676,6 +2747,8 @@ def parser():
     sp = add("set", cmd_set, "change fields: field=value (dotted: buyer.name=...)")
     sp.add_argument("id")
     sp.add_argument("assignments", nargs="+")
+    sp = add("confirm", cmd_confirm, "confirm documents Claude classified alone (and their new counterparty)")
+    sp.add_argument("ids", nargs="+", metavar="id")
     sp = add("accept", cmd_accept, "waive one check with a reason")
     sp.add_argument("id")
     sp.add_argument("check")
