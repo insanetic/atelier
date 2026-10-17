@@ -2247,7 +2247,10 @@ def cmd_set(args):
             r["source_before_edit"] = r.get("source_before_edit") or r["source"]
         r["source"] = "user"
         r["confirmed"] = {"at": now()}
-        recompute_all(archive)
+        recompute_all(archive)  # the edit may have changed the counterparty
+        v = archive.vendor(r["counterparty"]) if r.get("counterparty") else None
+        if v and v.pop("proposed", None):
+            recompute_all(archive)
         save_all(archive)
         view = record_view(r, archive)
         emit(view)

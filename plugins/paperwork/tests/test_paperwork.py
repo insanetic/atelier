@@ -366,6 +366,7 @@ class Archive(unittest.TestCase):
         code, view, err = self.pw("set", doc[:8], "notes=checked")
         self.assertEqual(code, 0, err)
         self.assertEqual(view["status"], "ok")
+        self.assertNotIn("counterparty:new", [c["id"] for c in view["warnings"]])
 
     def test_claude_proposal_in_review_is_not_confirmed(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
