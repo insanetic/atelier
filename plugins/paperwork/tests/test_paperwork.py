@@ -324,6 +324,46 @@ class Archive(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("path:folder", [c["id"] for c in view["problems"]])
         self.assertTrue(view["target"].startswith("_review/"))
+        code, _, err = self.pw("accept", doc, "path:folder", "--reason", "x")
+        self.assertNotEqual(code, 0)
+        self.assertIn("path:folder", err)
+        self.assertTrue(self.pw("show", doc)[1]["target"].startswith("_review/"))
+
+    def test_folder_templates_never_escape(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        for folder in ("{entity}/../x", "{entity}/_review/x", "{year}/{entity}", "{entity}//x"):
+            self.write_config(classes={"inv": {"folder": folder}})
+            if self.pw("status")[0] != 0:
+                continue  # rejected at load: no move target either
+            self.pw("export")  # recomputes and saves the checks
+            self.assertEqual(self.pw("plan")[1]["by_destination"].get("to archive", []), [])
+            view = self.pw("show", doc)[1]
+            self.assertTrue(view["target"].startswith("_review/"), (folder, view["target"]))
+            self.assertIn("path:folder", [c["id"] for c in view["problems"]])
+
+    def test_long_path_goes_to_review(self):
+        self.write_config(classes={"inv": {"folder": "{entity}/" + "x" * 240}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        _, view, _ = self.propose(doc, hoster_proposal())
+        self.assertIn("path:length", [c["id"] for c in view["problems"]])
+        self.assertTrue(view["target"].startswith("_review/"))
+
+    def test_long_path_is_shortened_to_fit(self):
+        self.write_config(classes={"inv": {"folder": "{entity}/pad"}})
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        _, view, _ = self.propose(doc, hoster_proposal())
+        fit = pw.MAX_PATH - len(os.path.join(self.root, view["target"]))
+        self.write_config(classes={"inv": {"folder": "{entity}/" + "x" * (3 + fit + 5)}})
+        view = self.pw("show", doc)[1]
+        self.assertTrue(view["target"].startswith("nordlicht/xxx"), view["target"])
+        self.assertLessEqual(len(os.path.join(self.root, view["target"])), pw.MAX_PATH)
 
     def test_bad_template_fails(self):
         self.write_config(classes={"inv": {"name": "{issue_date}_{colour}"}})

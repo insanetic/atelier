@@ -1141,11 +1141,17 @@ def template_problems(template, cls, folder=False, part="name"):
     literal = HOLE.sub("", template)
     if "{" in literal or "}" in literal:
         out.append(f"{part} template: unbalanced braces in {template!r}")
+    if not template:
+        out.append(f"{part} template must not be empty")
     if folder:
         if template.split("/")[0] != "{entity}":
             out.append(f"{part} template must start with {{entity}}")
-    elif not re.fullmatch(r"[A-Za-z0-9._ -]*", literal):
-        out.append(f"{part} template: text outside placeholders may only use letters, digits, space, . _ -")
+        allowed = r"[A-Za-z0-9._ /-]*"
+    else:
+        allowed = r"[A-Za-z0-9._ -]*"
+    if not re.fullmatch(allowed, literal.replace("{", "").replace("}", "")):
+        out.append(f"{part} template: text outside placeholders may only use letters, digits, space, . _ -"
+                   + (" and /" if folder else ""))
     return out
 
 
@@ -1425,9 +1431,9 @@ def compute(record, archive):
                                  "message": f"category {d['category']!r} is not in config.json"})
     cls = archive.classes.get(d["doc_type"])
     if cls and not any(c["severity"] == "error" for c in record["checks"]):
-        problem = folder_problem(record, render(cls["folder"], placeholder_values(record, cls)))
+        problem = path_problem(record, archive, cls)
         if problem:
-            record["checks"].append({"id": "path:folder", "severity": "error", "message": problem})
+            record["checks"].append({"id": problem[0], "severity": "error", "message": problem[1]})
 
 
 def status_of(record, archive=None):
@@ -1473,8 +1479,9 @@ def render(template, values):
     return HOLE.sub(lambda m: values[m.group(1)], template)
 
 
-def canonical_name(record, cls):
-    return render(cls["name"], placeholder_values(record, cls)), MEDIA_EXT.get(record["kind"], "bin")
+def canonical_name(record, cls, values=None):
+    values = values or placeholder_values(record, cls)
+    return render(cls["name"], values), MEDIA_EXT.get(record["kind"], "bin")
 
 
 def folder_problem(record, folder):
@@ -1486,6 +1493,35 @@ def folder_problem(record, folder):
     return None
 
 
+def rendered_path(record, archive, cls):
+    """(folder, file name with extension), shortened to fit MAX_PATH where the values allow it."""
+    values = placeholder_values(record, cls)
+
+    def paths():
+        stem, ext = canonical_name(record, cls, values)
+        return render(cls["folder"], values), f"{stem}.{ext}"
+
+    def over():
+        return len(os.path.join(archive.root, *paths())) - MAX_PATH
+
+    names = [h for h in HOLE.findall(cls["name"]) if h.startswith("fields.")]
+    for key in ["number", "counterparty", *names]:
+        if over() > 0:
+            values[key] = values[key][: max(1, len(values[key]) - over())]
+    return paths()
+
+
+def path_problem(record, archive, cls):
+    """The first reason the rendered path is unusable, as (check id, message), or None."""
+    folder, name = rendered_path(record, archive, cls)
+    problem = folder_problem(record, folder)
+    if problem:
+        return "path:folder", problem
+    if len(os.path.join(archive.root, folder, name)) > MAX_PATH:
+        return "path:length", f"the path is longer than {MAX_PATH} characters even after shortening"
+    return None
+
+
 def target_path(record, archive):
     st_dup = record.get("duplicate_of")
     ext = MEDIA_EXT.get(record["kind"], "bin")
@@ -1493,26 +1529,15 @@ def target_path(record, archive):
         return f"{DUPLICATES}/{record['id'][:8]}_duplicate-of-{st_dup[:8]}.{ext}"
     if not record.get("data") and not record.get("unsupported"):
         return record.get("path")  # not read yet: it stays where it is
-    if record.get("unsupported") or any(c["severity"] == "error" for c in record.get("checks", [])):
+    cls = archive.classes.get(record["data"]["doc_type"]) if record.get("data") else None
+    # path problems are re-checked here, never read from the (waivable) checks
+    if (record.get("unsupported") or cls is None or path_problem(record, archive, cls)
+            or any(c["severity"] == "error" for c in record.get("checks", []))):
         if record.get("path", "").startswith(INBOX + "/") or record.get("path", "").startswith(REVIEW + "/"):
             stem = safe_number(os.path.splitext(record.get("original_name") or "")[0], 60)
             return f"{REVIEW}/{record['id'][:8]}_{stem}.{ext}"
         return record.get("path")
-    cls = archive.classes[record["data"]["doc_type"]]
-    values = placeholder_values(record, cls)
-
-    def paths():
-        return render(cls["folder"], values), render(cls["name"], values) + "." + ext
-
-    def over():
-        folder, name = paths()
-        return len(os.path.join(archive.root, folder, name)) - MAX_PATH
-
-    names = [h for h in HOLE.findall(cls["name"]) if h.startswith("fields.")]
-    for key in ["number", "counterparty", *names]:
-        if over() > 0:
-            values[key] = values[key][: max(1, len(values[key]) - over())]
-    folder, name = paths()
+    folder, name = rendered_path(record, archive, cls)
     return f"{folder}/{name}"
 
 
@@ -1888,6 +1913,8 @@ def cmd_accept(args):
         ids = {c["id"] for c in r.get("checks", [])}
         if args.check not in ids:
             raise Fail(f"{r['id'][:8]} has no check {args.check!r}; it has: {', '.join(sorted(ids)) or 'none'}")
+        if args.check.startswith("path:"):
+            raise Fail(f"{args.check} cannot be accepted: fix the class templates or the document's fields")
         if not args.reason.strip():
             raise Fail("give a reason")
         r["waived"] = [w for w in r.get("waived", []) if w["check"] != args.check] + [
