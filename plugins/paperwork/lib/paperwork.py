@@ -916,13 +916,13 @@ def convert(raw, kind, spec, key):
 
 
 class Archive:
-    def __init__(self, root):
+    def __init__(self, root, rules_file=None):
         self.root = os.path.abspath(root)
         if not os.path.isfile(self.p(STATE, "config.json")):
             raise Fail(f"not an archive (no {STATE}/config.json): {self.root}; run `paperwork init`")
         self.config = self.load_config()
         self.vendors = read_json(self.p(STATE, "vendors.json"), {"vendors": []})
-        self.rules = load_rules(self)
+        self.rules = load_rules(self, rules_file)
         self._records = None
         self.today = dt.datetime.now(dt.timezone.utc).date()
 
@@ -1302,9 +1302,10 @@ def rules_problems(doc, classes, cfg, layer):
     return [f"rules[{layer}].{m}" for rule in doc["rules"] for m in rule_problems(rule, classes, cfg, seen)]
 
 
-def load_rules(archive):
+def load_rules(archive, rules_file=None):
+    """Both layers. `rules_file` stands in for the archive layer (a draft under test) and is never optional."""
     user = slugify(os.environ.get("PAPERWORK_USER", ""), 64)
-    paths = {"archive": archive.p(STATE, "rules.json"),
+    paths = {"archive": rules_file or archive.p(STATE, "rules.json"),
              "user": archive.p(STATE, "rules", user + ".json") if user else None}
     rules, problems = [], []
     for layer in LAYERS:
@@ -1321,23 +1322,31 @@ def load_rules(archive):
         if not found:
             rules += [dict(r, layer=layer) for r in doc["rules"]]
     if problems:
-        raise Fail("rules: " + "; ".join(problems))
+        raise Fail("rules: " + "; ".join(problems), EXIT_CHECK if rules_file else EXIT_USAGE)
     return rules
+
+
+def has_phrases(text, phrases):
+    block = squash(text)
+    return all(squash(t) in block for t in phrases)
+
+
+def has_regex(text, pattern):
+    return re.search(pattern, text, re.I | re.M) is not None
 
 
 def match_rules(rules, record, text):
     """The rules whose conditions all hold. `record` carries data, counterparty and entity."""
     d = record["data"]
     party = d["buyer"] if d.get("direction") == "out" else d["seller"]
-    block = squash(text)
     hits = []
     for r in rules:
         w = r["when"]
         checks = {
             "counterparty": lambda: record.get("counterparty") == w["counterparty"],
             "vat_id": lambda: bool(norm_vat(party.get("vat_id"))) and norm_vat(party.get("vat_id")) == norm_vat(w["vat_id"]),
-            "text": lambda: all(squash(t) in block for t in w["text"]),
-            "regex": lambda: re.search(w["regex"], text, re.I | re.M) is not None,
+            "text": lambda: has_phrases(text, w["text"]),
+            "regex": lambda: has_regex(text, w["regex"]),
             "doc_type": lambda: d["doc_type"] == w["doc_type"],
             "entity": lambda: record.get("entity") == w["entity"],
         }
@@ -1417,10 +1426,9 @@ def rule_hints(archive, record):
     if not early:
         return {}
     text = archive.text(record)
-    block = squash(text)
     hits = [r for r in early
-            if ("text" not in r["when"] or all(squash(t) in block for t in r["when"]["text"]))
-            and ("regex" not in r["when"] or re.search(r["when"]["regex"], text, re.I | re.M))]
+            if ("text" not in r["when"] or has_phrases(text, r["when"]["text"]))
+            and ("regex" not in r["when"] or has_regex(text, r["when"]["regex"]))]
     decided, _ = decide(hits)
     return {k: v for k, (v, _) in sorted(decided.items())}
 
@@ -2046,32 +2054,23 @@ def rule_changes(archive, record):
 
 
 def cmd_rules(args):
-    archive = Archive(args.root)
-    if args.action == "test" and args.file:
-        try:
-            doc = read_json(args.file)
-        except (ValueError, OSError) as e:
-            raise Fail(f"rules[archive]: {args.file} is not valid JSON: {e}", EXIT_CHECK)
-        found = rules_problems(doc, archive.classes, archive.config, "archive")
-        if found:
-            raise Fail("; ".join(found), EXIT_CHECK)
-        archive.rules = [r for r in archive.rules if r["layer"] == "user"] + \
-            [dict(r, layer="archive") for r in doc["rules"]]
+    if args.file and args.action != "test":
+        raise Fail("--file only works with `rules test`; `rules apply` uses _paperwork/rules.json")
+    if args.file and not os.path.isfile(args.file):
+        raise Fail(f"rules[archive]: {args.file} does not exist", EXIT_CHECK)
+    archive = Archive(args.root, rules_file=args.file)
+    applying = args.action == "apply"
     out = []
-    if args.action == "test":
+    with archive.lock() if applying else contextlib.nullcontext():
         for r in sorted(archive.records.values(), key=lambda r: r["id"]):
-            if r.get("data"):
-                entry = rule_changes(archive, r)
-                if entry:
-                    out.append(entry)
-    else:
-        with archive.lock():
-            for r in sorted(archive.records.values(), key=lambda r: r["id"]):
-                if r.get("data") and r.get("source") != "user":
-                    entry = rule_changes(archive, r)
-                    if entry:
-                        apply_rules(archive, r)
-                        out.append(entry)
+            if not r.get("data") or (applying and r.get("source") == "user"):
+                continue
+            entry = rule_changes(archive, r)
+            if entry:
+                if applying:
+                    apply_rules(archive, r)
+                out.append(entry)
+        if applying:
             recompute_all(archive)
             save_all(archive)
     emit({"changes": out, "count": len(out)})

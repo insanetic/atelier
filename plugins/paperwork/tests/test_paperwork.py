@@ -318,6 +318,51 @@ class Archive(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("bogus", err)
 
+    def ingest_hoster(self):
+        self.drop("a.pdf", text_pdf([hoster_invoice()]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal())
+        return doc
+
+    def draft(self, category):
+        path = os.path.join(self.root, "draft.json")
+        write_json(path, {"rules": [{"id": "draft", "when": {"text": ["Cloud Server"]}, "set": {"category": category}}]})
+        return path
+
+    def test_rules_test_file_replaces_archive_layer(self):
+        self.ingest_hoster()
+        self.write_rules([{"id": "disk", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        code, out, err = self.pw("rules", "test", "--file", self.draft("software"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["changes"][0]["changes"][0]["to"], "software")
+        self.assertEqual(out["changes"][0]["rules"], ["draft"])
+
+    def test_rules_test_file_repairs_broken_rules_json(self):
+        self.ingest_hoster()
+        with open(os.path.join(self.root, "_paperwork", "rules.json"), "w") as f:
+            f.write("{broken")
+        self.assertNotEqual(self.pw("status")[0], 0)
+        code, out, err = self.pw("rules", "test", "--file", self.draft("software"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["changes"][0]["changes"][0]["to"], "software")
+        self.assertNotEqual(self.pw("status")[0], 0)
+
+    def test_rules_apply_rejects_file(self):
+        code, _, err = self.pw("rules", "apply", "--file", self.draft("software"))
+        self.assertEqual(code, 2)
+        self.assertIn("--file", err)
+
+    def test_rules_apply_leaves_user_records_and_unchanged_out(self):
+        doc = self.ingest_hoster()
+        self.pw("set", doc, "notes=mine")
+        self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"category": "hosting"}}])
+        docs = os.path.join(self.root, "_paperwork", "docs")
+        before = read(os.path.join(docs, doc_file(docs, doc)))
+        code, out, err = self.pw("rules", "apply")
+        self.assertEqual((code, out["changes"]), (0, []), err)
+        self.assertEqual(before, read(os.path.join(docs, doc_file(docs, doc))))
+
     def test_pending_carries_text_rule_hints(self):
         self.write_rules([{"id": "hoster", "when": {"text": ["Cloud Server"]}, "set": {"doc_type": "inv"}}])
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
@@ -908,6 +953,8 @@ class Guard(unittest.TestCase):
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/templates/x.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/erika.json"}))
+        self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json.bak"}))
+        self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/../docs/x.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/tmp/a.json"}))
 
 
