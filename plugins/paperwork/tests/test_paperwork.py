@@ -862,6 +862,15 @@ class Archive(unittest.TestCase):
         code, _, err = self.pw("status")
         self.assertIn("policy", err)
 
+    def test_bad_class_values_are_reported(self):
+        self.write_config(classes={"policy": {"required": [1, "fields"], "money": "yes", "label": 5,
+                                              "checks": [["ustg14"], 3]}})
+        code, _, err = self.pw("status")
+        self.assertEqual(code, pw.EXIT_USAGE, err)
+        for part in ("required entry 1", "required entry 'fields'", "money is true or false",
+                     "label is a string", "the only known check is ustg14"):
+            self.assertIn(f"classes.policy: {part}", err)
+
     def test_removed_class_goes_to_review(self):
         self.write_config(classes={"policy": {}})
         self.drop("a.pdf", text_pdf([hoster_invoice()]))

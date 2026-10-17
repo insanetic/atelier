@@ -1148,10 +1148,12 @@ def class_problems(classes):
             out.append(f"classes.{key}: required must be a list")
             continue
         for r in required:
-            if r.startswith("fields."):
+            if not isinstance(r, str) or r == "fields":
+                ok = False
+            elif r.startswith("fields."):
                 ok = r[len("fields."):] in fields
             else:
-                head, _, tail = str(r).partition(".")
+                head, _, tail = r.partition(".")
                 ok = (head in PROPOSAL_KEYS and not tail) or (head in ("seller", "buyer") and tail in PARTY_KEYS)
             if not ok:
                 out.append(f"classes.{key}: required entry {r!r} is not a proposal key or a declared field")
@@ -1164,8 +1166,13 @@ def class_problems(classes):
             out += [f"classes.{key}: {m}" for m in template_problems(template, {"fields": fields}, part == "folder", part)]
         if c.get("sign") not in (None, "positive", "negative"):
             out.append(f"classes.{key}: sign is positive, negative or null")
-        if not set(c.get("checks", [])) <= {"ustg14"}:
+        checks = c.get("checks", [])
+        if not isinstance(checks, list) or any(ch != "ustg14" for ch in checks):
             out.append(f"classes.{key}: the only known check is ustg14")
+        if not isinstance(c.get("money", False), bool):
+            out.append(f"classes.{key}: money is true or false")
+        if not isinstance(c.get("label", ""), str):
+            out.append(f"classes.{key}: label is a string")
     return out
 
 
