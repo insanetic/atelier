@@ -149,6 +149,10 @@ from where the record says; the record stays).
 A **class** is the one place that decides a document type's fields, checks, file name and folder. The
 built-ins (`inv cn rcpt rem notice oc quote contract other`) reproduce the 0.1.0 names and folders;
 `classes` in `config.json` is shallow-merged over them. A proposal's `doc_type` must be a class key.
+Every rendered path is checked before a move, live and never from stored checks: `path:folder` (an empty
+segment, or one starting with `_` or `.`), `path:name` (an empty name, a leading `.`, or a slash) and
+`path:length`. They send the document to review and `accept` refuses them. `apply` also refuses a plan
+whose target lies outside the archive or in an engine folder other than `_review/` and `_duplicates/`.
 
 **Rules** set values on documents that match (`when`: counterparty, VAT ID, text, regex, doc type,
 entity). There are two layers: `_paperwork/rules.json` for the archive and `_paperwork/rules/<user>.json`
@@ -159,15 +163,18 @@ for one person (`PAPERWORK_USER`).
   document goes to review.
 - A person's edit (`paperwork set`) beats a rule and clears a conflict on that field.
 - Rules are applied when fields are set (extract, record, set) and saved with a log. Only
-  `paperwork rules apply` re-applies them to documents already recorded, and `rules test` previews
-  without writing.
+  `paperwork rules apply` re-applies them to documents already recorded. `rules test` previews
+  without writing; its `--file` stands in for `rules.json`. Keep that draft outside
+  `_paperwork/rules/`, since a file there becomes a user layer.
+- A rule that sets `fields.<name>` names its class with `set.doc_type` or `when.doc_type`. A rule
+  the document's data cannot take (a class without the proposal's fields) is a `rule:conflict`.
 
 A document ends in one of three outcomes:
 
 | Outcome | Meaning |
 |---|---|
 | `ok` / `filed` | No check failed (warnings do not block) and a rule, a template, XML or a person decided the class |
-| `unconfirmed` | Filed, but Claude classified it alone, or introduced a new counterparty. `paperwork confirm` settles it |
+| `unconfirmed` | Filed, but Claude recorded it and classified it alone or introduced a new counterparty. `paperwork confirm` settles it |
 | `review` | A check failed or a rule conflicts. Held back until a person decides |
 
 ## Reading a document
@@ -269,7 +276,8 @@ paperwork schema                         # the proposal format
 paperwork record <id> fields.json        # check a proposal, store it as ok or review
 paperwork set <id> field=value ...       # a user's correction, recorded in the record's edits
 paperwork confirm <id> [<id>...]         # confirm what Claude classified alone
-paperwork rules test|apply [--file f]    # preview rules, or re-apply them to documents a person did not set
+paperwork rules test [--file f]          # preview rules (f stands in for rules.json), writes nothing
+paperwork rules apply                    # re-apply rules to documents a person did not set
 paperwork accept <id> <check> --reason   # waive one check, recorded with its reason
 paperwork reextract <id>                 # drop the fields so it is read again (kept in history)
 paperwork list [--status s] | show <id> | status

@@ -81,14 +81,21 @@ match, so a recurring correction is made once.
 Templates take the placeholders `{issue_date}`, `{due_date}`, `{service_date}`, `{year}`, `{class}`,
 `{counterparty}`, `{number}`, `{amount}`, `{id}`, `{entity}`, `{direction}`, `{category}` and
 `{fields.<name>}` for a field the class declares. A folder template must start with `{entity}`.
+The engine checks every rendered path before it moves anything: `path:folder` (an empty segment,
+or one starting with `_` or `.`), `path:name` (an empty name, a leading `.`, or a slash) and
+`path:length`. These send the document to review and cannot be accepted.
 
-Each rule needs a unique `id`. Rules live in `_paperwork/rules.json` (the archive) and `_paperwork/rules/<user>.json` (one person,
-chosen by `PAPERWORK_USER`). The archive's come first, the most specific rule wins, and two equal
-rules that disagree send the document to review. A correction made with `paperwork set` beats a rule.
+Each rule needs a unique `id`. Rules live in `_paperwork/rules.json` (the archive) and
+`_paperwork/rules/<user>.json` (one person, chosen by `PAPERWORK_USER`). The archive's come first,
+the most specific rule wins, and two equal rules that disagree send the document to review. A
+correction made with `paperwork set` beats a rule. A rule that sets `fields.<name>` also needs
+`set.doc_type` or `when.doc_type`. Save a draft for `rules test --file` in `_paperwork/proposals/`,
+never in `_paperwork/rules/`, where a file can become a live user layer.
 
-A document Claude classified alone, or whose counterparty is new, is filed with status
-`unconfirmed`. `paperwork list --status unconfirmed` shows the queue; `paperwork confirm <id>...`
-settles it. Documents recorded before 0.2.0 are never unconfirmed.
+A document Claude recorded is filed with status `unconfirmed` when Claude classified it alone or
+its counterparty is new. XML and template documents are never unconfirmed. The queue is
+`paperwork list --status unconfirmed`, and `paperwork confirm <id>...` settles it. Documents
+recorded before 0.2.0 are never unconfirmed.
 
 ## How a document is read
 
