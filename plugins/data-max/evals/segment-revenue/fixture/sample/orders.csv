@@ -1,0 +1,6 @@
+order_id,customer_id,created_at,status,currency,order_discount,shipping
+1,c1,2026-08-03T10:00:00Z,paid,USD,10.00,5.00
+2,c1,2026-09-05T10:00:00Z,paid,USD,0.00,5.00
+3,c2,2026-08-20T12:00:00Z,refunded,USD,0.00,0.00
+4,c2,2026-09-21T12:00:00Z,paid,EUR,5.00,0.00
+5,c3,2026-09-30T23:30:00Z,paid,USD,0.00,0.00

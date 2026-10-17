@@ -1,0 +1,9 @@
+name: shop_analytics
+version: "1.0.0"
+profile: shop_analytics
+model-paths: ["models"]
+snapshot-paths: ["snapshots"]
+models:
+  shop_analytics:
+    staging:
+      +materialized: view

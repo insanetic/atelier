@@ -1,0 +1,47 @@
+﻿Hotel Alpenhof – Buchungsexport
+Zeitraum: 01.01.2026 – 30.06.2026
+
+Buchungs-Nr.;Gast;E-Mail;PLZ;Anreise;Erstellt am;Nächte;Betrag;Währung;Status;Bemerkung
+B-1001;Schmidt, Jörg;guest1@example.com;01067;13.06.2026;2026-06-13 14:31;1;0,10 €;EUR;storniert;
+B-1002;Rossi, Luca;guest2@example.com;80331;19.01.2026;2026-01-19 14:32;1;89,90 €;EUR;Bestätigt;
+B-1003;Dubois, Émile;guest3@example.com;01067;03.02.2026;2026-02-03 14:33;5;0,20 CHF;CHF;Storniert;
+B-1004;Novak, Petra;guest4@example.com;01067;08.06.2026;2026-06-08 14:34;5;89,90 €;EUR;storniert;
+B-1005;Müller, Anna;guest5@example.com;80331;08.01.2026;45905;3;0,20 €;EUR;Storniert;
+B-1006;Schmidt, Jörg;guest6@example.com;80331;19.03.2026;2026-03-19 14:36;1;1.234,50 €;EUR;storniert;
+B-1007;Rossi, Luca;-;01067;12.01.2026;2026-01-12 14:37;5;15.999,99 €;EUR;Bestätigt;
+B-1008;Dubois, Émile;guest8@example.com;04109;16.06.2026;2026-06-16 14:38;7;15.999,99 €;EUR;BESTÄTIGT;
+B-1009;Novak, Petra;guest9@example.com;80331;12.03.2026;2026-03-12 14:39;7;0,20 CHF;CHF;bestätigt;"Spätanreise; bitte ""Zimmer 12""
+mit Balkon"
+B-1010;Müller, Anna;guest10@example.com;8001;03.05.2026;45910;5;240,00 €;EUR;Storniert;
+B-1011;Schmidt, Jörg;guest11@example.com;01067;10.05.2026;2026-05-10 14:31;1;0,10 CHF;CHF;storniert;
+B-1012;Rossi, Luca;guest12@example.com;80331;25.03.2026;2026-03-25 14:32;4;0,20 €;EUR;Storniert;
+B-1013;Dubois, Émile;guest13@example.com;8001;25.05.2026;2026-05-25 14:33;3;(120,00) €;EUR;BESTÄTIGT;
+B-1014;Novak, Petra;-;01067;19.04.2026;2026-04-19 14:34;7;15.999,99 CHF;CHF;Bestätigt;
+B-1015;Müller, Anna;guest15@example.com;01067;23.06.2026;45915;1;0,10 CHF;CHF;BESTÄTIGT;
+B-1016;Schmidt, Jörg;guest16@example.com;04109;10.06.2026;2026-06-10 14:36;6;240,00 CHF;CHF;BESTÄTIGT;
+B-1017;Rossi, Luca;guest17@example.com;01067;12.02.2026;2026-02-12 14:37;4;89,90 CHF;CHF;Bestätigt;
+B-1017;Rossi, Luca;guest17@example.com;01067;12.02.2026;2026-02-12 14:37;4;89,90 CHF;CHF;Bestätigt;
+B-1018;Dubois, Émile;guest18@example.com;80331;05.06.2026;2026-06-05 14:38;4;1.234,50 €;EUR;Storniert;
+B-1019;Novak, Petra;guest19@example.com;04109;03.02.2026;2026-02-03 14:39;4;77,05 CHF;CHF;storniert;
+B-1020;Müller, Anna;guest20@example.com;8001;27.04.2026;45920;6;0,10 €;EUR;Storniert;
+B-1021;Schmidt, Jörg;-;01067;08.02.2026;2026-02-08 14:31;n/a;0,10 CHF;CHF;bestätigt;
+B-1022;Rossi, Luca;guest22@example.com;01067;22.02.2026;2026-02-22 14:32;4;1.234,50 €;EUR;storniert;
+B-1023;Dubois, Émile;guest23@example.com;80331;10.01.2026;2026-01-10 14:33;4;1.234,50 €;EUR;storniert;
+B-1024;Novak, Petra;guest24@example.com;01067;05.06.2026;2026-06-05 14:34;4;0,10 €;EUR;storniert;
+B-1025;Müller, Anna;guest25@example.com;01067;13.04.2026;45925;4;0,20 CHF;CHF;Storniert;
+B-1026;Schmidt, Jörg;guest26@example.com;04109;03.02.2026;2026-02-03 14:36;2;89,90 €;EUR;Bestätigt;
+B-1027;Rossi, Luca;guest27@example.com;80331;04.01.2026;2026-01-04 14:37;5;0,10 €;EUR;Bestätigt;
+B-1028;Dubois, Émile;-;04109;03.02.2026;2026-02-03 14:38;2;0,10 €;EUR;BESTÄTIGT;
+B-1029;Novak, Petra;guest29@example.com;01067;16.01.2026;2026-01-16 14:39;7;0,10 €;EUR;Storniert;
+B-1030;Müller, Anna;guest30@example.com;01067;16.03.2026;45930;2;0,20 CHF;CHF;Bestätigt;
+B-1031;Schmidt, Jörg;guest31@example.com;04109;24.03.2026;2026-03-24 14:31;7;240,00 €;EUR;bestätigt;
+B-1032;Rossi, Luca;guest32@example.com;8001;07.05.2026;2026-05-07 14:32;2;15.999,99 €;EUR;storniert;
+B-1033;Dubois, Émile;guest33@example.com;8001;21.01.2026;2026-01-21 14:33;5;89,90 €;EUR;BESTÄTIGT;
+B-1034;Novak, Petra;guest34@example.com;8001;25.02.2026;2026-02-25 14:34;6;1.234,50 €;EUR;bestätigt;
+B-1035;Müller, Anna;-;04109;26.02.2026;45935;6;15.999,99 €;EUR;bestätigt;
+B-1036;Schmidt, Jörg;guest36@example.com;01067;12.06.2026;2026-06-12 14:36;1;1.234,50 CHF;CHF;BESTÄTIGT;
+B-1037;Rossi, Luca;guest37@example.com;8001;07.06.2026;2026-06-07 14:37;4;0,20 €;EUR;BESTÄTIGT;
+B-1038;Dubois, Émile;guest38@example.com;80331;08.01.2026;2026-01-08 14:38;4;0,10 €;EUR;bestätigt;
+B-1039;Novak, Petra;guest39@example.com;01067;16.05.2026;2026-05-16 14:39;4;0,10 €;EUR;BESTÄTIGT;
+B-1040;Müller, Anna;guest40@example.com;01067;27.06.2026;45940;4;77,05 €;EUR;bestätigt;
+Summe;;;;;;;;;;

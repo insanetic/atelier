@@ -1,0 +1,4 @@
+shop_analytics:
+  target: dev
+  outputs:
+    dev: {type: snowflake, account: xy12345, database: ANALYTICS, schema: dbt_dev, warehouse: TRANSFORMING}

@@ -1,0 +1,40 @@
+Kontoauszug;;;;;
+Konto: DE89 3704 0044 0532 0130 00;;;;;
+Zeitraum: 01.09.2026 - 30.09.2026;;;;;
+Anfangssaldo: 2.500,00 EUR;;;;;
+;;;;;
+Buchungstag;Valuta;Auftraggeber/Empfänger;Verwendungszweck;Betrag;Währung
+03.09.2026;04.09.2026;Gehalt ACME AG;Lohn/Gehalt 09/2026;3.456,78;EUR
+04.09.2026;05.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+04.09.2026;05.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+04.09.2026;05.09.2026;Gehalt ACME AG;Lohn/Gehalt 09/2026;3.456,78;EUR
+06.09.2026;07.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+06.09.2026;07.09.2026;Gehalt ACME AG;Lohn/Gehalt 09/2026;3.456,78;EUR
+06.09.2026;07.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+08.09.2026;09.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+09.09.2026;10.09.2026;Stadtwerke Köln;Abschlag Strom 09/2026;145,00-;EUR
+09.09.2026;10.09.2026;Amazon EU S.a.r.l.;Bestellung 302-1234567;249,00-;EUR
+10.09.2026;11.09.2026;Amazon EU S.a.r.l.;Bestellung 302-1234567;249,00-;EUR
+11.09.2026;12.09.2026;Gehalt ACME AG;Lohn/Gehalt 09/2026;3.456,78;EUR
+11.09.2026;12.09.2026;Stadtwerke Köln;Abschlag Strom 09/2026;145,00-;EUR
+13.09.2026;14.09.2026;REWE Markt GmbH;Kartenzahlung;1.234,56-;EUR
+13.09.2026;14.09.2026;REWE Markt GmbH;Kartenzahlung;87,10-;EUR
+14.09.2026;15.09.2026;REWE Markt GmbH;Kartenzahlung;1.234,56-;EUR
+16.09.2026;17.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+16.09.2026;17.09.2026;Amazon EU S.a.r.l.;Bestellung 302-1234567;249,00-;EUR
+17.09.2026;18.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+18.09.2026;19.09.2026;Stadtwerke Köln;Abschlag Strom 09/2026;145,00-;EUR
+19.09.2026;20.09.2026;REWE Markt GmbH;Kartenzahlung;87,10-;EUR
+19.09.2026;20.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+20.09.2026;21.09.2026;REWE Markt GmbH;Kartenzahlung;87,10-;EUR
+22.09.2026;23.09.2026;Amazon EU S.a.r.l.;Bestellung 302-1234567;19,99-;EUR
+24.09.2026;25.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+26.09.2026;27.09.2026;Amazon EU S.a.r.l.;Bestellung 302-1234567;19,99-;EUR
+27.09.2026;28.09.2026;Gehalt ACME AG;Lohn/Gehalt 09/2026;3.456,78;EUR
+28.09.2026;29.09.2026;Jürgen Weiß;Miete Oktober IBAN DE44500105175407324931;1.250,00-;EUR
+28.09.2026;29.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+29.09.2026;30.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+30.09.2026;30.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+30.09.2026;30.09.2026;Café Müller;Kartenzahlung;3,80-;EUR
+;;;;;
+Endsaldo: 7.054,90 EUR;;;;;

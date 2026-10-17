@@ -1,0 +1,26 @@
+version: 2
+sources:
+  - name: shop
+    schema: raw
+    tables:
+      - name: orders          # one row per order (latest state), merged nightly on order_id
+        columns:
+          - {name: order_id, description: "natural key"}
+          - {name: customer_id}
+          - {name: created_at, description: "timestamp, UTC"}
+          - {name: status, description: "paid | refunded | pending"}
+          - {name: currency, description: "USD or EUR"}
+          - {name: order_discount, description: "decimal(18,2), discount on the whole order"}
+          - {name: shipping}
+      - name: order_lines     # one row per order line
+        columns:
+          - {name: order_id}
+          - {name: line_no}
+          - {name: sku}
+          - {name: qty}
+          - {name: unit_price, description: "decimal(18,2) in order currency"}
+      - name: customers       # current state only, overwritten nightly
+        columns:
+          - {name: customer_id}
+          - {name: segment, description: "bronze | silver | gold; customers get upgraded over time"}
+          - {name: updated_at}

@@ -1,0 +1,74 @@
+{
+  "engine": "data-max 2.0.0",
+  "spec": {
+    "name": "bookings",
+    "version": "1.0.0",
+    "sha256": "bafd08cb4ca265b121c33c6cc15f5c0cde56725bc2717ef564560d445419067e"
+  },
+  "input": {
+    "name": "bookings_export.csv",
+    "sha256": "b2df021bf902321be02a041a5ab5d42ffbae858e82489e0aeb67a6c8e14b6565",
+    "bytes": 4303
+  },
+  "params": {
+    "pii_salt": "<secret>",
+    "tenant_id": "alpenhof"
+  },
+  "status": "passed",
+  "tables": {
+    "bookings": {
+      "rows": 40,
+      "records_in": 42,
+      "rejected": 0,
+      "dropped": {
+        "footer total": 1
+      },
+      "deduplicated": 1,
+      "null_counts": {
+        "tenant_id": 0,
+        "booking_id": 0,
+        "guest_email_hash": 5,
+        "guest_postal_code": 0,
+        "arrival_date": 0,
+        "created_at": 0,
+        "nights": 1,
+        "amount": 0,
+        "currency": 0,
+        "status": 0,
+        "remark": 39,
+        "export_period_start": 0,
+        "source_file_sha256": 0
+      },
+      "outputs": {
+        "csv": "bookings.csv",
+        "csv_sha256": "27a75db8849039802fadaec93787f288bab662598e15357a6cb4a6c8db3e5982"
+      }
+    }
+  },
+  "checks": [
+    {
+      "table": "bookings",
+      "check": "reconcile",
+      "ok": true,
+      "detail": "42 in = 40 written + 0 rejected + 1 dropped + 1 deduplicated"
+    },
+    {
+      "table": "bookings",
+      "check": "rejects",
+      "ok": true,
+      "detail": "0 rejected (allowed 0)"
+    },
+    {
+      "table": "bookings",
+      "check": "min_rows",
+      "ok": true,
+      "detail": "40 rows (minimum 1)"
+    },
+    {
+      "table": "bookings",
+      "check": "unique_key",
+      "ok": true,
+      "detail": "key (tenant_id, booking_id) unique"
+    }
+  ]
+}

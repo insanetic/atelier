@@ -1,0 +1,20 @@
+﻿Hotel Alpenhof – Buchungsexport
+Zeitraum: 01.01.2026 – 30.06.2026
+
+Buchungs-Nr.;Gast;E-Mail;PLZ;Anreise;Erstellt am;Nächte;Betrag;Währung;Kanal;Status;Bemerkung
+B-1001;Schmidt, Jörg;guest1@example.com;01067;13.06.2026;2026-06-13 14:31;1;0,10 €;EUR;telefon;storniert;
+B-1002;Rossi, Luca;guest2@example.com;80331;19.01.2026;2026-01-19 14:32;1;89,90 €;EUR;web;Bestätigt;
+B-1003;Dubois, Émile;guest3@example.com;01067;03.02.2026;2026-02-03 14:33;5;0,20 CHF;CHF;telefon;Storniert;
+B-1004;Novak, Petra;guest4@example.com;01067;08.06.2026;2026-06-08 14:34;5;89,90 €;EUR;web;storniert;
+B-1005;Müller, Anna;guest5@example.com;80331;08.01.2026;45905;3;0,20 €;EUR;telefon;Storniert;
+B-1006;Schmidt, Jörg;guest6@example.com;80331;19.03.2026;2026-03-19 14:36;1;1.234,50 €;EUR;web;Offen;
+B-1007;Rossi, Luca;-;01067;12.01.2026;2026-01-12 14:37;5;15.999,99 €;EUR;telefon;Bestätigt;
+B-1008;Dubois, Émile;guest8@example.com;04109;16.06.2026;2026-06-16 14:38;7;15.999,99 €;EUR;web;BESTÄTIGT;
+B-1009;Novak, Petra;guest9@example.com;80331;12.03.2026;2026-03-12 14:39;7;0,20 CHF;CHF;telefon;bestätigt;"Spätanreise; bitte ""Zimmer 12""
+mit Balkon"
+B-1010;Müller, Anna;guest10@example.com;8001;03.05.2026;45910;5;240,00 €;EUR;web;Storniert;
+B-1011;Schmidt, Jörg;guest11@example.com;01067;10.05.2026;2026-05-10 14:31;1;0,10 CHF;CHF;telefon;storniert;
+B-1012;Rossi, Luca;guest12@example.com;80331;25.03.2026;2026-03-25 14:32;4;0,20 €;EUR;web;Storniert;
+B-1013;Dubois, Émile;guest13@example.com;8001;25.05.2026;2026-05-25 14:33;3;(120,00) €;EUR;telefon;BESTÄTIGT;
+B-1014;Novak, Petra;-;01067;19.04.2026;2026-04-19 14:34;7;15.999,99 CHF;CHF;web;Bestätigt;
+Summe;;;;;;;;;;

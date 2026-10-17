@@ -31,7 +31,7 @@
     {
       "name": "data-max",
       "source": "./plugins/data-max",
-      "description": "Work with data end to end: review and cleanse raw exports, transform them into warehouse-ready tables, and author versioned, DSL-compatible metric and dimension definitions"
+      "description": "Raw exports to warehouse, deterministically: profile and review a file, clean it with a declarative spec, check new exports for drift, and model the warehouse layers on top"
     },
     {
       "name": "paperwork",

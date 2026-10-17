@@ -1,0 +1,194 @@
+{
+ "exportedAt": "2026-03-10",
+ "orders": [
+  {
+   "orderId": "O-1",
+   "placedAt": "2026-03-01T10:00:00+01:00",
+   "customer": {
+    "id": "C1",
+    "email": "c1@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 9995,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    },
+    {
+     "sku": "SKU-2",
+     "qty": 2,
+     "unitPriceCents": 3998
+    }
+   ]
+  },
+  {
+   "orderId": "O-2",
+   "placedAt": "2026-03-02T10:00:00+01:00",
+   "customer": {
+    "id": "C2",
+    "email": "c2@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 27986,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    },
+    {
+     "sku": "SKU-2",
+     "qty": 2,
+     "unitPriceCents": 3998
+    },
+    {
+     "sku": "SKU-3",
+     "qty": 3,
+     "unitPriceCents": 5997
+    }
+   ]
+  },
+  {
+   "orderId": "O-3",
+   "placedAt": "2026-03-03T10:00:00+01:00",
+   "customer": {
+    "id": "C0",
+    "email": "c0@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 1999,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    }
+   ]
+  },
+  {
+   "orderId": "O-4",
+   "placedAt": "03/04/2026",
+   "customer": {
+    "id": "C1",
+    "email": "c1@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 9995,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    },
+    {
+     "sku": "SKU-2",
+     "qty": 2,
+     "unitPriceCents": 3998
+    }
+   ]
+  },
+  {
+   "orderId": "O-5",
+   "placedAt": "2026-03-05T10:00:00+01:00",
+   "customer": {
+    "id": "C2",
+    "email": "c2@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 27986,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    },
+    {
+     "sku": "SKU-2",
+     "qty": 2,
+     "unitPriceCents": 3998
+    },
+    {
+     "sku": "SKU-3",
+     "qty": 3,
+     "unitPriceCents": 5997
+    }
+   ]
+  },
+  {
+   "orderId": "O-6",
+   "placedAt": "2026-03-06T10:00:00+01:00",
+   "customer": {
+    "id": "C0",
+    "email": "c0@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 1999,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": "2",
+     "unitPriceCents": 1999
+    }
+   ]
+  },
+  {
+   "orderId": "O-7",
+   "placedAt": "2026-03-07T10:00:00+01:00",
+   "customer": {
+    "id": "C1",
+    "email": "c1@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 9995,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    },
+    {
+     "sku": "SKU-2",
+     "qty": 2,
+     "unitPriceCents": 3998
+    }
+   ]
+  },
+  {
+   "orderId": "O-8",
+   "placedAt": "2026-03-08T10:00:00+01:00",
+   "customer": {
+    "id": "C2",
+    "email": "c2@shop.test",
+    "country": "DE"
+   },
+   "currency": "EUR",
+   "totalCents": 27986,
+   "items": [
+    {
+     "sku": "SKU-1",
+     "qty": 1,
+     "unitPriceCents": 1999
+    },
+    {
+     "sku": "SKU-2",
+     "qty": 2,
+     "unitPriceCents": 3998
+    },
+    {
+     "sku": "SKU-3",
+     "qty": 3,
+     "unitPriceCents": 5997
+    }
+   ]
+  }
+ ]
+}

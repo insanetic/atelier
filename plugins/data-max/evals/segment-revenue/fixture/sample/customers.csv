@@ -1,0 +1,4 @@
+customer_id,segment,updated_at
+c1,gold,2026-09-01T00:00:00Z
+c2,silver,2026-08-01T00:00:00Z
+c3,bronze,2026-07-01T00:00:00Z

@@ -1,0 +1,176 @@
+{
+  "spec_version": 1,
+  "name": "bookings",
+  "version": "1.0.0",
+  "description": "Weekly booking export from the hotel PMS (6-month window), one file per hotel.",
+  "params": {
+    "tenant_id": {
+      "description": "hotel tenant id, e.g. alpenhof",
+      "pattern": "[a-z0-9_-]+"
+    },
+    "pii_salt": {
+      "description": "per-tenant salt for hashed guest emails",
+      "secret": true
+    }
+  },
+  "source": {
+    "format": "csv",
+    "encoding": "utf-8-sig",
+    "delimiter": ";",
+    "header_row": 4,
+    "null_tokens": [
+      "",
+      "-",
+      "n/a"
+    ]
+  },
+  "tables": [
+    {
+      "name": "bookings",
+      "grain": "one row per booking (latest state in this export)",
+      "key": [
+        "tenant_id",
+        "booking_id"
+      ],
+      "dedupe": "key_consistent",
+      "filters": [
+        {
+          "field": "Buchungs-Nr.",
+          "matches": "^Summe$",
+          "reason": "footer total"
+        }
+      ],
+      "columns": [
+        {
+          "name": "tenant_id",
+          "from": {
+            "param": "tenant_id"
+          },
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "booking_id",
+          "from": "Buchungs-Nr.",
+          "type": "string",
+          "pattern": "B-\\d+"
+        },
+        {
+          "name": "guest_name",
+          "from": "Gast",
+          "type": "string",
+          "pii": {
+            "kind": "name",
+            "action": "drop"
+          }
+        },
+        {
+          "name": "guest_email_hash",
+          "from": "E-Mail",
+          "type": "string",
+          "pii": {
+            "kind": "email",
+            "action": "hash"
+          }
+        },
+        {
+          "name": "guest_postal_code",
+          "from": "PLZ",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "arrival_date",
+          "from": "Anreise",
+          "type": "date",
+          "formats": [
+            "%d.%m.%Y"
+          ],
+          "required": true
+        },
+        {
+          "name": "created_at",
+          "from": "Erstellt am",
+          "type": "timestamp",
+          "formats": [
+            "%Y-%m-%d %H:%M",
+            "excel_serial"
+          ],
+          "tz": "Europe/Vienna",
+          "required": true
+        },
+        {
+          "name": "nights",
+          "from": "Nächte",
+          "type": "integer",
+          "min": 1
+        },
+        {
+          "name": "amount",
+          "from": "Betrag",
+          "type": "decimal",
+          "scale": 2,
+          "precision": 18,
+          "locale": {
+            "decimal": ".",
+            "thousands": ","
+          },
+          "required": true
+        },
+        {
+          "name": "currency",
+          "from": "Währung",
+          "type": "string",
+          "allowed": [
+            "EUR",
+            "CHF"
+          ],
+          "required": true
+        },
+        {
+          "name": "status",
+          "from": "Status",
+          "type": "string",
+          "map": {
+            "bestätigt": "confirmed",
+            "storniert": "cancelled"
+          },
+          "allowed": [
+            "confirmed",
+            "cancelled"
+          ],
+          "required": true
+        },
+        {
+          "name": "remark",
+          "from": "Bemerkung",
+          "type": "string",
+          "normalize_whitespace": true
+        },
+        {
+          "name": "export_period_start",
+          "from": {
+            "preamble": 2,
+            "regex": "(\\d{2}\\.\\d{2}\\.\\d{4})",
+            "group": 1
+          },
+          "type": "date",
+          "formats": [
+            "%d.%m.%Y"
+          ],
+          "required": true
+        },
+        {
+          "name": "source_file_sha256",
+          "from": {
+            "input": "sha256"
+          },
+          "type": "string"
+        }
+      ],
+      "load": {
+        "mode": "merge"
+      }
+    }
+  ]
+}
