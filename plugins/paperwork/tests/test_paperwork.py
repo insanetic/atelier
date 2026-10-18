@@ -521,6 +521,26 @@ class Archive(unittest.TestCase):
             self.assertIn(rel, res["kept"])
             self.assertNotIn(rel, res["written"])
 
+    def test_linked_year_folder_is_never_written_through(self):
+        path, rel, id8 = self.first_note()
+        elsewhere = os.path.join(self.root, "_paperwork", "elsewhere")
+        os.makedirs(elsewhere)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("keep me\n")
+        os.rename(path, os.path.join(elsewhere, id8 + ".md"))
+        os.rmdir(os.path.dirname(path))
+        os.symlink(elsewhere, os.path.dirname(path))
+        code, res, err = self.pw("notes", "--rebuild")
+        self.assertEqual(code, 0, err)
+        self.assertIn(rel, res["kept"])
+        self.assertEqual(res["written"], [])
+        self.assertIn("keep me", read(os.path.join(elsewhere, id8 + ".md")))
+        os.remove(os.path.join(elsewhere, id8 + ".md"))
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertIn(rel, res["kept"])
+        self.assertEqual(os.listdir(elsewhere), [])
+
     def test_file_quoting_an_id_is_never_removed(self):
         _, _, id8 = self.first_note()
         summary = os.path.join(self.root, "notes", "summary.md")
@@ -1708,6 +1728,29 @@ class ListEvidence(unittest.TestCase):
                          [])
         self.assertEqual(self.problems("01.09.2026 Kauf 1 234,50\n", "2026-09-01", "1234.50", "01.09.2026",
                                        "1 234,50"), [])
+
+
+    def test_spacing_next_to_a_number_does_not_matter(self):
+        self.assertEqual(self.problems("01.09.2026 Kauf 47,11€\n", "2026-09-01", "47.11", "01.09.2026", "47,11 €"), [])
+        self.assertEqual(self.problems("01.09.2026 Kauf 47,11 €\n", "2026-09-01", "47.11", "01.09.2026", "47,11€"), [])
+        self.assertEqual(self.problems("13.März 2026 EUR47,11\n", "2026-03-13", "47.11", "13. März 2026", "EUR 47,11"),
+                         [])
+
+    def test_spacing_inside_a_number_is_refused(self):
+        found = self.problems("01.09.2026 Pos 12 47,11\n", "2026-09-01", "1247.11", "01.09.2026", "1247,11")
+        self.assertEqual(len(found), 1, found)
+
+    def test_amount_cut_at_a_thousands_separator_is_refused(self):
+        for text in ("01.09.2026 Kauf 1.234,50\n", "01.09.2026 Kauf 1'234.50\n", "01.09.2026 Kauf 1,234.50\n"):
+            found = self.problems(text, "2026-09-01", "234.50", "01.09.2026", "234,50" if "," in text[-6:] else "234.50")
+            self.assertEqual(len(found), 1, (text, found))
+        found = self.problems("01.09.2026 Kauf 1.234,50\n", "2026-09-01", "1234", "01.09.2026", "1.234")
+        self.assertEqual(len(found), 1, found)
+
+    def test_amount_next_to_a_csv_field_passes(self):
+        self.assertEqual(self.problems("2026-09-01,47.11,Amazon\n", "2026-09-01", "47.11", "2026-09-01", "47.11"), [])
+        self.assertEqual(self.problems("01.09.2026 Kauf 1.234,50\n", "2026-09-01", "1234.50", "01.09.2026",
+                                       "1.234,50"), [])
 
 
 class Vendors(unittest.TestCase):

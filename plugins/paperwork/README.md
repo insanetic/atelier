@@ -135,6 +135,8 @@ and its frontmatter at the top of the file has the matching `id: "pw:<id8>"`. An
 make. The engine leaves these alone and lists them under `kept`:
 
 - a file at a note's path that is not one of its notes, or is not UTF-8;
+- a note whose year folder (or `notes/` itself) is a link, or whose name differs from an existing file only
+  in case;
 - a note whose `## Notes` heading was renamed or removed;
 - a note with text whose document is gone.
 
@@ -146,7 +148,8 @@ Put a bank statement or any list of payments into `_lists/` (`cp -n`, never over
 `/paperwork:match`. Claude reads the list, writes every line to `_paperwork/lists/<name>.json` with
 the text as printed, and the engine checks each line against the list's own text before it matches
 anything. The date and amount must appear with no digit right before or after them, so `19,00` is
-not accepted from `119,00`. `paperwork match <name>` then writes `exports/matches/<name>.csv`: line, date, amount,
+not accepted from `119,00`, and `234,50` is not accepted from `1.234,50`. A space next to a number
+does not matter (`47,11€` and `47,11 €` are the same); a space inside a number does. `paperwork match <name>` then writes `exports/matches/<name>.csv`: line, date, amount,
 vendor, result, documents, suggestions, note.
 
 | Result | Meaning |

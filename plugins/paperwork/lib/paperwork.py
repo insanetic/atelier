@@ -2660,10 +2660,39 @@ def spaced(s):
     return re.sub(r"\s+", " ", nfkc(s).casefold()).strip()
 
 
-def in_list(e, text):
-    """Whether evidence `e` is in the spaced list text with no digit right before or after it."""
+NUMBER_CHARS = set("0123456789.,'")
+
+
+def in_list(e, text, amount=False):
+    """Whether evidence `e` is in the spaced list text with no digit right before or after it. A space may be added
+    or dropped where a number meets a letter or symbol (`47,11€` and `47,11 €`), never inside a number. An amount
+    must also not be a part of a larger number cut at a thousands separator: `234,50` is not in `1.234,50`."""
     e = spaced(e)
-    return bool(e) and re.search(r"(?<!\d)" + re.escape(e) + r"(?!\d)", text) is not None
+    if not e:
+        return False
+    chars = e.replace(" ", "")
+    spaces, i = set(), 0
+    for c in e:
+        if c == " ":
+            spaces.add(i)
+        else:
+            i += 1
+    pattern = ""
+    for i, c in enumerate(chars):
+        if i:
+            a = chars[i - 1]
+            if i in spaces:
+                pattern += r"\s+" if a.isdigit() and c.isdigit() else r"\s*"
+            elif (a in NUMBER_CHARS) != (c in NUMBER_CHARS):
+                pattern += r"\s*"
+        pattern += re.escape(c)
+    runs = re.findall(r"\d+", chars)
+    before, after = r"(?<!\d)", r"(?!\d)"
+    if amount and runs and len(runs[0]) == 3:
+        before += r"(?<!\d[.,'])"
+    if amount and runs and len(runs[-1]) == 3:
+        after += r"(?![.,']\d)"
+    return re.search(before + pattern + after, text) is not None
 
 
 def list_problems(items, text):
@@ -2680,7 +2709,7 @@ def list_problems(items, text):
             unread.append(f'line {n}: date evidence "{e}" does not read as {item["date"]}')
         e = ev.get("amount")
         amount = Decimal(item["amount"])
-        if not e or not in_list(e, flat):
+        if not e or not in_list(e, flat, amount=True):
             absent.append(f'line {n}: amount evidence "{e or ""}" is not in the list')
         elif not {amount, -amount} & amount_candidates(e):
             unread.append(f'line {n}: amount evidence "{e}" does not read as {item["amount"]}')
@@ -3010,10 +3039,16 @@ def write_notes(archive, rebuild=False):
             continue
         kept += sorted(headless)
         mine = [(p, t) for p, t in mine if p not in headless]
+        path = archive.p(rel)
+        if rel not in {p for p, _ in mine} and (os.path.lexists(path) or os.path.islink(os.path.dirname(path))
+                                                or os.path.islink(base)):
+            # Something not scanned is there: a linked folder, or a name that differs only in case.
+            kept.append(rel)
+            continue
         target = next((user_notes(t) for p, t in mine if p == rel), "")
         carried = target if target.strip() else next(
             (user_notes(t) for p, t in mine if p != rel and user_notes(t).strip()), "")
-        if write_state(archive.p(rel), note_text(r, archive, carried), force=rebuild):
+        if write_state(path, note_text(r, archive, carried), force=rebuild):
             written.append(rel)
         for p, t in mine:
             if p == rel:

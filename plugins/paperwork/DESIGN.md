@@ -315,7 +315,8 @@ rebuilds and moves. The `id` is `pw:<id8>`, which is how a note finds its docume
 engine's only at `notes/(<YYYY>|undated)/<id8>.md`, as UTF-8, with the same id on an `id:` line in its leading
 `---` frontmatter. Line ends may be CRLF. Every other file under `notes/` is never written over or removed, and
 only empty `<YYYY>` and `undated` folders are removed. These are left alone and reported in `kept`: a file at a
-note's path that is not ours or not UTF-8, a note without a `## Notes` line, and an orphan with text. The guard
+note's path that is not ours or not UTF-8, a note without a `## Notes` line, an orphan with text, and a note
+whose target already holds a file the scan did not see (a linked folder, or a name differing only in case). The guard
 lets Claude write under `notes/`, and the entity slugs `notes` and `matches` are reserved.
 
 ## List matching
@@ -324,7 +325,8 @@ lets Claude write under `notes/`, and the entity slugs `notes` and `matches` are
 decides. Each item carries the evidence as printed, and the engine checks it against the source's text like a
 document proposal: absent text is fatal, except on OCR sources where it is a warning, and evidence that does not
 read as the value is always fatal. Date and amount evidence must not touch a digit on either side, checked on the
-text with whitespace collapsed. Matching is by amount, vendor (whole words of the company name, one vendor only)
+text with whitespace collapsed; whitespace may differ where a number meets a letter or symbol, never inside a
+number. An amount starting or ending in a three-digit group must not continue a number through `.`, `,` or `'`. Matching is by amount, vendor (whole words of the company name, one vendor only)
 and a date window (30 days before, 7 after), then combinations of 2 to 6 documents of one vendor and one sign
 within 3 days. Results are `found`, `combined`, `unsure` and
 `missing`, with up to 5 suggestions. The output is `exports/matches/<name>.csv`. Choices are not stored: the engine
