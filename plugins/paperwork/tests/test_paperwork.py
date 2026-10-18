@@ -1316,6 +1316,152 @@ class Archive(unittest.TestCase):
         self.assertEqual(self.propose(doc, p)[0], pw.EXIT_USAGE)
 
 
+def mdoc(id_, cp, date, gross):
+    return {"id": id_, "path": f"{cp}/{id_}.pdf", "counterparty": cp, "issue_date": date, "gross": gross}
+
+
+def mitem(n, date, amount, vendor=None, slug=None):
+    return {"n": n, "date": date, "amount": amount, "vendor": vendor, "slug": slug}
+
+
+class Matching(unittest.TestCase):
+    def one(self, item, docs, **kw):
+        return pw.match_lines([item], docs, **kw)[0]
+
+    def test_single_found_with_date_off(self):
+        d = mdoc("aaaaaaaa11", "hoster", "2026-09-01", "39.25")
+        r = self.one(mitem(1, "2026-09-05", "-39.25"), [d])
+        self.assertEqual(r["result"], "found")
+        self.assertEqual(r["documents"], [d["path"]])
+        self.assertEqual((r["n"], r["date"], r["amount"], r["vendor"], r["note"]), (1, "2026-09-05", "-39.25", None, ""))
+
+    def test_window_edges_included(self):
+        lo = mdoc("a1", "x", "2026-08-06", "10.00")
+        hi = mdoc("b1", "x", "2026-09-12", "10.00")
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "10.00"), [lo])["result"], "found")
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "10.00"), [hi])["result"], "found")
+        out = mdoc("c1", "x", "2026-09-13", "10.00")
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "10.00"), [out])["result"], "missing")
+
+    def test_outside_window_is_missing(self):
+        d = mdoc("a1", "hoster", "2026-08-05", "39.25")
+        r = self.one(mitem(1, "2026-09-05", "39.25", "Hoster", "hoster"), [d])
+        self.assertEqual(r["result"], "missing")
+        self.assertEqual(r["documents"], [])
+        self.assertEqual(r["suggestions"], [d["path"]])
+
+    def test_slug_filters_candidates(self):
+        d = mdoc("a1", "other", "2026-09-05", "10.00")
+        r = self.one(mitem(1, "2026-09-05", "10.00", "Hoster", "hoster"), [d])
+        self.assertEqual(r["result"], "missing")
+        self.assertEqual(r["suggestions"], [])
+
+    def test_two_equal_amounts_unsure(self):
+        a = mdoc("a1", "x", "2026-09-01", "10.00")
+        b = mdoc("b1", "y", "2026-09-02", "10.00")
+        r = self.one(mitem(1, "2026-09-05", "10.00"), [b, a])
+        self.assertEqual(r["result"], "unsure")
+        self.assertEqual(r["documents"], [a["path"], b["path"]])
+
+    def amazon(self, dates):
+        return [mdoc("a1", "amazon", dates[0], "12.99"), mdoc("b1", "amazon", dates[1], "20.00"),
+                mdoc("c1", "amazon", dates[2], "14.12")]
+
+    def test_amazon_combined(self):
+        docs = self.amazon(["2026-09-02", "2026-09-03", "2026-09-04"])
+        r = self.one(mitem(1, "2026-09-05", "-47.11", "Amazon", "amazon"), docs)
+        self.assertEqual(r["result"], "combined")
+        self.assertEqual(r["documents"], [d["path"] for d in docs])
+
+    def test_combined_spread_over_3_days_not_used(self):
+        docs = self.amazon(["2026-09-01", "2026-09-03", "2026-09-05"])
+        r = self.one(mitem(1, "2026-09-06", "47.11", "Amazon", "amazon"), docs)
+        self.assertEqual(r["result"], "missing")
+
+    def test_combined_exactly_3_days_used(self):
+        docs = self.amazon(["2026-09-01", "2026-09-03", "2026-09-04"])
+        r = self.one(mitem(1, "2026-09-06", "47.11", "Amazon", "amazon"), docs)
+        self.assertEqual(r["result"], "combined")
+
+    def test_combined_needs_one_counterparty(self):
+        docs = [mdoc("a1", "x", "2026-09-02", "10.00"), mdoc("b1", "y", "2026-09-02", "20.00")]
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "30.00"), docs)["result"], "missing")
+
+    def test_two_combinations_unsure(self):
+        docs = [mdoc("aaaaaaaa1", "v", "2026-09-02", "10.00"), mdoc("bbbbbbbb1", "v", "2026-09-02", "20.00"),
+                mdoc("cccccccc1", "v", "2026-09-03", "15.00"), mdoc("dddddddd1", "v", "2026-09-03", "15.00")]
+        r = self.one(mitem(1, "2026-09-05", "30.00", "V", "v"), docs)
+        self.assertEqual(r["result"], "unsure")
+        self.assertEqual(r["documents"], [d["path"] for d in docs])
+        self.assertEqual(r["note"], "2 combinations: aaaaaaaa+bbbbbbbb | cccccccc+dddddddd")
+
+    def test_zero_gross_not_a_part(self):
+        docs = [mdoc("a1", "v", "2026-09-02", "30.00"), mdoc("b1", "v", "2026-09-02", "0.00")]
+        # single fit wins and the zero doc is never added to a combination
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "30.00"), docs)["documents"], [docs[0]["path"]])
+        docs = [mdoc("a1", "v", "2026-09-02", "10.00"), mdoc("b1", "v", "2026-09-02", "20.00"),
+                mdoc("c1", "v", "2026-09-02", "0.00")]
+        r = self.one(mitem(1, "2026-09-05", "30.00"), docs)
+        self.assertEqual(r["documents"], [docs[0]["path"], docs[1]["path"]])
+
+    def test_credit_note_absolute(self):
+        docs = [mdoc("a1", "v", "2026-09-02", "-10.00")]
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "10.00"), docs)["result"], "found")
+
+    def test_unknown_vendor_never_found(self):
+        d = mdoc("a1", "x", "2026-09-02", "10.00")
+        r = self.one(mitem(1, "2026-09-05", "10.00", "Foo", None), [d])
+        self.assertEqual(r["result"], "unsure")
+        self.assertEqual(r["note"], 'vendor "Foo" is not in the registry')
+        self.assertEqual(r["documents"], [d["path"]])
+
+    def test_same_doc_two_lines_unsure(self):
+        d = mdoc("a1", "x", "2026-09-02", "50.00")
+        rs = pw.match_lines([mitem(1, "2026-09-03", "50.00"), mitem(2, "2026-09-04", "50.00")], [d])
+        self.assertEqual([r["result"] for r in rs], ["unsure", "unsure"])
+        self.assertEqual([r["documents"] for r in rs], [[d["path"]], [d["path"]]])
+
+    def test_missing_suggestions_without_vendor_3_percent(self):
+        near = mdoc("a1", "x", "2026-09-01", "102.50")
+        far = mdoc("b1", "x", "2026-09-01", "104.00")
+        r = self.one(mitem(1, "2026-09-05", "100.00"), [near, far], before=2)
+        self.assertEqual(r["result"], "missing")
+        self.assertEqual(r["suggestions"], [near["path"]])
+
+    def test_suggestions_with_slug_closest_amount_first_max_5(self):
+        docs = [mdoc(f"d{i}", "v", "2026-08-01", f"{50 + i}.00") for i in range(7)]
+        r = self.one(mitem(1, "2026-09-05", "55.00", "V", "v"), docs)
+        self.assertEqual(r["result"], "missing")
+        self.assertEqual(r["suggestions"], [docs[i]["path"] for i in (5, 4, 6, 3, 2)])
+
+    def test_suggestion_range(self):
+        old = mdoc("a1", "v", "2026-06-09", "5.00")
+        too_old = mdoc("b1", "v", "2026-06-08", "5.00")
+        late = mdoc("c1", "v", "2026-10-07", "5.00")
+        too_late = mdoc("d1", "v", "2026-10-08", "5.00")
+        r = self.one(mitem(1, "2026-09-07", "99.00", "V", "v"), [old, too_old, late, too_late])
+        self.assertEqual(sorted(r["suggestions"]), sorted([old["path"], late["path"]]))
+
+    def test_suggestions_exclude_used_docs(self):
+        used = mdoc("a1", "v", "2026-09-02", "10.00")
+        other = mdoc("b1", "v", "2026-08-01", "11.00")
+        rs = pw.match_lines([mitem(1, "2026-09-03", "10.00", "V", "v"), mitem(2, "2026-09-03", "12.00", "V", "v")],
+                            [used, other])
+        self.assertEqual(rs[0]["result"], "found")
+        self.assertEqual(rs[1]["result"], "missing")
+        self.assertEqual(rs[1]["suggestions"], [other["path"]])
+
+    def test_deterministic(self):
+        import random
+        docs = [mdoc(f"i{i}", "v", f"2026-09-0{1 + i % 4}", f"{5 + i % 3}.00") for i in range(9)]
+        items = [mitem(1, "2026-09-05", "10.00", "V", "v"), mitem(2, "2026-09-05", "11.00"), mitem(3, "2026-09-05", "99.00")]
+        base = pw.match_lines(items, docs)
+        for seed in range(5):
+            shuffled = docs[:]
+            random.Random(seed).shuffle(shuffled)
+            self.assertEqual(pw.match_lines(items, shuffled), base)
+
+
 class Guard(unittest.TestCase):
     def setUp(self):
         sys.path.insert(0, str(HERE.parent / "hooks"))

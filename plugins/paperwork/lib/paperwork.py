@@ -2520,6 +2520,113 @@ def cmd_verify(args):
     return EXIT_CHECK if problems else EXIT_OK
 
 
+# List matching ---------------------------------------------------------------------------------------
+
+COMBINE_MAX_PARTS = 6
+COMBINE_MAX_SPAN_DAYS = 3
+COMBINE_MAX_DOCS = 20
+SUGGEST_MAX = 5
+SUGGEST_BEFORE = 90
+SUGGEST_AFTER = 30
+SUGGEST_TOLERANCE = Decimal("0.03")
+
+
+def _doc_key(doc):
+    return (doc["issue_date"], doc["id"])
+
+
+def _combinations(candidates, target):
+    """Every set of 2 to 6 candidates (one counterparty) within 3 days whose absolute grosses add up to `target`."""
+    found = set()
+    for start in candidates:
+        first = dt.date.fromisoformat(start["issue_date"])
+        group = [d for d in candidates
+                 if 0 <= (dt.date.fromisoformat(d["issue_date"]) - first).days <= COMBINE_MAX_SPAN_DAYS]
+        group.sort(key=lambda d: (abs(Decimal(d["gross"])), _doc_key(d)))
+        amounts = [abs(Decimal(d["gross"])) for d in group]
+
+        def walk(at, chosen, total):
+            if len(chosen) >= 2 and total == target:
+                found.add(frozenset(d["id"] for d in chosen))
+            if len(chosen) == COMBINE_MAX_PARTS:
+                return
+            for i in range(at, len(group)):
+                if total + amounts[i] > target:
+                    break
+                walk(i + 1, chosen + [group[i]], total + amounts[i])
+
+        walk(0, [], Decimal(0))
+    return found
+
+
+def match_lines(items, docs, before=30, after=7):
+    """Match list lines (date, amount, maybe a vendor) against documents. Pure: no archive, no I/O."""
+    docs = sorted(docs, key=_doc_key)
+    by_id = {d["id"]: d for d in docs}
+    results = []
+    for item in items:
+        day = dt.date.fromisoformat(item["date"])
+        target = abs(Decimal(item["amount"]))
+        slug = item.get("slug")
+        pool = [d for d in docs if slug is None or d["counterparty"] == slug]
+        cands = [d for d in pool
+                 if -before <= (dt.date.fromisoformat(d["issue_date"]) - day).days <= after]
+        result, picked, note = "missing", [], ""
+        exact = [d for d in cands if abs(Decimal(d["gross"])) == target]
+        if exact:
+            result, picked = ("found" if len(exact) == 1 else "unsure"), exact
+        else:
+            sets = set()
+            for cp in sorted({d["counterparty"] for d in cands}):
+                near = sorted((d for d in cands if d["counterparty"] == cp and abs(Decimal(d["gross"])) > 0),
+                              key=lambda d: (abs((dt.date.fromisoformat(d["issue_date"]) - day).days), _doc_key(d)))
+                sets |= _combinations(near[:COMBINE_MAX_DOCS], target)
+            if sets:
+                ordered = sorted((sorted((by_id[i] for i in s), key=_doc_key) for s in sets),
+                                 key=lambda ds: [_doc_key(d) for d in ds])
+                picked = sorted({d["id"]: d for ds in ordered for d in ds}.values(), key=_doc_key)
+                if len(ordered) == 1:
+                    result = "combined"
+                else:
+                    result = "unsure"
+                    note = f"{len(ordered)} combinations: " + " | ".join(
+                        "+".join(d["id"][:8] for d in ds) for ds in ordered)
+        if result in ("found", "combined") and item.get("vendor") and slug is None:
+            result, note = "unsure", f'vendor "{item["vendor"]}" is not in the registry'
+        results.append({"n": item["n"], "date": item["date"], "amount": item["amount"], "vendor": item.get("vendor"),
+                        "result": result, "documents": [d["path"] for d in picked], "suggestions": [], "note": note})
+
+    uses = {}
+    for r in results:
+        if r["result"] in ("found", "combined"):
+            for path in r["documents"]:
+                uses[path] = uses.get(path, 0) + 1
+    for r in results:
+        if r["result"] in ("found", "combined") and any(uses[p] > 1 for p in r["documents"]):
+            r["result"], r["note"] = "unsure", "a document matches more than one line"
+    used = {p for r in results if r["result"] in ("found", "combined") for p in r["documents"]}
+
+    for item, r in zip(items, results):
+        if r["result"] != "missing":
+            continue
+        day = dt.date.fromisoformat(item["date"])
+        target = abs(Decimal(item["amount"]))
+        slug = item.get("slug")
+        pool = []
+        for d in docs:
+            if d["path"] in used or not -SUGGEST_BEFORE <= (dt.date.fromisoformat(d["issue_date"]) - day).days <= SUGGEST_AFTER:
+                continue
+            gap = abs(abs(Decimal(d["gross"])) - target)
+            if slug is not None:
+                if d["counterparty"] != slug:
+                    continue
+            elif gap > target * SUGGEST_TOLERANCE:
+                continue
+            pool.append((gap, abs((dt.date.fromisoformat(d["issue_date"]) - day).days), _doc_key(d), d["path"]))
+        r["suggestions"] = [p[3] for p in sorted(pool)[:SUGGEST_MAX]]
+    return results
+
+
 # export ----------------------------------------------------------------------------------------------
 
 DOC_COLUMNS = ["id", "entity", "direction", "doc_type", "issue_date", "service_date", "service_start",
