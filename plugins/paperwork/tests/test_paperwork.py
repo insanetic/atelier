@@ -363,6 +363,34 @@ class Archive(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("source", err)
 
+    def test_match_source_must_be_in_lists_folder(self):
+        self.three_invoices()
+        self.write_list(self.LIST_CSV, self.LIST_ITEMS)
+        path = os.path.join(self.root, "_paperwork", "lists", "liste.json")
+        data = json.loads(read(path))
+        data["source"] = "_paperwork/lists/liste.json"
+        write_json(path, data)
+        code, _, err = self.pw("match", "liste")
+        self.assertEqual(code, 1)
+        self.assertIn("_lists", err)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "exports", "matches", "liste.csv")))
+
+    def test_match_ocr_text_gap_warns_but_misreading_fails(self):
+        from unittest import mock
+        self.three_invoices()
+        self.write_list(self.LIST_CSV, self.LIST_ITEMS)
+        argv = ["match", "liste", "--root", self.root]
+        gap = "03.09.2026 Muster Hosting\n10.09.2026 -99,00\n"
+        with mock.patch.object(pw, "list_text", return_value=(gap, True)), contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(pw.main(argv), 0)
+        self.assertIn("-119,00", json.loads(out.getvalue())["warnings"][0])
+        items = json.loads(json.dumps(self.LIST_ITEMS))
+        items[0]["evidence"]["amount"] = "-118,00"
+        self.write_list("03.09.2026;-118,00;Muster Hosting\n10.09.2026;-99,00;\n", items)
+        with mock.patch.object(pw, "list_text", return_value=("03.09.2026 -118,00 Muster Hosting 10.09.2026 -99,00", True)), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(pw.main(argv), 1)
+
     def test_match_from_to_limits_documents(self):
         self.three_invoices()
         self.write_list(self.LIST_CSV, self.LIST_ITEMS)

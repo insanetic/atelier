@@ -2653,27 +2653,27 @@ def list_text(archive, rel_path):
 
 
 def list_problems(items, text):
-    """Where the evidence of a list line is not in the list's text."""
-    problems = []
+    """Evidence problems as (absent, unread): not in the list's text, and in it but not reading as the value."""
+    absent, unread = [], []
     flat = squash(text)
     folded = squash(fold(text))
     for item in items:
         n, ev = item["n"], item.get("evidence") or {}
         e = ev.get("date")
         if not e or squash(e) not in flat:
-            problems.append(f'line {n}: date evidence "{e or ""}" is not in the list')
+            absent.append(f'line {n}: date evidence "{e or ""}" is not in the list')
         elif dt.date.fromisoformat(item["date"]) not in date_candidates(e):
-            problems.append(f'line {n}: date evidence "{e}" does not read as {item["date"]}')
+            unread.append(f'line {n}: date evidence "{e}" does not read as {item["date"]}')
         e = ev.get("amount")
         amount = Decimal(item["amount"])
         if not e or squash(e) not in flat:
-            problems.append(f'line {n}: amount evidence "{e or ""}" is not in the list')
+            absent.append(f'line {n}: amount evidence "{e or ""}" is not in the list')
         elif not {amount, -amount} & amount_candidates(e):
-            problems.append(f'line {n}: amount evidence "{e}" does not read as {item["amount"]}')
+            unread.append(f'line {n}: amount evidence "{e}" does not read as {item["amount"]}')
         e = ev.get("vendor")
         if e and squash(fold(e)) not in folded:
-            problems.append(f'line {n}: vendor evidence "{e}" is not in the list')
-    return problems
+            absent.append(f'line {n}: vendor evidence "{e}" is not in the list')
+    return absent, unread
 
 
 def resolve_vendor(archive, name):
@@ -2726,8 +2726,10 @@ def cmd_match(args):
     source = spec.get("source")
     root = os.path.realpath(archive.root)
     full = os.path.realpath(os.path.join(root, source)) if isinstance(source, str) and not os.path.isabs(source) else None
-    if full is None or not full.startswith(root + os.sep):
-        raise Fail(f"source {source!r} must be a path inside the archive", EXIT_CHECK)
+    lists = os.path.join(root, LISTS) + os.sep
+    if full is None or not full.startswith(lists):
+        raise Fail(f"source {source!r} must be a file inside {LISTS}/ (the engine's own files cannot be a source)",
+                   EXIT_CHECK)
     if not os.path.isfile(full):
         raise Fail(f"source {source} does not exist", EXIT_CHECK)
     entity = args.entity or spec.get("entity")
@@ -2747,9 +2749,10 @@ def cmd_match(args):
         item["slug"] = resolve_vendor(archive, item["vendor"]) if item["vendor"] else None
         items.append(item)
     text, ocr = list_text(archive, archive.rel(full))
-    problems = list_problems(items, text) if not fatal else []
-    if fatal or (problems and not ocr):
-        raise Fail("the list does not match its evidence:\n" + "\n".join(fatal + problems), EXIT_CHECK)
+    absent, unread = list_problems(items, text) if not fatal else ([], [])
+    if fatal or unread or (absent and not ocr):
+        raise Fail("the list does not match its evidence:\n" + "\n".join(fatal + unread + absent), EXIT_CHECK)
+    problems = absent
     with archive.lock():
         lines = match_lines(items, match_docs(archive, entity, start, end), args.before, args.after)
         rows = [{"line": r["n"], **{k: r[k] for k in ("date", "amount", "vendor", "result", "note")},
