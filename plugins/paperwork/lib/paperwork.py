@@ -321,11 +321,11 @@ def dumps(obj):
     return json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def write_state(path, text):
-    """Writes an engine state file (never a document) atomically, only when it changed."""
+def write_state(path, text, force=False):
+    """Writes an engine state file (never a document) atomically, only when it changed or when forced."""
     try:
         with open(path, encoding="utf-8", newline="") as f:
-            if f.read() == text:
+            if f.read() == text and not force:
                 return False
     except FileNotFoundError:
         pass
@@ -2899,6 +2899,21 @@ def note_path(record):
     return f"{NOTES}/{year}/{record['id'][:8]}.md"
 
 
+NOTE_PATH = re.compile(rf"{NOTES}/(?:\d{{4}}|undated)/([0-9a-f]{{8}})\.md")
+NOTE_FRONT = re.compile(r"\A---\n(.*?\n)---(?:\n|\Z)", re.S)
+
+
+def note_id(text):
+    """The pw:<id8> on an `id:` line inside the leading frontmatter, or None."""
+    m = NOTE_FRONT.match(text)
+    found = m and re.search(r'^id: "pw:([0-9a-f]{8})"$', m.group(1), re.M)
+    return found.group(1) if found else None
+
+
+def has_notes_heading(text):
+    return NOTES_HEADING in text.split("\n")
+
+
 def user_notes(text):
     """Everything after the first line that is exactly `## Notes`, or ''."""
     lines = text.splitlines(keepends=True)
@@ -2936,21 +2951,34 @@ def note_text(record, archive, user_notes):
 
 
 def write_notes(archive, rebuild=False):
-    existing = {}  # id8 -> [(relative path, text)]; files without a pw:<id8> line are not ours
+    """Writes notes/<year|undated>/<id8>.md. A file is ours only at such a path, readable as UTF-8, with the same id
+    in its leading frontmatter. Anything else is never written over or removed; one at a note's path is `kept`."""
+    existing = {}  # id8 -> [(relative path, text with \n line ends)]
+    foreign = set()  # note-shaped paths holding a file that is not ours
     base = archive.p(NOTES)
     for dirpath, dirnames, filenames in os.walk(base):
         dirnames.sort()
         for name in sorted(filenames):
-            if not name.endswith(".md"):
-                continue
             path = os.path.join(dirpath, name)
-            with open(path, encoding="utf-8", newline="") as f:
-                text = f.read()
-            m = re.search(r'^id: "pw:([0-9a-f]{8})"$', text, re.M)
-            if m:
-                existing.setdefault(m.group(1), []).append((archive.rel(path), text))
+            rel = archive.rel(path)
+            shape = NOTE_PATH.fullmatch(rel)
+            if not shape:
+                continue
+            if os.path.islink(path):
+                foreign.add(rel)
+                continue
+            try:
+                with open(path, "rb") as f:
+                    text = f.read().decode("utf-8").replace("\r\n", "\n")
+            except (OSError, ValueError):
+                foreign.add(rel)
+                continue
+            if note_id(text) == shape.group(1):
+                existing.setdefault(shape.group(1), []).append((rel, text))
+            else:
+                foreign.add(rel)
     by_id8 = {r["id"][:8]: r for r in archive.records.values()}
-    written, removed, kept = [], [], []
+    written, removed, kept = [], [], sorted(foreign)
     done = set()
     for id8, r in sorted(by_id8.items()):
         if not r.get("data") or status_of(r, archive) == "duplicate":
@@ -2958,11 +2986,18 @@ def write_notes(archive, rebuild=False):
         done.add(id8)
         rel = note_path(r)
         mine = existing.get(id8, [])
+        if rel in foreign:
+            continue
+        headless = {p for p, t in mine if not has_notes_heading(t)}
+        if rel in headless:
+            kept.append(rel)
+            continue
+        kept += sorted(headless)
+        mine = [(p, t) for p, t in mine if p not in headless]
         target = next((user_notes(t) for p, t in mine if p == rel), "")
         carried = target if target.strip() else next(
             (user_notes(t) for p, t in mine if p != rel and user_notes(t).strip()), "")
-        changed = write_state(archive.p(rel), note_text(r, archive, carried))
-        if changed or rebuild:
+        if write_state(archive.p(rel), note_text(r, archive, carried), force=rebuild):
             written.append(rel)
         for p, t in mine:
             if p == rel:
@@ -2976,14 +3011,17 @@ def write_notes(archive, rebuild=False):
         if id8 in done:
             continue
         for p, t in files:
-            if user_notes(t).strip():
+            if user_notes(t).strip() or not has_notes_heading(t):
                 kept.append(p)
             else:
                 os.remove(archive.p(p))
                 removed.append(p)
-    for dirpath, dirnames, filenames in os.walk(base, topdown=False):
-        if dirpath != base and not os.listdir(dirpath):
-            os.rmdir(dirpath)
+    if os.path.isdir(base):
+        for name in os.listdir(base):
+            folder = os.path.join(base, name)
+            if re.fullmatch(r"\d{4}|undated", name) and not os.path.islink(folder) and os.path.isdir(folder) \
+                    and not os.listdir(folder):
+                os.rmdir(folder)
     return {"written": sorted(written), "removed": sorted(removed), "kept": sorted(kept)}
 
 

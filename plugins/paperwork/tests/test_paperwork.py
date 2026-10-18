@@ -474,21 +474,128 @@ class Archive(unittest.TestCase):
         self.filed_invoice()
         _, res, _ = self.pw("notes")
         rel = res["written"][0]
+        id8 = os.path.basename(rel)[:-3]
         body = read(os.path.join(self.root, rel))
         head = body[:body.index("## Notes")]
-        blank = os.path.join(self.root, "notes", "undated", "blank.md")
-        one = os.path.join(self.root, "notes", "undated", "one.md")
-        two = os.path.join(self.root, "notes", "undated", "two.md")
-        os.makedirs(os.path.dirname(one), exist_ok=True)
+        blank, one, two = (os.path.join(self.root, "notes", year, id8 + ".md") for year in ("2025", "2024", "undated"))
         for path, txt in ((blank, ""), (one, "first idea\n"), (two, "second idea\n")):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(head + "## Notes\n" + txt)
         code, res, err = self.pw("notes")
         self.assertEqual(code, 0, err)
         self.assertIn("\n## Notes\nfirst idea\n", read(os.path.join(self.root, rel)))
-        self.assertEqual(res["kept"], ["notes/undated/two.md"])
-        self.assertEqual(sorted(res["removed"]), ["notes/undated/blank.md", "notes/undated/one.md"])
+        self.assertEqual(res["kept"], [f"notes/undated/{id8}.md"])
+        self.assertEqual(sorted(res["removed"]), [f"notes/2024/{id8}.md", f"notes/2025/{id8}.md"])
         self.assertIn("second idea", read(two))
+
+    def first_note(self):
+        self.filed_invoice()
+        _, res, _ = self.pw("notes")
+        rel = res["written"][0]
+        return os.path.join(self.root, rel), rel, os.path.basename(rel)[:-3]
+
+    def test_crlf_note_keeps_person_text(self):
+        path, rel, _ = self.first_note()
+        with open(path, "wb") as f:
+            f.write((read(path) + "paid by card\n").replace("\n", "\r\n").encode())
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("paid by card", read(path))
+
+    def test_unrecognised_file_at_note_path_is_kept(self):
+        path, rel, id8 = self.first_note()
+        for text in ("my own page\n", f'# mine\n\nid: "pw:{id8}"\n\n## Notes\nkeep me\n'):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            code, res, err = self.pw("notes")
+            self.assertEqual(code, 0, err)
+            self.assertEqual(read(path), text)
+            self.assertIn(rel, res["kept"])
+            self.assertNotIn(rel, res["written"])
+
+    def test_file_quoting_an_id_is_never_removed(self):
+        _, _, id8 = self.first_note()
+        summary = os.path.join(self.root, "notes", "summary.md")
+        text = f'# Summary\n\nEach note starts with a line like\nid: "pw:{id8}"\n\n## Notes\n'
+        with open(summary, "w", encoding="utf-8") as f:
+            f.write(text)
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(summary), text)
+        self.assertNotIn("notes/summary.md", res["removed"])
+
+    def test_obsidian_copy_of_a_note_is_never_removed(self):
+        path, _, id8 = self.first_note()
+        copy = os.path.join(os.path.dirname(path), id8 + " 1.md")
+        text = read(path)
+        with open(copy, "w", encoding="utf-8") as f:
+            f.write(text)
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(copy), text)
+        self.assertEqual(res["removed"], [])
+
+    def test_renamed_notes_heading_is_left_alone(self):
+        path, rel, _ = self.first_note()
+        text = read(path).replace("## Notes\n", "## Notizen\n") + "bar bezahlt\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(path), text)
+        self.assertIn(rel, res["kept"])
+
+    def test_renamed_heading_on_moved_note_is_kept_and_new_note_written(self):
+        self.filed_invoice()
+        _, res, _ = self.pw("notes")
+        path = os.path.join(self.root, res["written"][0])
+        text = read(path).replace("## Notes\n", "## Notizen\n") + "bar bezahlt\n"
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        doc = self.pw("list")[1]["documents"][0]["id"]
+        self.pw("set", doc[:8], "issue_date=2025-03-14")
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(path), text)
+        self.assertEqual(res["kept"], [os.path.relpath(path, self.root)])
+        self.assertEqual(len(res["written"]), 1)
+        self.assertIn("notes/2025/", res["written"][0])
+
+    def test_undecodable_notes_are_skipped_and_reported(self):
+        path, rel, _ = self.first_note()
+        raw = read(path).encode() + "Bezahlt für Büro\n".encode("cp1252")
+        with open(path, "wb") as f:
+            f.write(raw)
+        other = os.path.join(self.root, "notes", "inbox", "alt.md")
+        os.makedirs(os.path.dirname(other))
+        with open(other, "wb") as f:
+            f.write("Grüße\n".encode("cp1252"))
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertIn(rel, res["kept"])
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), raw)
+        code, res, err = self.pw("export")
+        self.assertEqual(code, 0, err)
+
+    def test_only_year_folders_under_notes_are_removed(self):
+        self.filed_invoice()
+        for name in ("inbox", "2019", "undated"):
+            os.makedirs(os.path.join(self.root, "notes", name))
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, "notes", "inbox")))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "notes", "2019")))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "notes", "undated")))
+
+    def test_rebuild_rewrites_unchanged_notes(self):
+        path, rel, _ = self.first_note()
+        os.utime(path, (1_000_000, 1_000_000))
+        code, res, err = self.pw("notes", "--rebuild")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(res["written"], [rel])
+        self.assertNotEqual(os.stat(path).st_mtime, 1_000_000)
 
     def test_export_writes_notes_and_verify_ignores_them(self):
         self.filed_invoice()
