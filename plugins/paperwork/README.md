@@ -289,7 +289,8 @@ Exit codes: 0 ok, 1 a check failed, 2 usage, 3 needs review, 4 locked, 5 Docker 
   own files. `apply` refuses a plan whose target would land outside the archive.
 - The guard hook denies `rm`, `mv`, overwriting `cp`, redirects, in-place edits, `find -delete` and
   `git clean` that touch the archive, and edits of anything but `config.json`, `rules.json`,
-  `rules/`, proposals and templates. It parses shell commands; a script that deletes files from
+  `rules/`, proposals, templates, `lists/` and the notes under `notes/`. It allows `cp -n` into
+  `_inbox/` and `_lists/`. It parses shell commands; a script that deletes files from
   inside an interpreter is beyond what a hook can see.
 - OCR quality bounds what the engine can verify on scans: evidence that is not in the OCR text is a
   warning there, not an error, and Claude reads the page images.

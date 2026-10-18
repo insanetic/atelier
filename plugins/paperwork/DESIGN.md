@@ -330,8 +330,8 @@ holds no paid or open state.
 A PreToolUse hook on Bash, Write, Edit, MultiEdit and NotebookEdit (`hooks/guard.py`, host `python3`, standard
 library) refuses `rm`, `mv`, overwriting `cp`, `trash`, `unlink`, redirects, in-place edits, `find -delete` and
 `git clean` that touch an archive, and edits of anything there except `_paperwork/config.json`,
-`_paperwork/rules.json`, `_paperwork/rules/`, `_paperwork/proposals/` and `_paperwork/templates/`. `paperwork`
-itself is allowed, and so is `cp -n` into `_inbox/`. It makes "never delete"
+`_paperwork/rules.json`, `_paperwork/rules/`, `_paperwork/proposals/`, `_paperwork/templates/`,
+`_paperwork/lists/` and `notes/`. `paperwork` itself is allowed, and so is `cp -n` into `_inbox/` and `_lists/`. It makes "never delete"
 enforced, not promised, for the shell commands it can parse.
 
 ## Testing
