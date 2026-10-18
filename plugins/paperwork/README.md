@@ -127,28 +127,39 @@ file: "acme-gmbh/2026/in/2026-05-24_inv_hetzner-online_084000888874_39.25EUR_fdd
 ```
 
 Everything above `## Notes` is rebuilt from the record. Write below it: that text is yours, and it
-survives rebuilds and moves. `paperwork notes --rebuild` regenerates every note. A note whose
-document is gone is kept and reported when it has text. A file without a `pw:` id is never touched.
-The entity slug `notes` is reserved.
+survives rebuilds and moves. `paperwork notes --rebuild` rewrites every note.
+
+The engine manages a file only when it sits at `notes/<year>/<id8>.md` or `notes/undated/<id8>.md`
+and its frontmatter at the top of the file has the matching `id: "pw:<id8>"`. Any other file under
+`notes/` is yours and never touched: your own pages, copies such as `abcd1234 1.md`, and folders you
+make. The engine leaves these alone and lists them under `kept`:
+
+- a file at a note's path that is not one of its notes, or is not UTF-8;
+- a note whose `## Notes` heading was renamed or removed;
+- a note with text whose document is gone.
+
+The entity slugs `notes` and `matches` are reserved.
 
 ## Matching a list
 
 Put a bank statement or any list of payments into `_lists/` (`cp -n`, never overwrite) and run
 `/paperwork:match`. Claude reads the list, writes every line to `_paperwork/lists/<name>.json` with
 the text as printed, and the engine checks each line against the list's own text before it matches
-anything. `paperwork match <name>` then writes `exports/matches/<name>.csv`: line, date, amount,
+anything. The date and amount must appear with no digit right before or after them, so `19,00` is
+not accepted from `119,00`. `paperwork match <name>` then writes `exports/matches/<name>.csv`: line, date, amount,
 vendor, result, documents, suggestions, note.
 
 | Result | Meaning |
 |---|---|
 | `found` | exactly one document has the amount (vendor and date window agree) |
-| `combined` | one set of 2 to 6 documents of one vendor, within 3 days of each other, adds up to the amount |
+| `combined` | one set of 2 to 6 documents of one vendor, within 3 days of each other and all invoices or all credit notes, adds up to the amount |
 | `unsure` | several documents or sets fit, a document fits two lines, or the vendor is unknown; you pick |
 | `missing` | nothing fits; up to 5 suggestions are listed |
 
 The date window is 30 days before and 7 days after the line (`--before`, `--after`). Suggestions are
 the vendor's documents from 90 days before to 30 days after, or documents within 3% of the amount
-when the line has no vendor. Narrow a run with `--entity`, `--from` and `--to`. Fees, salaries and
+when the line has no vendor. A vendor name on the line matches a registered vendor by whole words:
+`Bahn` finds Deutsche Bahn, never Bahnhof-Apotheke. Narrow a run with `--entity`, `--from` and `--to`. Fees, salaries and
 taxes stay in the list; you decide about them. Nothing is stored about your choices.
 
 On a scan, evidence that is not in the OCR text is a warning. Evidence that does not read as the

@@ -28,19 +28,22 @@ Match a list of payments against the archive. The engine does the matching; you 
                "evidence": {"date": "24.05.2026", "amount": "-39,25", "vendor": "Hetzner Online"}}]}
    ```
 
-   `source` is a file inside `_lists/`. `entity`, `from` and `to` are optional. `evidence` is what the
-   list prints for the line, character for character.
+   `source` is a file inside `_lists/`. `entity`, `from` and `to` are optional. Every line needs
+   `evidence.date` and `evidence.amount`, copied exactly as the list prints them, character for
+   character. `evidence.vendor` is optional.
 3. **Run it.** `paperwork match <name>`, adding `--entity`, `--from` and `--to` when the user named
    them. `--before N` and `--after N` change the day window (default 30 before, 7 after).
 4. **Fix refusals.** The engine refuses a line whose evidence is not in the list or does not read as
    the value. Reread that line, correct the JSON, rerun. On scans a missing text is only a warning.
-5. **Present** `exports/matches/<name>.csv` by result:
+5. **Report every warning** from `paperwork match` to the user, line by line. On scans a warning
+   is the only sign that a line was not checked against the file.
+6. **Present** `exports/matches/<name>.csv` by result:
    - **missing** first, with the suggestions, and say what to ask for;
    - **unsure**: show the candidates and ask the user to pick;
    - **combined** (one payment for several documents) and **found**: the count, and the paths on request.
 
    Give the path of every document you cite.
-6. **Later**, rerun `paperwork match <name>` after new documents arrive.
+7. **Later**, rerun `paperwork match <name>` after new documents arrive.
 
 Rules:
 

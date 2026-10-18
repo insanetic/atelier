@@ -311,17 +311,22 @@ they are recomputed with every change and show as status `duplicate` or a `dupli
 
 `notes/<YYYY>/<id8>.md` (`notes/undated/` without a date) is a view of the record for Obsidian. The frontmatter
 and table are rebuilt from the record; everything below `## Notes` belongs to the person and is carried across
-rebuilds and moves. The `id` is `pw:<id8>`, which is how a note finds its document after a move. Orphans with
-text are kept and reported; a file with no `pw:` id is not ours and is never touched. The guard lets Claude write
-under `notes/`, and the entity slug `notes` is reserved.
+rebuilds and moves. The `id` is `pw:<id8>`, which is how a note finds its document after a move. A file is the
+engine's only at `notes/(<YYYY>|undated)/<id8>.md`, as UTF-8, with the same id on an `id:` line in its leading
+`---` frontmatter. Line ends may be CRLF. Every other file under `notes/` is never written over or removed, and
+only empty `<YYYY>` and `undated` folders are removed. These are left alone and reported in `kept`: a file at a
+note's path that is not ours or not UTF-8, a note without a `## Notes` line, and an orphan with text. The guard
+lets Claude write under `notes/`, and the entity slugs `notes` and `matches` are reserved.
 
 ## List matching
 
 `match` takes a list in `_lists/` and a JSON Claude wrote from it in `_paperwork/lists/`. Claude reads, the engine
 decides. Each item carries the evidence as printed, and the engine checks it against the source's text like a
 document proposal: absent text is fatal, except on OCR sources where it is a warning, and evidence that does not
-read as the value is always fatal. Matching is by amount, vendor and a date window (30 days before, 7 after), then
-combinations of 2 to 6 documents of one vendor within 3 days. Results are `found`, `combined`, `unsure` and
+read as the value is always fatal. Date and amount evidence must not touch a digit on either side, checked on the
+text with whitespace collapsed. Matching is by amount, vendor (whole words of the company name, one vendor only)
+and a date window (30 days before, 7 after), then combinations of 2 to 6 documents of one vendor and one sign
+within 3 days. Results are `found`, `combined`, `unsure` and
 `missing`, with up to 5 suggestions. The output is `exports/matches/<name>.csv`. Choices are not stored: the engine
 holds no paid or open state.
 
