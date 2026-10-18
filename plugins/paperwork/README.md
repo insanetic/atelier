@@ -1,9 +1,9 @@
 # paperwork
 
-A [Claude Code](https://claude.com/claude-code) **plugin** for business documents: drop invoices,
-receipts, credit notes and scans into an inbox, and they come out read, checked, named by one
-convention, filed per entity, year and direction, deduplicated and indexed into CSV. **Nothing is
-ever deleted**, and every move can be undone.
+A [Claude Code](https://claude.com/claude-code) **plugin** that keeps a company's (or a person's)
+paperwork in one folder. You drop documents into an inbox. They are read, checked, classified,
+renamed, filed per entity, deduplicated and indexed into CSV. **Nothing is ever deleted**, and every
+move can be undone.
 
 Part of the [atelier](../../README.md) marketplace.
 
@@ -19,27 +19,67 @@ mounted. The guard hook runs on the host with the system `python3`.
 
 ---
 
+## Getting started
+
+**1. Point it at a folder.** Run `/paperwork:setup` and name the folder, for example
+`~/OneDrive/Belege`, a SharePoint library synced to your disk, or Dropbox. It creates the layout
+below, and asks once for your entities: each company and the private person, with the name
+variants, VAT IDs, tax numbers and addresses that appear on documents. That is how a document finds
+its owner later.
+
+**2. Drop documents into `_inbox/`.** Anything: PDFs, scans, phone photos, XRechnung or ZUGFeRD
+files, with any file names, in any subfolders. Names are ignored; only the content counts.
+
+**3. Run `/paperwork:inbox`.** One pass does all of it:
+
+- every file is hashed and registered; an exact copy is recorded as a copy, not as a second document;
+- the content is read: e-invoice XML first, then a vendor template, otherwise Claude reads the text
+  (or the scan and its OCR text) and proposes the fields;
+- the engine checks the proposal against the document's own text and arithmetic, decides the entity
+  from the billed party, and applies your rules;
+- you see the plan: which file goes where under which name. Applying it creates the folders it
+  needs, moves and renames the files, and sends the same document received twice to `_duplicates/`;
+- the CSV index in `exports/` is rebuilt.
+
+After a pass every document is in one of three states:
+
+| Status | Where | What you do |
+|---|---|---|
+| `filed` | its entity folder, named by convention | nothing |
+| `unconfirmed` | filed too, but Claude classified it alone, or its counterparty is new | confirm it, or correct it (`/paperwork:review`) |
+| `review` | `_review/` | a check failed; `/paperwork:review` goes through them with you |
+
+You run the inbox when you want, by hand or on a schedule. Nothing watches the folder in the
+background.
+
+**Already have years of documents in folders?** Make that folder the archive root, or copy the
+documents into `_inbox/`, and run `/paperwork:catalog`. It indexes them where they are or
+reorganises them into the structure, always as a plan you approve first.
+
 ## The skills
 
 | Skill | Invoke | Job |
 |---|---|---|
-| **setup** | `/paperwork:setup` | Creates the archive (e.g. in OneDrive) and records your entities: companies and the private person, with name variants, VAT IDs, tax numbers and every address. |
-| **inbox** | `/paperwork:inbox` | The main loop: ingest `_inbox/`, read what the engine could not read itself, record the fields, show the plan, file, export. |
-| **review** | `/paperwork:review` | Works through `_review/` and `issues.csv` with you; teaches the archive a vendor's layout with a tested template. |
-| **catalog** | `/paperwork:catalog` | Brings existing folders in: index in place, or reorganise into the structure, always as a plan you approve. |
-| **ask** | `/paperwork:ask` | Answers questions from the CSV index ("Hetzner 2025 per entity", "input tax Q2") with the paths of the documents. |
+| **setup** | `/paperwork:setup` | Creates the archive and records your entities, categories, and optional classes. |
+| **inbox** | `/paperwork:inbox` | The main loop: ingest `_inbox/`, read what the engine could not read itself, check, plan, file, export. |
+| **review** | `/paperwork:review` | Works through `_review/` and the unconfirmed queue with you; writes rules and vendor templates so a correction happens once. |
+| **catalog** | `/paperwork:catalog` | Brings existing folders in: index in place, or reorganise into the structure. |
+| **ask** | `/paperwork:ask` | Answers questions from the CSV index ("Hetzner 2025 per entity", "input tax Q2", "contracts ending this year") with the paths of the documents. |
 
 ## The archive
 
 ```text
 OneDrive/Belege/
-├── _inbox/              drop anything here: PDFs, scans, photos, XRechnung/ZUGFeRD; any names, any subfolders
+├── _inbox/              drop anything here
 ├── _review/             failed a check or needs a decision
 ├── _duplicates/         copies and second versions, linked to their original
-├── _paperwork/          config.json, rules.json, rules/<user>.json, vendors.json, one record per document, derived text, journal
-├── <entity>/<YYYY>/in/  received documents
+├── _paperwork/          config.json, rules.json, rules/<user>.json, vendors.json,
+│                        one record per document, derived text, journal
+├── <entity>/<YYYY>/in/  received documents (the default folder template)
 ├── <entity>/<YYYY>/out/ issued documents
-└── exports/             all/*.csv and <entity>/*.csv, plus -de variants for German Excel
+├── <entity>/…           any folder a class template defines, e.g. <entity>/contracts/<counterparty>/
+└── exports/             all/ and <entity>/: documents, lines, VAT summary, vendors, issues,
+                         one class-<key>.csv per class with its own fields; -de variants for German Excel
 ```
 
 ```text
@@ -48,20 +88,28 @@ OneDrive/Belege/
 2024-02-28_cn_amazon-eu_DE426JLXAEUC_-24.04EUR_0c14567a.pdf
 ```
 
-Types (the built-in classes): `inv`, `cn` (credit note, Storno), `rcpt`, `rem`, `notice` (Bescheid),
-`oc`, `quote`, `contract`, `other`. Names and folders come from the class's `name` and `folder`
-templates; the defaults give exactly the names above. The `id` is the start of the file's SHA-256: names never clash, and a file found
-anywhere leads back to its record. ASCII only, so OneDrive on macOS and Windows agree.
+The `id` is the start of the file's SHA-256: names never clash, and a file found anywhere leads back
+to its record. Names are ASCII only, so OneDrive on macOS and Windows agree.
 
-## Classes and rules
+## Classes
 
-A class decides a document type's fields, checks, file name and folder. Add your own, or override
-a built-in, under `classes` in `_paperwork/config.json`. A rule sets values for documents that
-match, so a recurring correction is made once.
+A class is a document type, and it decides everything about the documents of that type: the
+fields, which are required, the checks, the file name and the folder. The built-in classes cover
+business mail: `inv` invoice, `cn` credit note or Storno, `rcpt` receipt, `rem` reminder, `notice`
+(Bescheid), `oc` order confirmation, `quote`, `contract`, `other`. Their default templates give the
+names above.
+
+Add your own, or override a built-in, under `classes` in `_paperwork/config.json`:
 
 ```json
 {
   "classes": {
+    "contract": {
+      "fields": {"start": {"type": "date"}, "end": {"type": "date"}, "notice": {"type": "text"}},
+      "required": ["issue_date", "seller.name", "fields.start"],
+      "name": "{fields.start}_{class}_{counterparty}_{id}",
+      "folder": "{entity}/contracts/{counterparty}"
+    },
     "payslip": {
       "label": "Payslip",
       "fields": {"employee": {"type": "text"}, "period": {"type": "text"}},
@@ -73,69 +121,92 @@ match, so a recurring correction is made once.
 }
 ```
 
+Field types are `text`, `date`, `money`, `number`, `bool` and `choice` (with a `choices` list).
+Templates take `{issue_date}`, `{due_date}`, `{service_date}`, `{year}`, `{class}`,
+`{counterparty}`, `{number}`, `{amount}`, `{id}`, `{entity}`, `{direction}`, `{category}` and
+`{fields.<name>}`. A folder template starts with `{entity}`. After changing a template, `paperwork
+plan` shows the renames before anything moves.
+
+The engine checks every rendered path before it moves a file. `path:folder` catches an empty
+segment or one starting with `_` or `.`, `path:name` an empty name, a leading `.` or a slash, and
+`path:length` a path over 250 characters. These send the document to review and cannot be accepted
+away.
+
+## Rules
+
+A rule sets values for every document that matches it, so a correction you made twice is made
+automatically from then on.
+
 ```json
-{"rules": [{"id": "hetzner-hosting", "when": {"counterparty": "hetzner-online"},
-            "set": {"doc_type": "inv", "category": "hosting"}}]}
+{"rules": [
+  {"id": "hetzner-hosting", "when": {"counterparty": "hetzner-online"},
+   "set": {"doc_type": "inv", "category": "hosting"}},
+  {"id": "leases", "when": {"text": ["Mietvertrag"]},
+   "set": {"doc_type": "contract", "entity": "acme"}}
+]}
 ```
 
-Templates take the placeholders `{issue_date}`, `{due_date}`, `{service_date}`, `{year}`, `{class}`,
-`{counterparty}`, `{number}`, `{amount}`, `{id}`, `{entity}`, `{direction}`, `{category}` and
-`{fields.<name>}` for a field the class declares. A folder template must start with `{entity}`.
-The engine checks every rendered path before it moves anything: `path:folder` (an empty segment,
-or one starting with `_` or `.`), `path:name` (an empty name, a leading `.`, or a slash) and
-`path:length`. These send the document to review and cannot be accepted.
+`when` matches on `counterparty`, `vat_id`, `text` (all phrases appear), `regex`, `doc_type` and
+`entity`, exactly or by regex, never by loose word matching. `set` can set `doc_type`, `entity`,
+`direction`, `category`, `tags` and `fields.<name>` (which needs the class in `set.doc_type` or
+`when.doc_type`). Each rule needs a unique `id`.
 
-Each rule needs a unique `id`. Rules live in `_paperwork/rules.json` (the archive) and
-`_paperwork/rules/<user>.json` (one person, chosen by `PAPERWORK_USER`). The archive's come first,
-the most specific rule wins, and two equal rules that disagree send the document to review. A
-correction made with `paperwork set` beats a rule. A rule that sets `fields.<name>` also needs
-`set.doc_type` or `when.doc_type`. Save a draft for `rules test --file` in `_paperwork/proposals/`,
-never in `_paperwork/rules/`, where a file can become a live user layer.
+Rules live in `_paperwork/rules.json` (the archive's) and `_paperwork/rules/<user>.json` (one
+person's, chosen by `PAPERWORK_USER`). The archive's rules decide first and a person's rules only
+fill what is left. The most specific rule wins, and two equally specific rules that disagree send
+the document to review. A correction made with `paperwork set` always beats a rule.
 
-A document Claude recorded is filed with status `unconfirmed` when Claude classified it alone or
-its counterparty is new. XML and template documents are never unconfirmed. The queue is
-`paperwork list --status unconfirmed`, and `paperwork confirm <id>...` settles it. Documents
-recorded before 0.2.0 are never unconfirmed.
+Rules apply when a document is read. `paperwork rules test` shows what the current rules would
+change in the archive without writing anything; `rules test --file draft.json` previews a draft
+instead (keep drafts in `_paperwork/proposals/`, never in `_paperwork/rules/`, where a file becomes a
+live rule layer). `paperwork rules apply` re-applies the rules to every document a person has not
+corrected; `paperwork plan` then shows any resulting moves.
 
-## How a document is read
+## Confirmation
 
-1. **E-invoice XML** (XRechnung UBL/CII, ZUGFeRD/Factur-X embedded in a PDF): parsed by the engine.
-2. **Vendor template**: anchored patterns on the text layer, saved only after they reproduce every
-   confirmed document of that vendor exactly.
-3. **Claude** reads the text layer, or the OCR text plus the page images for scans, and writes a
-   proposal. File and folder names are never used.
+Claude's reading is checked against the document, but a class or a counterparty can still be a
+judgement call. So a document Claude recorded is `unconfirmed` when no rule decided its class, or
+when Claude introduced its counterparty. It is filed like any other, keeps up to three ranked
+alternatives, and waits in `paperwork list --status unconfirmed` until `paperwork confirm <id>...`
+or a correction with `paperwork set`. E-invoice XML and template documents are never unconfirmed,
+and neither are documents recorded before 0.2.0.
 
-Then the engine checks it, whatever the source:
+## How a document is checked
+
+Whatever read it, the engine checks:
 
 - the printed evidence appears in the document and means the value (`13. März 2024` is 2024-03-13,
   `2.894,19` is 2894.19), and names, numbers and VAT IDs appear in the text;
 - net + tax = gross per rate, tax = net × rate, the lines add up, credit notes are negative;
 - the entity follows from the billed party (name, VAT ID), never from the delivery address, and a
   private person at a company address is flagged;
-- VAT IDs (with the German check digit), IBANs, currencies, dates against the archive's start year
-  and the day the document arrived;
+- VAT IDs (with the German check digit), IBANs, currencies, and dates against the archive's start
+  year and the day the document arrived;
+- the class's required fields;
 - §14 UStG mandatory content for German invoices (§33 UStDV for small ones), as warnings.
 
-A document that fails goes to `_review/`. Accepted fields are frozen in its record; a rerun changes
-nothing. Exports are regenerated from the records, sorted, and byte-identical for the same archive.
+Accepted fields are frozen in the record; a rerun changes nothing. Exports are regenerated from the
+records, sorted, and byte-identical for the same archive.
 
 ## The engine: `paperwork`
 
 `bin/paperwork` is on the PATH while the plugin is enabled. It finds the archive from the current
-folder, `$PAPERWORK_HOME`, `--root`, or the archive registered by `init`.
+folder, `$PAPERWORK_HOME`, `--root`, or the archive registered by `init`. The skills drive it; you
+rarely need it directly.
 
 ```bash
 paperwork init ~/OneDrive/Belege      # layout + config; registers the archive
 paperwork doctor                      # tools, config, lock
 paperwork ingest [--adopt]            # register new files; --adopt: everything in the archive
 paperwork pending                     # what needs reading (no file names)
-paperwork schema                      # the proposal format
+paperwork schema                      # the proposal format, with the classes and their fields
 paperwork record <id> proposal.json   # check and store; exit 3 = review
 paperwork set <id> entity=acme gross=36.98
 paperwork confirm <id> [<id>...]      # accept what Claude classified alone
-paperwork rules test [--file draft.json]   # preview rules, writes nothing
-paperwork rules apply                 # re-apply rules to documents a person did not set
 paperwork accept <id> <check> --reason "..."
+paperwork list [--status unconfirmed|review|duplicate|...]
+paperwork rules test [--file draft.json]
+paperwork rules apply
 paperwork plan                        # moves and renames, nothing done yet
 paperwork apply <plan>                # journaled; never overwrites; copies across volumes
 paperwork undo <plan>
@@ -150,14 +221,16 @@ Exit codes: 0 ok, 1 a check failed, 2 usage, 3 needs review, 4 locked, 5 Docker 
 ## Guarantees and limits
 
 - No code path deletes or overwrites a document. Records, the journal and exports are the engine's
-  own files.
+  own files. `apply` refuses a plan whose target would land outside the archive.
 - The guard hook denies `rm`, `mv`, overwriting `cp`, redirects, in-place edits, `find -delete` and
   `git clean` that touch the archive, and edits of anything but `config.json`, `rules.json`,
-  `rules/`, proposals and templates. It parses shell commands; a script that deletes files from inside an interpreter is
-  beyond what a hook can see.
+  `rules/`, proposals and templates. It parses shell commands; a script that deletes files from
+  inside an interpreter is beyond what a hook can see.
 - OCR quality bounds what the engine can verify on scans: evidence that is not in the OCR text is a
   warning there, not an error, and Claude reads the page images.
-- One writer at a time (lock file), so two machines syncing the same OneDrive folder cannot both write.
+- One writer at a time (lock file), so two machines syncing the same OneDrive folder cannot both
+  write.
+- No background watcher and no mail import yet: the inbox is processed when you run it.
 
 ## Tests
 
