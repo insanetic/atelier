@@ -346,7 +346,7 @@ class Archive(unittest.TestCase):
         empty = os.path.join(self.root, "notes", "2026", "aaaaaaaa.md")
         texted = os.path.join(self.root, "notes", "2026", "bbbbbbbb.md")
         os.makedirs(os.path.dirname(empty), exist_ok=True)
-        for path, ident, body in ((empty, "a" * 64, ""), (texted, "b" * 64, "remember this\n")):
+        for path, ident, body in ((empty, "a" * 8, ""), (texted, "b" * 8, "remember this\n")):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(f'---\nid: "pw:{ident}"\n---\n\n# x\n\n## Notes\n{body}')
         code, res, err = self.pw("notes")
@@ -355,6 +355,38 @@ class Archive(unittest.TestCase):
         self.assertEqual(res["kept"], ["notes/2026/bbbbbbbb.md"])
         self.assertFalse(os.path.exists(empty))
         self.assertTrue(os.path.exists(texted))
+
+    def test_note_without_our_id_is_never_touched(self):
+        self.filed_invoice()
+        mine = os.path.join(self.root, "notes", "mine.md")
+        os.makedirs(os.path.dirname(mine), exist_ok=True)
+        with open(mine, "w", encoding="utf-8") as f:
+            f.write("just my thoughts\n")
+        code, res, err = self.pw("notes", "--rebuild")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(read(mine), "just my thoughts\n")
+        for key in ("written", "removed", "kept"):
+            self.assertNotIn("notes/mine.md", res[key])
+
+    def test_duplicate_note_files_never_lose_text(self):
+        self.filed_invoice()
+        _, res, _ = self.pw("notes")
+        rel = res["written"][0]
+        body = read(os.path.join(self.root, rel))
+        head = body[:body.index("## Notes")]
+        blank = os.path.join(self.root, "notes", "undated", "blank.md")
+        one = os.path.join(self.root, "notes", "undated", "one.md")
+        two = os.path.join(self.root, "notes", "undated", "two.md")
+        os.makedirs(os.path.dirname(one), exist_ok=True)
+        for path, txt in ((blank, ""), (one, "first idea\n"), (two, "second idea\n")):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(head + "## Notes\n" + txt)
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertIn("\n## Notes\nfirst idea\n", read(os.path.join(self.root, rel)))
+        self.assertEqual(res["kept"], ["notes/undated/two.md"])
+        self.assertEqual(sorted(res["removed"]), ["notes/undated/blank.md", "notes/undated/one.md"])
+        self.assertIn("second idea", read(two))
 
     def test_export_writes_notes_and_verify_ignores_them(self):
         self.filed_invoice()

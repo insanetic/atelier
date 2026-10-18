@@ -2678,7 +2678,7 @@ def note_text(record, archive, user_notes):
             ("entity", record.get("entity")), ("counterparty", party), ("category", d.get("category")),
             ("tags", ", ".join(d.get("tags") or []))]
     rows += [(name, (d.get("fields") or {}).get(name)) for name in cls.get("fields") or {}]
-    front = [("id", "pw:" + record["id"]), ("title", title), ("date", d.get("issue_date")),
+    front = [("id", "pw:" + record["id"][:8]), ("title", title), ("date", d.get("issue_date")),
              ("entity", record.get("entity")), ("counterparty", party), ("class", cls_key),
              ("number", d.get("invoice_number")), ("gross", d.get("gross")), ("currency", d.get("currency")),
              ("status", status_of(record, archive)), ("file", record.get("path"))]
@@ -2689,7 +2689,7 @@ def note_text(record, archive, user_notes):
 
 
 def write_notes(archive, rebuild=False):
-    existing = {}  # record id -> [(relative path, text)]
+    existing = {}  # id8 -> [(relative path, text)]; files without a pw:<id8> line are not ours
     base = archive.p(NOTES)
     for dirpath, dirnames, filenames in os.walk(base):
         dirnames.sort()
@@ -2699,35 +2699,41 @@ def write_notes(archive, rebuild=False):
             path = os.path.join(dirpath, name)
             with open(path, encoding="utf-8", newline="") as f:
                 text = f.read()
-            m = re.search(r'^id: "pw:([^"]*)"', text, re.M)
-            existing.setdefault(m.group(1) if m else None, []).append((archive.rel(path), text))
+            m = re.search(r'^id: "pw:([0-9a-f]{8})"$', text, re.M)
+            if m:
+                existing.setdefault(m.group(1), []).append((archive.rel(path), text))
+    by_id8 = {r["id"][:8]: r for r in archive.records.values()}
     written, removed, kept = [], [], []
-    wanted = set()
-    for r in sorted(archive.records.values(), key=lambda r: r["id"]):
+    done = set()
+    for id8, r in sorted(by_id8.items()):
         if not r.get("data") or status_of(r, archive) == "duplicate":
             continue
+        done.add(id8)
         rel = note_path(r)
-        wanted.add(rel)
-        mine = existing.get(r["id"], [])
-        carried = next((user_notes(t) for p, t in mine if p == rel), None)
-        if carried is None:
-            carried = next((user_notes(t) for p, t in mine if user_notes(t).strip()), "")
-        text = note_text(r, archive, carried)
-        path = archive.p(rel)
-        changed = write_state(path, text)
+        mine = existing.get(id8, [])
+        target = next((user_notes(t) for p, t in mine if p == rel), "")
+        carried = target if target.strip() else next(
+            (user_notes(t) for p, t in mine if p != rel and user_notes(t).strip()), "")
+        changed = write_state(archive.p(rel), note_text(r, archive, carried))
         if changed or rebuild:
             written.append(rel)
-    for rid, files in existing.items():
-        record = archive.records.get(rid)
-        live = record is not None and record.get("data") and status_of(record, archive) != "duplicate"
-        for rel, text in files:
-            if rel in wanted:
+        for p, t in mine:
+            if p == rel:
                 continue
-            if live or not user_notes(text).strip():
-                os.remove(archive.p(rel))
-                removed.append(rel)
+            if user_notes(t).strip() and user_notes(t).strip() != carried.strip():
+                kept.append(p)
             else:
-                kept.append(rel)
+                os.remove(archive.p(p))
+                removed.append(p)
+    for id8, files in existing.items():
+        if id8 in done:
+            continue
+        for p, t in files:
+            if user_notes(t).strip():
+                kept.append(p)
+            else:
+                os.remove(archive.p(p))
+                removed.append(p)
     for dirpath, dirnames, filenames in os.walk(base, topdown=False):
         if dirpath != base and not os.listdir(dirpath):
             os.rmdir(dirpath)
