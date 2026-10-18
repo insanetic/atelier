@@ -296,6 +296,80 @@ class Archive(unittest.TestCase):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         write_json(path, {"rules": rules})
 
+    def filed_invoice(self, **kw):
+        self.drop("a.pdf", text_pdf([hoster_invoice(**kw)]))
+        self.pw("ingest")
+        doc = self.only_pending()[0]["id"]
+        self.propose(doc, hoster_proposal(**kw))
+        self.pw("confirm", doc[:8])
+        self.file_all()
+        return doc
+
+    def test_notes_written_and_incremental(self):
+        self.filed_invoice()
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(res["written"]), 1)
+        path = os.path.join(self.root, res["written"][0])
+        self.assertRegex(res["written"][0], r"^notes/2026/[0-9a-f]{8}\.md$")
+        text = read(path)
+        self.assertTrue(text.startswith('---\nid: "pw:'))
+        keys = [l.split(":")[0] for l in text.split("---")[1].strip().splitlines()]
+        self.assertEqual(keys, ["id", "title", "date", "entity", "counterparty", "class", "number",
+                                "gross", "currency", "status", "file"])
+        self.assertIn("\n## Notes\n", text)
+        self.assertIn("[[", text)
+        code, res, _ = self.pw("notes")
+        self.assertEqual(res["written"], [])
+
+    def test_notes_keep_person_text(self):
+        doc = self.filed_invoice()
+        _, res, _ = self.pw("notes")
+        path = os.path.join(self.root, res["written"][0])
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("paid by card\n")
+        code, res, err = self.pw("notes", "--rebuild")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(res["written"], [os.path.relpath(path, self.root)])
+        self.assertIn("\n## Notes\npaid by card\n", read(path))
+        self.pw("set", doc[:8], "issue_date=2025-03-14")
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(res["written"]), 1)
+        self.assertIn("notes/2025/", res["written"][0])
+        self.assertEqual(res["removed"], [os.path.relpath(path, self.root)])
+        self.assertFalse(os.path.exists(path))
+        self.assertIn("\n## Notes\npaid by card\n", read(os.path.join(self.root, res["written"][0])))
+
+    def test_orphan_note_with_text_is_kept(self):
+        self.filed_invoice()
+        empty = os.path.join(self.root, "notes", "2026", "aaaaaaaa.md")
+        texted = os.path.join(self.root, "notes", "2026", "bbbbbbbb.md")
+        os.makedirs(os.path.dirname(empty), exist_ok=True)
+        for path, ident, body in ((empty, "a" * 64, ""), (texted, "b" * 64, "remember this\n")):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f'---\nid: "pw:{ident}"\n---\n\n# x\n\n## Notes\n{body}')
+        code, res, err = self.pw("notes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(res["removed"], ["notes/2026/aaaaaaaa.md"])
+        self.assertEqual(res["kept"], ["notes/2026/bbbbbbbb.md"])
+        self.assertFalse(os.path.exists(empty))
+        self.assertTrue(os.path.exists(texted))
+
+    def test_export_writes_notes_and_verify_ignores_them(self):
+        self.filed_invoice()
+        code, res, err = self.pw("export")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(res["notes"]["written"]), 1)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, "notes")))
+        code, res, err = self.pw("verify")
+        self.assertEqual(code, 0, (res, err))
+        self.assertEqual(res["problems"], [])
+
+    def test_entity_slug_notes_is_reserved(self):
+        self.assertTrue(any("notes" in p for p in pw.config_problems(
+            {"entities": [{"slug": "notes", "name": "N"}]})))
+
     def test_claude_alone_is_unconfirmed_until_confirmed(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
         self.pw("ingest")
@@ -1248,6 +1322,9 @@ class Guard(unittest.TestCase):
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/erika.json"}))
         self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json.bak"}))
         self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/../docs/x.json"}))
+        self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/notes/2026/abcd1234.md"}))
+        self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/exports/x.csv"}))
+        self.assertIsNotNone(self.verdict("Bash", {"command": "rm /data/Belege/notes/2026/abcd1234.md"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/tmp/a.json"}))
 
 

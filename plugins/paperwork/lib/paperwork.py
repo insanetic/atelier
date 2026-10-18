@@ -36,7 +36,8 @@ INBOX = "_inbox"
 REVIEW = "_review"
 DUPLICATES = "_duplicates"
 EXPORTS = "exports"
-MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS}
+NOTES = "notes"
+MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS, NOTES}
 
 CLASS_COLUMNS = ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"]
 FIELD_TYPES = {"text", "date", "money", "number", "bool", "choice"}
@@ -1108,6 +1109,8 @@ def config_problems(cfg):
         if slug in seen:
             out.append(f"entity {slug} is listed twice")
         seen.add(slug)
+        if slug == NOTES:
+            out.append(f"entity {slug}: the slug is reserved for the notes folder")
         if e.get("kind", "business") not in ("business", "private"):
             out.append(f"entity {slug}: kind is business or private")
         if not (e.get("names") or e.get("name")):
@@ -2509,7 +2512,7 @@ def cmd_verify(args):
                 problems.append({"id": r["id"][:8], "path": path, "problem": "missing"})
             elif sha256_file(full) != r["id"]:
                 problems.append({"id": r["id"][:8], "path": path, "problem": "content changed"})
-    for f in walk_files(archive, None, skip_top={STATE, EXPORTS}):
+    for f in walk_files(archive, None, skip_top={STATE, EXPORTS, NOTES}):
         rel = archive.rel(f)
         if rel not in known:
             problems.append({"path": rel, "problem": "not registered" + (" (in the inbox)" if rel.startswith(INBOX + "/") else "")})
@@ -2638,6 +2641,106 @@ def export_rows(archive, records):
     return tables
 
 
+# notes -----------------------------------------------------------------------------------------------
+
+NOTES_HEADING = "## Notes"
+
+
+def note_path(record):
+    date = ((record.get("data") or {}).get("issue_date") or "")
+    year = date[:4] if re.fullmatch(r"\d{4}-\d\d-\d\d", date) else "undated"
+    return f"{NOTES}/{year}/{record['id'][:8]}.md"
+
+
+def user_notes(text):
+    """Everything after the first line that is exactly `## Notes`, or ''."""
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.rstrip("\r\n") == NOTES_HEADING:
+            return "".join(lines[i + 1:])
+    return ""
+
+
+def note_text(record, archive, user_notes):
+    d = record["data"]
+    cls_key = d.get("doc_type") or ""
+    cls = archive.classes.get(cls_key) or {}
+    v = archive.vendor(record["counterparty"]) if record.get("counterparty") else None
+    party = (v["names"][0] if v and v.get("names") else None) or record.get("counterparty") or ""
+    title = " ".join(x for x in (party, cls_key, str(d.get("invoice_number") or "")) if x)
+
+    def q(x):
+        return json.dumps("" if x is None else str(x), ensure_ascii=False)
+
+    tax = [Decimal(t["tax"]) for t in d.get("tax") or [] if t.get("tax")]
+    rows = [("issue date", d.get("issue_date")), ("due date", d.get("due_date")), ("net", d.get("net")),
+            ("tax", f"{sum(tax):.2f}" if tax else ""), ("gross", d.get("gross")),
+            ("entity", record.get("entity")), ("counterparty", party), ("category", d.get("category")),
+            ("tags", ", ".join(d.get("tags") or []))]
+    rows += [(name, (d.get("fields") or {}).get(name)) for name in cls.get("fields") or {}]
+    front = [("id", "pw:" + record["id"]), ("title", title), ("date", d.get("issue_date")),
+             ("entity", record.get("entity")), ("counterparty", party), ("class", cls_key),
+             ("number", d.get("invoice_number")), ("gross", d.get("gross")), ("currency", d.get("currency")),
+             ("status", status_of(record, archive)), ("file", record.get("path"))]
+    out = ["---"] + [f"{k}: {q(val)}" for k, val in front] + ["---", "", f"# {title}", "",
+           f"[[{record['path']}]]", "", "| field | value |", "| --- | --- |"]
+    out += [f"| {k} | {'' if val is None else str(val).replace('|', chr(92) + '|')} |" for k, val in rows]
+    return "\n".join(out) + f"\n\n{NOTES_HEADING}\n{user_notes}"
+
+
+def write_notes(archive, rebuild=False):
+    existing = {}  # record id -> [(relative path, text)]
+    base = archive.p(NOTES)
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith(".md"):
+                continue
+            path = os.path.join(dirpath, name)
+            with open(path, encoding="utf-8", newline="") as f:
+                text = f.read()
+            m = re.search(r'^id: "pw:([^"]*)"', text, re.M)
+            existing.setdefault(m.group(1) if m else None, []).append((archive.rel(path), text))
+    written, removed, kept = [], [], []
+    wanted = set()
+    for r in sorted(archive.records.values(), key=lambda r: r["id"]):
+        if not r.get("data") or status_of(r, archive) == "duplicate":
+            continue
+        rel = note_path(r)
+        wanted.add(rel)
+        mine = existing.get(r["id"], [])
+        carried = next((user_notes(t) for p, t in mine if p == rel), None)
+        if carried is None:
+            carried = next((user_notes(t) for p, t in mine if user_notes(t).strip()), "")
+        text = note_text(r, archive, carried)
+        path = archive.p(rel)
+        changed = write_state(path, text)
+        if changed or rebuild:
+            written.append(rel)
+    for rid, files in existing.items():
+        record = archive.records.get(rid)
+        live = record is not None and record.get("data") and status_of(record, archive) != "duplicate"
+        for rel, text in files:
+            if rel in wanted:
+                continue
+            if live or not user_notes(text).strip():
+                os.remove(archive.p(rel))
+                removed.append(rel)
+            else:
+                kept.append(rel)
+    for dirpath, dirnames, filenames in os.walk(base, topdown=False):
+        if dirpath != base and not os.listdir(dirpath):
+            os.rmdir(dirpath)
+    return {"written": sorted(written), "removed": sorted(removed), "kept": sorted(kept)}
+
+
+def cmd_notes(args):
+    archive = Archive(args.root)
+    with archive.lock():
+        emit(write_notes(archive, args.rebuild))
+    return EXIT_OK
+
+
 def cmd_export(args):
     archive = Archive(args.root)
     with archive.lock():
@@ -2668,8 +2771,9 @@ def cmd_export(args):
                     path = archive.p(EXPORTS, scope, stem + suffix + ext)
                     if write_state(path, table_text(cols, rows, dialect)):
                         written.append(archive.rel(path))
+        notes = write_notes(archive)
         emit({"written": written, "removed": removed, "unchanged": not (written or removed),
-              "documents": summary(archive)})
+              "notes": notes, "documents": summary(archive)})
     return EXIT_OK
 
 
@@ -2844,6 +2948,8 @@ def parser():
     add("verify", cmd_verify, "every file present, every hash right, nothing unregistered")
     sp = add("export", cmd_export, "write the CSVs")
     sp.add_argument("--dialect", choices=["csv", "de", "both"], default="both")
+    sp = add("notes", cmd_notes, "write one markdown note per document under notes/")
+    sp.add_argument("--rebuild", action="store_true", help="rewrite every note, even unchanged ones")
     add("vendors", cmd_vendors, "the counterparty registry")
     sp = add("vendor", cmd_vendor, "change a counterparty: merge <into> | rename <slug> | category <c> | alias <name>")
     sp.add_argument("slug")
