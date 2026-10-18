@@ -391,6 +391,13 @@ class Archive(unittest.TestCase):
                 contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(pw.main(argv), 1)
 
+    def test_match_rejects_negative_window(self):
+        self.three_invoices()
+        self.write_list(self.LIST_CSV, self.LIST_ITEMS)
+        for flag in ("--before", "--after"):
+            code, _, err = self.pw("match", "liste", flag, "-1")
+            self.assertEqual(code, 2, err)
+
     def test_match_from_to_limits_documents(self):
         self.three_invoices()
         self.write_list(self.LIST_CSV, self.LIST_ITEMS)
@@ -610,6 +617,10 @@ class Archive(unittest.TestCase):
     def test_entity_slug_notes_is_reserved(self):
         self.assertTrue(any("notes" in p for p in pw.config_problems(
             {"entities": [{"slug": "notes", "name": "N"}]})))
+
+    def test_entity_slug_matches_is_reserved(self):
+        self.assertTrue(any("matches" in p for p in pw.config_problems(
+            {"entities": [{"slug": "matches", "name": "M"}]})))
 
     def test_claude_alone_is_unconfirmed_until_confirmed(self):
         self.drop("a.pdf", text_pdf([hoster_invoice()]))
@@ -1617,6 +1628,14 @@ class Matching(unittest.TestCase):
         docs = [mdoc("a1", "v", "2026-09-02", "-10.00")]
         self.assertEqual(self.one(mitem(1, "2026-09-05", "10.00"), docs)["result"], "found")
 
+    def test_credit_note_never_combines_with_invoice(self):
+        docs = [mdoc("a1", "v", "2026-09-02", "-20.00"), mdoc("b1", "v", "2026-09-02", "27.11")]
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "47.11", "V", "v"), docs)["result"], "missing")
+
+    def test_credit_notes_combine_with_each_other(self):
+        docs = [mdoc("a1", "v", "2026-09-02", "-20.00"), mdoc("b1", "v", "2026-09-02", "-27.11")]
+        self.assertEqual(self.one(mitem(1, "2026-09-05", "47.11", "V", "v"), docs)["result"], "combined")
+
     def test_unknown_vendor_never_found(self):
         d = mdoc("a1", "x", "2026-09-02", "10.00")
         r = self.one(mitem(1, "2026-09-05", "10.00", "Foo", None), [d])
@@ -1669,6 +1688,41 @@ class Matching(unittest.TestCase):
             shuffled = docs[:]
             random.Random(seed).shuffle(shuffled)
             self.assertEqual(pw.match_lines(items, shuffled), base)
+
+
+class ListEvidence(unittest.TestCase):
+    def problems(self, text, date, amount, ev_date, ev_amount):
+        item = {"n": 1, "date": date, "amount": amount, "evidence": {"date": ev_date, "amount": ev_amount}}
+        absent, unread = pw.list_problems([item], text)
+        return absent + unread
+
+    def test_evidence_inside_a_longer_number_is_refused(self):
+        found = self.problems("11.09.2026;Muster Hosting;119,00\n", "2026-09-01", "19.00", "1.09.2026", "19,00")
+        self.assertEqual(len(found), 2, found)
+
+    def test_evidence_between_separators_passes(self):
+        self.assertEqual(self.problems("01.09.2026;x;47,11;y\n", "2026-09-01", "47.11", "01.09.2026", "47,11"), [])
+        self.assertEqual(self.problems("01.09.2026 Kauf -47,11 €\n", "2026-09-01", "-47.11", "01.09.2026", "-47,11"),
+                         [])
+        self.assertEqual(self.problems("Pos 1  19,00 am  01.09.2026\n", "2026-09-01", "19.00", "01.09.2026", "19,00"),
+                         [])
+        self.assertEqual(self.problems("01.09.2026 Kauf 1 234,50\n", "2026-09-01", "1234.50", "01.09.2026",
+                                       "1 234,50"), [])
+
+
+class Vendors(unittest.TestCase):
+    def archive(self, *vendors):
+        from types import SimpleNamespace
+        return SimpleNamespace(vendors={"vendors": [{"slug": s, "names": [n]} for s, n in vendors]})
+
+    def test_short_name_does_not_match_inside_a_word(self):
+        a = self.archive(("feedback-studio", "Feedback Studio GmbH"), ("bahnhof-apotheke", "Bahnhof-Apotheke"))
+        self.assertIsNone(pw.resolve_vendor(a, "DB"))
+        self.assertIsNone(pw.resolve_vendor(a, "Bahn"))
+
+    def test_whole_word_part_still_matches(self):
+        a = self.archive(("deutsche-bahn", "Deutsche Bahn AG"), ("feedback-studio", "Feedback Studio GmbH"))
+        self.assertEqual(pw.resolve_vendor(a, "Bahn"), "deutsche-bahn")
 
 
 class Guard(unittest.TestCase):

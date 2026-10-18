@@ -1110,8 +1110,8 @@ def config_problems(cfg):
         if slug in seen:
             out.append(f"entity {slug} is listed twice")
         seen.add(slug)
-        if slug == NOTES:
-            out.append(f"entity {slug}: the slug is reserved for the notes folder")
+        if slug in (NOTES, "matches"):
+            out.append(f"entity {slug}: the slug is reserved (notes/ and exports/matches/ use it)")
         if e.get("kind", "business") not in ("business", "private"):
             out.append(f"entity {slug}: kind is business or private")
         if not (e.get("names") or e.get("name")):
@@ -2537,7 +2537,8 @@ def _doc_key(doc):
 
 
 def _combinations(candidates, target):
-    """Every set of 2 to 6 candidates (one counterparty) within 3 days whose absolute grosses add up to `target`."""
+    """Every set of 2 to 6 candidates (one counterparty, one sign) within 3 days whose absolute grosses add up to
+    `target`."""
     found = set()
     for start in candidates:
         first = dt.date.fromisoformat(start["issue_date"])
@@ -2581,7 +2582,9 @@ def match_lines(items, docs, before=30, after=7):
             for cp in sorted({d["counterparty"] for d in cands}):
                 near = sorted((d for d in cands if d["counterparty"] == cp and abs(Decimal(d["gross"])) > 0),
                               key=lambda d: (abs((dt.date.fromisoformat(d["issue_date"]) - day).days), _doc_key(d)))
-                sets |= _combinations(near[:COMBINE_MAX_DOCS], target)
+                near = near[:COMBINE_MAX_DOCS]
+                for credit in (False, True):
+                    sets |= _combinations([d for d in near if (Decimal(d["gross"]) < 0) == credit], target)
             if sets:
                 ordered = sorted((sorted((by_id[i] for i in s), key=_doc_key) for s in sets),
                                  key=lambda ds: [_doc_key(d) for d in ds])
@@ -2652,21 +2655,32 @@ def list_text(archive, rel_path):
         return f.read().decode("utf-8", errors="replace"), False
 
 
+def spaced(s):
+    """Casefolded NFKC text with each run of whitespace as one space."""
+    return re.sub(r"\s+", " ", nfkc(s).casefold()).strip()
+
+
+def in_list(e, text):
+    """Whether evidence `e` is in the spaced list text with no digit right before or after it."""
+    e = spaced(e)
+    return bool(e) and re.search(r"(?<!\d)" + re.escape(e) + r"(?!\d)", text) is not None
+
+
 def list_problems(items, text):
     """Evidence problems as (absent, unread): not in the list's text, and in it but not reading as the value."""
     absent, unread = [], []
-    flat = squash(text)
+    flat = spaced(text)
     folded = squash(fold(text))
     for item in items:
         n, ev = item["n"], item.get("evidence") or {}
         e = ev.get("date")
-        if not e or squash(e) not in flat:
+        if not e or not in_list(e, flat):
             absent.append(f'line {n}: date evidence "{e or ""}" is not in the list')
         elif dt.date.fromisoformat(item["date"]) not in date_candidates(e):
             unread.append(f'line {n}: date evidence "{e}" does not read as {item["date"]}')
         e = ev.get("amount")
         amount = Decimal(item["amount"])
-        if not e or squash(e) not in flat:
+        if not e or not in_list(e, flat):
             absent.append(f'line {n}: amount evidence "{e or ""}" is not in the list')
         elif not {amount, -amount} & amount_candidates(e):
             unread.append(f'line {n}: amount evidence "{e}" does not read as {item["amount"]}')
@@ -2684,7 +2698,7 @@ def resolve_vendor(archive, name):
     key = company_key(name)
     if not key:
         return None
-    for same in (lambda k: k == key, lambda k: key in k):
+    for same in (lambda k: k == key, lambda k: f" {key} " in f" {k} "):
         found = {v["slug"] for v in vendors if any(same(company_key(n)) for n in v.get("names") or [])}
         if len(found) == 1:
             return found.pop()
@@ -2720,6 +2734,8 @@ def list_file(archive, ref):
 
 
 def cmd_match(args):
+    if args.before < 0 or args.after < 0:
+        raise Fail("--before and --after are days and cannot be negative", EXIT_USAGE)
     archive = Archive(args.root)
     path, name = list_file(archive, args.list)
     spec = read_json(path)
