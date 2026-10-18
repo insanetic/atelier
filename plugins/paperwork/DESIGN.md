@@ -1,6 +1,6 @@
 # paperwork: design
 
-Version 0.2.
+Version 0.3.
 
 ## What it is
 
@@ -24,7 +24,7 @@ Nothing is ever deleted.
 
 ## Not in this version
 
-- Matching bank statements to invoices (paid / open).
+- Bank import and a paid / open status. A list is matched on demand, nothing is stored.
 - A DATEV export (decided once we know whether the accountant uses DATEV).
 - A pane or band in Claude Code.
 - Background watching of the inbox; it is processed when the skill runs.
@@ -112,7 +112,7 @@ never changes it.
   "checks": [{"id": "net_plus_tax_is_gross", "result": "pass"}],
   "duplicate_of": null,
   "related": [],
-  "tools": {"engine": "0.2.0", "pdftotext": "24.08.0"}
+  "tools": {"engine": "0.3.0", "pdftotext": "24.08.0"}
 }
 ```
 
@@ -305,6 +305,25 @@ they are recomputed with every change and show as status `duplicate` or a `dupli
 | **review** | Works through `_review/` with the user; offers a template for each vendor confirmed |
 | **catalog** | Brings existing folders in: adopt in place (index only), or reorganise into the structure, always as a plan |
 | **ask** | Answers questions from the CSVs ("Telekom 2025 per entity", "input tax Q3"), with DuckDB when installed |
+| **match** | Reads a list of payments, writes the list JSON with its evidence, runs `match`, presents missing, unsure, combined and found |
+
+## Notes
+
+`notes/<YYYY>/<id8>.md` (`notes/undated/` without a date) is a view of the record for Obsidian. The frontmatter
+and table are rebuilt from the record; everything below `## Notes` belongs to the person and is carried across
+rebuilds and moves. The `id` is `pw:<id8>`, which is how a note finds its document after a move. Orphans with
+text are kept and reported; a file with no `pw:` id is not ours and is never touched. The guard lets Claude write
+under `notes/`, and the entity slug `notes` is reserved.
+
+## List matching
+
+`match` takes a list in `_lists/` and a JSON Claude wrote from it in `_paperwork/lists/`. Claude reads, the engine
+decides. Each item carries the evidence as printed, and the engine checks it against the source's text like a
+document proposal: absent text is fatal, except on OCR sources where it is a warning, and evidence that does not
+read as the value is always fatal. Matching is by amount, vendor and a date window (30 days before, 7 after), then
+combinations of 2 to 6 documents of one vendor within 3 days. Results are `found`, `combined`, `unsure` and
+`missing`, with up to 5 suggestions. The output is `exports/matches/<name>.csv`. Choices are not stored: the engine
+holds no paid or open state.
 
 ## The hook
 

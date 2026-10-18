@@ -65,6 +65,7 @@ reorganises them into the structure, always as a plan you approve first.
 | **review** | `/paperwork:review` | Works through `_review/` and the unconfirmed queue with you; writes rules and vendor templates so a correction happens once. |
 | **catalog** | `/paperwork:catalog` | Brings existing folders in: index in place, or reorganise into the structure. |
 | **ask** | `/paperwork:ask` | Answers questions from the CSV index ("Hetzner 2025 per entity", "input tax Q2", "contracts ending this year") with the paths of the documents. |
+| **match** | `/paperwork:match` | Checks a list of payments (a bank statement, an accountant's list) against the archive and says which lines have no document. |
 
 ## The archive
 
@@ -75,6 +76,8 @@ OneDrive/Belege/
 ├── _duplicates/         copies and second versions, linked to their original
 ├── _paperwork/          config.json, rules.json, rules/<user>.json, vendors.json,
 │                        one record per document, derived text, journal
+├── _lists/              statements and lists you want matched
+├── notes/<YYYY>/        one markdown note per document (notes/undated/ when it has no date)
 ├── <entity>/<YYYY>/in/  received documents (the default folder template)
 ├── <entity>/<YYYY>/out/ issued documents
 ├── <entity>/…           any folder a class template defines, e.g. <entity>/contracts/<counterparty>/
@@ -90,6 +93,66 @@ OneDrive/Belege/
 
 The `id` is the start of the file's SHA-256: names never clash, and a file found anywhere leads back
 to its record. Names are ASCII only, so OneDrive on macOS and Windows agree.
+
+## Notes
+
+Every document gets a markdown note, `notes/<YYYY>/<id8>.md`, or `notes/undated/<id8>.md` when it has
+no date. `paperwork notes` writes them, and `export` does too. Duplicates get none. Open the archive
+folder as an [Obsidian](https://obsidian.md) vault and the notes link to the files.
+
+```markdown
+---
+id: "pw:fdd7c80c"
+title: "Hetzner Online inv 084000888874"
+date: "2026-05-24"
+entity: "acme-gmbh"
+counterparty: "hetzner-online"
+class: "inv"
+number: "084000888874"
+gross: "39.25"
+currency: "EUR"
+status: "filed"
+file: "acme-gmbh/2026/in/2026-05-24_inv_hetzner-online_084000888874_39.25EUR_fdd7c80c.pdf"
+---
+# Hetzner Online inv 084000888874
+
+[[acme-gmbh/2026/in/2026-05-24_inv_hetzner-online_084000888874_39.25EUR_fdd7c80c.pdf]]
+
+| field | value |
+| --- | --- |
+| gross | 39.25 |
+| … | … |
+
+## Notes
+```
+
+Everything above `## Notes` is rebuilt from the record. Write below it: that text is yours, and it
+survives rebuilds and moves. `paperwork notes --rebuild` regenerates every note. A note whose
+document is gone is kept and reported when it has text. A file without a `pw:` id is never touched.
+The entity slug `notes` is reserved.
+
+## Matching a list
+
+Put a bank statement or any list of payments into `_lists/` (`cp -n`, never overwrite) and run
+`/paperwork:match`. Claude reads the list, writes every line to `_paperwork/lists/<name>.json` with
+the text as printed, and the engine checks each line against the list's own text before it matches
+anything. `paperwork match <name>` then writes `exports/matches/<name>.csv`: line, date, amount,
+vendor, result, documents, suggestions, note.
+
+| Result | Meaning |
+|---|---|
+| `found` | exactly one document has the amount (vendor and date window agree) |
+| `combined` | one set of 2 to 6 documents of one vendor, within 3 days of each other, adds up to the amount |
+| `unsure` | several documents or sets fit, a document fits two lines, or the vendor is unknown; you pick |
+| `missing` | nothing fits; up to 5 suggestions are listed |
+
+The date window is 30 days before and 7 days after the line (`--before`, `--after`). Suggestions are
+the vendor's documents from 90 days before to 30 days after, or documents within 3% of the amount
+when the line has no vendor. Narrow a run with `--entity`, `--from` and `--to`. Fees, salaries and
+taxes stay in the list; you decide about them. Nothing is stored about your choices.
+
+On a scan, evidence that is not in the OCR text is a warning. Evidence that does not read as the
+value is always an error.
 
 ## Classes
 
@@ -211,6 +274,8 @@ paperwork plan                        # moves and renames, nothing done yet
 paperwork apply <plan>                # journaled; never overwrites; copies across volumes
 paperwork undo <plan>
 paperwork export [--dialect csv|de|both]
+paperwork notes [--rebuild]           # one markdown note per document
+paperwork match <name> [--entity E] [--from D] [--to D] [--before N] [--after N]
 paperwork verify                      # every file present, every hash right, nothing unregistered
 paperwork vendors | vendor <slug> merge|rename|category|alias <value>
 paperwork template test|set <vendor> [template.json]

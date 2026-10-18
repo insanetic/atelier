@@ -11,7 +11,7 @@ user-invocable: true
 license: MIT
 metadata:
   author: Stanislav Schmidt
-  version: 0.2.0
+  version: 0.3.0
 ---
 
 # Ask
@@ -26,6 +26,8 @@ Answer from `exports/` (run `paperwork export` first if the archive changed). Re
 | `class-<key>.csv` | Documents of a class that declares fields (`exports/<scope>/`): id, entity, counterparty, issue date, status, confirmed, path, then the class's fields |
 | `vendors.csv` | Entity × year × counterparty totals |
 | `issues.csv` | Open problems and warnings |
+
+Every document also has a note, `notes/<YYYY>/<id8>.md`, with the user's own text below `## Notes`. Search the notes when the question is about what the user wrote.
 
 `exports/all/` covers every entity; `exports/<entity>/` one. Use DuckDB if it is installed
 (`duckdb -c "select ... from read_csv('exports/all/documents.csv')"`), otherwise Python's `csv`.
