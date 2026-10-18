@@ -1746,9 +1746,17 @@ class ListEvidence(unittest.TestCase):
             self.assertEqual(len(found), 1, (text, found))
         found = self.problems("01.09.2026 Kauf 1.234,50\n", "2026-09-01", "1234", "01.09.2026", "1.234")
         self.assertEqual(len(found), 1, found)
+        found = self.problems("01.09.2026 Kauf 1.234.567,89\n", "2026-09-01", "567.89", "01.09.2026", "567,89")
+        self.assertEqual(len(found), 1, found)
+        found = self.problems("01.09.2026 Kauf 1.234\n", "2026-09-01", "1234", "01.09.2026", "1. 234")
+        self.assertEqual(len(found), 1, found)
 
     def test_amount_next_to_a_csv_field_passes(self):
         self.assertEqual(self.problems("2026-09-01,47.11,Amazon\n", "2026-09-01", "47.11", "2026-09-01", "47.11"), [])
+        self.assertEqual(self.problems("2026-09-01,100.00,Amazon\n", "2026-09-01", "100.00", "2026-09-01", "100.00"),
+                         [])
+        self.assertEqual(self.problems("01.09.2026,250.00\n", "2026-09-01", "250.00", "01.09.2026", "250.00"), [])
+        self.assertEqual(self.problems("Amazon,100,2026-09-01\n", "2026-09-01", "100", "2026-09-01", "100"), [])
         self.assertEqual(self.problems("01.09.2026 Kauf 1.234,50\n", "2026-09-01", "1234.50", "01.09.2026",
                                        "1.234,50"), [])
 

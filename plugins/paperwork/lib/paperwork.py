@@ -2682,16 +2682,17 @@ def in_list(e, text, amount=False):
         if i:
             a = chars[i - 1]
             if i in spaces:
-                pattern += r"\s+" if a.isdigit() and c.isdigit() else r"\s*"
+                pattern += r"\s+" if a in NUMBER_CHARS and c in NUMBER_CHARS else r"\s*"
             elif (a in NUMBER_CHARS) != (c in NUMBER_CHARS):
                 pattern += r"\s*"
         pattern += re.escape(c)
     runs = re.findall(r"\d+", chars)
     before, after = r"(?<!\d)", r"(?!\d)"
     if amount and runs and len(runs[0]) == 3:
-        before += r"(?<!\d[.,'])"
+        # a leading group of 1-3 digits, not the end of a date like 2026-09-01
+        before += "".join(r"(?<!(?<![\d\-/:])" + r"\d" * k + r"[.,'])" for k in (1, 2, 3))
     if amount and runs and len(runs[-1]) == 3:
-        after += r"(?![.,']\d)"
+        after += r"(?![.,']\d{1,3}(?!\d))"
     return re.search(before + pattern + after, text) is not None
 
 
