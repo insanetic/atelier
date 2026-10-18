@@ -305,6 +305,80 @@ class Archive(unittest.TestCase):
         self.file_all()
         return doc
 
+    def three_invoices(self):
+        for i, (day, net, tax, gross) in enumerate((("01", "10,00", "1,90", "11,90"), ("02", "20,00", "3,80", "23,80"),
+                                                    ("03", "70,00", "13,30", "83,30")), 1):
+            self.drop(f"i{i}.pdf", text_pdf([hoster_invoice(number=f"RE-{i}", date=f"{day}.09.2026", net=net, tax=tax,
+                                                           gross=gross)]))
+            self.pw("ingest")
+            doc = self.only_pending()[0]["id"]
+            self.propose(doc, hoster_proposal(number=f"RE-{i}", date=f"2026-09-{day}", printed_date=f"{day}.09.2026",
+                                              net=net.replace(",", "."), tax=tax.replace(",", "."),
+                                              gross=gross.replace(",", "."), printed_gross=f"{gross} €"))
+            self.pw("confirm", doc[:8])
+        self.file_all()
+
+    def write_list(self, csv_text, items, **extra):
+        os.makedirs(os.path.join(self.root, "_lists"), exist_ok=True)
+        with open(os.path.join(self.root, "_lists", "liste.csv"), "w", encoding="utf-8") as f:
+            f.write(csv_text)
+        os.makedirs(os.path.join(self.root, "_paperwork", "lists"), exist_ok=True)
+        write_json(os.path.join(self.root, "_paperwork", "lists", "liste.json"),
+                   {"source": "_lists/liste.csv", "items": items, **extra})
+
+    LIST_CSV = "03.09.2026;-119,00;Muster Hosting\n10.09.2026;-99,00;\n"
+    LIST_ITEMS = [
+        {"date": "2026-09-03", "amount": "-119.00", "vendor": "Muster Hosting",
+         "evidence": {"date": "03.09.2026", "amount": "-119,00", "vendor": "Muster Hosting"}},
+        {"date": "2026-09-10", "amount": "-99.00", "evidence": {"date": "10.09.2026", "amount": "-99,00"}}]
+
+    def test_match_finds_combined_and_missing(self):
+        self.three_invoices()
+        self.write_list(self.LIST_CSV, self.LIST_ITEMS)
+        code, res, err = self.pw("match", "liste")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(res["counts"], {"combined": 1, "missing": 1})
+        rows = self.csv_rows("matches", "liste.csv")
+        self.assertEqual(len(rows[0]["documents"].split(" | ")), 3)
+        self.assertEqual(rows[1]["result"], "missing")
+
+    def test_match_refuses_evidence_not_in_list(self):
+        self.three_invoices()
+        items = json.loads(json.dumps(self.LIST_ITEMS))
+        items[0]["evidence"]["amount"] = "-118,00"
+        self.write_list(self.LIST_CSV, items)
+        code, _, err = self.pw("match", "liste")
+        self.assertEqual(code, 1)
+        self.assertIn("line 1", err)
+        self.assertFalse(os.path.exists(os.path.join(self.root, "exports", "matches", "liste.csv")))
+
+    def test_match_refuses_source_outside_archive(self):
+        self.three_invoices()
+        self.write_list(self.LIST_CSV, self.LIST_ITEMS)
+        path = os.path.join(self.root, "_paperwork", "lists", "liste.json")
+        data = json.loads(read(path))
+        data["source"] = "../outside.csv"
+        write_json(path, data)
+        code, _, err = self.pw("match", "liste")
+        self.assertEqual(code, 1)
+        self.assertIn("source", err)
+
+    def test_match_from_to_limits_documents(self):
+        self.three_invoices()
+        self.write_list(self.LIST_CSV, self.LIST_ITEMS)
+        code, res, err = self.pw("match", "liste", "--from", "2026-09-02")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(res["counts"], {"missing": 2})
+
+    def test_lists_folder_is_not_ingested_or_unregistered(self):
+        with open(os.path.join(self.root, "_lists", "liste.pdf"), "wb") as f:
+            f.write(text_pdf([hoster_invoice()]))
+        code, res, err = self.pw("ingest", "--adopt")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.only_pending(), [])
+        code, res, err = self.pw("verify")
+        self.assertEqual(code, 0, (res, err))
+
     def test_notes_written_and_incremental(self):
         self.filed_invoice()
         code, res, err = self.pw("notes")
@@ -1483,6 +1557,8 @@ class Guard(unittest.TestCase):
         deny("cd /data/Belege && rm x.pdf")
         deny("cp ~/Downloads/a.pdf /data/Belege/_inbox/")
         allow("cp -n ~/Downloads/a.pdf /data/Belege/_inbox/")
+        deny("cp ~/Downloads/a.pdf /data/Belege/_lists/")
+        allow("cp -n ~/Downloads/a.pdf /data/Belege/_lists/")
         allow("ls -la /data/Belege/_inbox")
         allow("paperwork ingest && paperwork plan", cwd="/data/Belege")
         allow("/opt/x/bin/paperwork apply /data/Belege/_paperwork/plans/abc.json")
@@ -1497,6 +1573,7 @@ class Guard(unittest.TestCase):
         self.assertIsNone(self.verdict("Edit", {"file_path": "/data/Belege/_paperwork/config.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/templates/x.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json"}))
+        self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/lists/a.json"}))
         self.assertIsNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/erika.json"}))
         self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules.json.bak"}))
         self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/_paperwork/rules/../docs/x.json"}))

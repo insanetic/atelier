@@ -15,7 +15,7 @@ import os
 import shlex
 import sys
 
-WRITABLE = ("_paperwork/proposals/", "_paperwork/templates/", "_paperwork/rules/", "notes/")
+WRITABLE = ("_paperwork/proposals/", "_paperwork/templates/", "_paperwork/rules/", "_paperwork/lists/", "notes/")
 WRITABLE_FILES = ("_paperwork/config.json", "_paperwork/rules.json")
 DESTRUCTIVE = {"rm", "rmdir", "unlink", "shred", "truncate", "trash", "srm", "ln", "install", "dd", "tee",
                "touch", "chmod", "chown", "chflags", "xattr", "rename", "ditto", "unzip", "tar", "setfacl",
@@ -129,7 +129,7 @@ def check_segment(tokens, cwd, rs):
         dest_rel = rel_in(dest, rs)
         safe_flag = any(f in ("-n", "--no-clobber", "--ignore-existing") or (f.startswith("-") and not f.startswith("--") and "n" in f)
                         for f in flags) and not any("delete" in f or "remove-source" in f for f in flags)
-        if cmd in ("cp", "gcp", "rsync") and dest_rel is not None and (dest_rel == "_inbox" or dest_rel.startswith("_inbox/")) \
+        if cmd in ("cp", "gcp", "rsync") and dest_rel is not None and (dest_rel in ("_inbox", "_lists") or dest_rel.startswith(("_inbox/", "_lists/"))) \
                 and sources and all(rel_in(s, rs) is None for s in sources) and safe_flag:
             return None, cwd
         return (f"`{cmd}` touching the archive. To add files, copy them into _inbox with `cp -n`; "

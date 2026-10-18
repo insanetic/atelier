@@ -37,7 +37,8 @@ REVIEW = "_review"
 DUPLICATES = "_duplicates"
 EXPORTS = "exports"
 NOTES = "notes"
-MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS, NOTES}
+LISTS = "_lists"
+MANAGED_TOP = {STATE, INBOX, REVIEW, DUPLICATES, EXPORTS, NOTES, LISTS}
 
 CLASS_COLUMNS = ["id", "entity", "counterparty", "issue_date", "status", "confirmed", "path"]
 FIELD_TYPES = {"text", "date", "money", "number", "bool", "choice"}
@@ -1927,7 +1928,7 @@ def emit(obj):
 
 def cmd_init(args):
     root = os.path.abspath(args.root)
-    for d in (STATE, INBOX, REVIEW, DUPLICATES, EXPORTS, f"{STATE}/docs", f"{STATE}/derived",
+    for d in (STATE, INBOX, REVIEW, DUPLICATES, EXPORTS, LISTS, f"{STATE}/docs", f"{STATE}/derived",
               f"{STATE}/proposals", f"{STATE}/templates", f"{STATE}/plans"):
         os.makedirs(os.path.join(root, d), exist_ok=True)
     cfg = os.path.join(root, STATE, "config.json")
@@ -2512,7 +2513,7 @@ def cmd_verify(args):
                 problems.append({"id": r["id"][:8], "path": path, "problem": "missing"})
             elif sha256_file(full) != r["id"]:
                 problems.append({"id": r["id"][:8], "path": path, "problem": "content changed"})
-    for f in walk_files(archive, None, skip_top={STATE, EXPORTS, NOTES}):
+    for f in walk_files(archive, None, skip_top={STATE, EXPORTS, NOTES, LISTS}):
         rel = archive.rel(f)
         if rel not in known:
             problems.append({"path": rel, "problem": "not registered" + (" (in the inbox)" if rel.startswith(INBOX + "/") else "")})
@@ -2625,6 +2626,142 @@ def match_lines(items, docs, before=30, after=7):
             pool.append((gap, abs((dt.date.fromisoformat(d["issue_date"]) - day).days), _doc_key(d), d["path"]))
         r["suggestions"] = [p[3] for p in sorted(pool)[:SUGGEST_MAX]]
     return results
+
+
+# match command ----------------------------------------------------------------------------------------
+
+
+def list_text(archive, rel_path):
+    """The text of a list file and whether it came from OCR."""
+    path = archive.p(rel_path)
+    kind = sniff(path)
+    if kind == "pdf":
+        text = tool(["pdftotext", "-layout", "-enc", "UTF-8", path, "-"])
+        if len(re.sub(r"\s", "", text)) >= OCR_MIN_CHARS:
+            return text, False
+        with tempfile.TemporaryDirectory() as tmp:
+            parts = []
+            for i in range(1, pdf_pages(path) + 1):
+                base = os.path.join(tmp, f"page-{i}")
+                tool(["pdftoppm", "-r", "300", "-gray", "-png", "-singlefile", "-f", str(i), "-l", str(i), path, base])
+                parts.append(ocr_image(base + ".png"))
+        return "\n".join(parts), True
+    if kind in ("jpeg", "png"):
+        return ocr_image(path), True
+    with open(path, "rb") as f:
+        return f.read().decode("utf-8", errors="replace"), False
+
+
+def list_problems(items, text):
+    """Where the evidence of a list line is not in the list's text."""
+    problems = []
+    flat = squash(text)
+    folded = squash(fold(text))
+    for item in items:
+        n, ev = item["n"], item.get("evidence") or {}
+        e = ev.get("date")
+        if not e or squash(e) not in flat:
+            problems.append(f'line {n}: date evidence "{e or ""}" is not in the list')
+        elif dt.date.fromisoformat(item["date"]) not in date_candidates(e):
+            problems.append(f'line {n}: date evidence "{e}" does not read as {item["date"]}')
+        e = ev.get("amount")
+        amount = Decimal(item["amount"])
+        if not e or squash(e) not in flat:
+            problems.append(f'line {n}: amount evidence "{e or ""}" is not in the list')
+        elif not {amount, -amount} & amount_candidates(e):
+            problems.append(f'line {n}: amount evidence "{e}" does not read as {item["amount"]}')
+        e = ev.get("vendor")
+        if e and squash(fold(e)) not in folded:
+            problems.append(f'line {n}: vendor evidence "{e}" is not in the list')
+    return problems
+
+
+def resolve_vendor(archive, name):
+    vendors = archive.vendors["vendors"]
+    slug = slugify(name)
+    if any(v["slug"] == slug for v in vendors):
+        return slug
+    key = company_key(name)
+    if not key:
+        return None
+    for same in (lambda k: k == key, lambda k: key in k):
+        found = {v["slug"] for v in vendors if any(same(company_key(n)) for n in v.get("names") or [])}
+        if len(found) == 1:
+            return found.pop()
+    return None
+
+
+def match_docs(archive, entity, start, end):
+    docs = []
+    for r in archive.records.values():
+        d = r.get("data") or {}
+        if status_of(r, archive) not in ("filed", "ok", "unconfirmed") or not d.get("gross") or not d.get("issue_date"):
+            continue
+        if entity and r.get("entity") != entity:
+            continue
+        if (start and d["issue_date"] < start) or (end and d["issue_date"] > end):
+            continue
+        docs.append({"id": r["id"], "path": r["path"], "counterparty": r.get("counterparty") or "",
+                     "issue_date": d["issue_date"], "gross": str(d["gross"])})
+    return docs
+
+
+def list_file(archive, ref):
+    folder = os.path.realpath(archive.p(STATE, "lists"))
+    if ref.endswith(".json"):
+        path = os.path.realpath(ref if os.path.isabs(ref) or os.path.exists(ref) else archive.p(ref))
+        if os.path.dirname(path) != folder:
+            raise Fail("a list file lives in _paperwork/lists/", EXIT_USAGE)
+    elif re.fullmatch(r"[^/\\]+", ref):
+        path = os.path.join(folder, ref + ".json")
+    else:
+        raise Fail("give the list's name or its .json path under _paperwork/lists/", EXIT_USAGE)
+    return path, os.path.basename(path)[:-5]
+
+
+def cmd_match(args):
+    archive = Archive(args.root)
+    path, name = list_file(archive, args.list)
+    spec = read_json(path)
+    source = spec.get("source")
+    root = os.path.realpath(archive.root)
+    full = os.path.realpath(os.path.join(root, source)) if isinstance(source, str) and not os.path.isabs(source) else None
+    if full is None or not full.startswith(root + os.sep):
+        raise Fail(f"source {source!r} must be a path inside the archive", EXIT_CHECK)
+    if not os.path.isfile(full):
+        raise Fail(f"source {source} does not exist", EXIT_CHECK)
+    entity = args.entity or spec.get("entity")
+    start = iso_date(args.start or spec.get("from"), "from")
+    end = iso_date(args.end or spec.get("to"), "to")
+    items, fatal = [], []
+    for i, raw in enumerate(spec.get("items") or [], 1):
+        n = raw.get("n") or i
+        try:
+            day = dt.date.fromisoformat(raw["date"])
+            amount = str(Decimal(str(raw["amount"])))
+        except (KeyError, ValueError, ArithmeticError, TypeError):
+            fatal.append(f"line {n}: date and amount are required (date as YYYY-MM-DD, amount as a number)")
+            continue
+        item = {"n": n, "date": day.isoformat(), "amount": amount, "vendor": raw.get("vendor") or None,
+                "evidence": raw.get("evidence") or {}}
+        item["slug"] = resolve_vendor(archive, item["vendor"]) if item["vendor"] else None
+        items.append(item)
+    text, ocr = list_text(archive, archive.rel(full))
+    problems = list_problems(items, text) if not fatal else []
+    if fatal or (problems and not ocr):
+        raise Fail("the list does not match its evidence:\n" + "\n".join(fatal + problems), EXIT_CHECK)
+    with archive.lock():
+        lines = match_lines(items, match_docs(archive, entity, start, end), args.before, args.after)
+        rows = [{"line": r["n"], **{k: r[k] for k in ("date", "amount", "vendor", "result", "note")},
+                 "documents": " | ".join(r["documents"]), "suggestions": " | ".join(r["suggestions"])} for r in lines]
+        out = archive.p(EXPORTS, "matches", name + ".csv")
+        write_state(out, table_text(["line", "date", "amount", "vendor", "result", "documents", "suggestions", "note"],
+                                    rows, "csv"))
+    counts = {}
+    for r in lines:
+        counts[r["result"]] = counts.get(r["result"], 0) + 1
+    emit({"list": archive.rel(path), "csv": archive.rel(out), "counts": counts, "lines": lines, "warnings": problems})
+    return EXIT_OK
 
 
 # export ----------------------------------------------------------------------------------------------
@@ -3063,6 +3200,13 @@ def parser():
     sp.add_argument("--dialect", choices=["csv", "de", "both"], default="both")
     sp = add("notes", cmd_notes, "write one markdown note per document under notes/")
     sp.add_argument("--rebuild", action="store_true", help="rewrite every note, even unchanged ones")
+    sp = add("match", cmd_match, "check a list (bank statement, open items) against the filed documents")
+    sp.add_argument("list")
+    sp.add_argument("--entity")
+    sp.add_argument("--from", dest="start")
+    sp.add_argument("--to", dest="end")
+    sp.add_argument("--before", type=int, default=30)
+    sp.add_argument("--after", type=int, default=7)
     add("vendors", cmd_vendors, "the counterparty registry")
     sp = add("vendor", cmd_vendor, "change a counterparty: merge <into> | rename <slug> | category <c> | alias <name>")
     sp.add_argument("slug")
