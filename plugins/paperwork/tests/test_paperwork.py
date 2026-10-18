@@ -1755,6 +1755,11 @@ class Guard(unittest.TestCase):
         allow("cat /data/Belege/_paperwork/derived/abc/text.txt")
         deny("paperwork plan; rm /data/Belege/a.pdf")
 
+    def test_copy_denial_names_both_drop_folders(self):
+        message = self.verdict("Bash", {"command": "cp ~/Downloads/a.pdf /data/Belege/_lists/"})
+        self.assertIn("_inbox", message)
+        self.assertIn("_lists", message)
+
     def test_edits(self):
         self.assertIsNotNone(self.verdict("Write", {"file_path": "/data/Belege/nordlicht/2026/in/a.pdf"}))
         self.assertIsNotNone(self.verdict("Edit", {"file_path": "/data/Belege/_paperwork/docs/abc.json"}))

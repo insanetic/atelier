@@ -4,7 +4,7 @@
 Denies Bash commands that would remove, move, overwrite or rewrite files inside a registered archive
 (the paperwork engine itself is allowed), and Write/Edit calls on anything there except the files
 Claude is meant to write: _paperwork/config.json, _paperwork/rules.json, _paperwork/rules/, _paperwork/proposals/ and _paperwork/templates/, and the notes under notes/ (the engine alone removes them).
-Copying into _inbox/ is allowed with `cp -n` (never overwrite).
+Copying into _inbox/ and _lists/ is allowed with `cp -n` (never overwrite).
 
 Archives: $PAPERWORK_HOME and the lines of ~/.config/paperwork/roots (written by `paperwork init`).
 Runs on the host with the standard library only (Python 3.9+).
@@ -132,7 +132,8 @@ def check_segment(tokens, cwd, rs):
         if cmd in ("cp", "gcp", "rsync") and dest_rel is not None and (dest_rel in ("_inbox", "_lists") or dest_rel.startswith(("_inbox/", "_lists/"))) \
                 and sources and all(rel_in(s, rs) is None for s in sources) and safe_flag:
             return None, cwd
-        return (f"`{cmd}` touching the archive. To add files, copy them into _inbox with `cp -n`; "
+        return (f"`{cmd}` touching the archive. To add files, copy them into _inbox/ (documents) or _lists/ "
+                "(lists to match) with `cp -n`; "
                 "everything else goes through `paperwork plan` / `paperwork apply`"), cwd
     if cmd in ("sed", "gsed", "perl", "ruby") and any(f.startswith("-i") or (f.startswith("-") and "i" in f and cmd != "sed") for f in flags) \
             and (touched or cwd_in):
