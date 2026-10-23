@@ -53,7 +53,7 @@ German and English section names and leads are both defined; the text follows th
 | Skill | Use it to |
 |---|---|
 | `/tracker:issue` | create a new issue from a report, request or a bug found while working |
-| `/tracker:retro` | turn work already done (this session, this branch, or what you describe) into one or several issues, written as if reported first, then hand them over or close them |
+| `/tracker:retro` | turn work already done (this session, this branch, or what you describe) into one or several issues, written as if reported first, then hand them over or close them; suggests open issues for what was found but not done (bugs, gaps, postponed work, TODOs), created only if you pick them |
 | `/tracker:comment` | add a progress, decision, question or blocker comment |
 | `/tracker:handoff` | move an issue to review or another person, with the three-line comment |
 | `/tracker:close` | close one or several issues with a result and a closing comment |
