@@ -51,11 +51,12 @@ Retro's own part is finding and splitting the work:
 
 Then, for each issue, exactly what the other skills do:
 
-5. **The issue, as `issue` does it** (its steps 2 to 7), with the work as the facts and as if it were being
+5. **The issue, as `issue` does it** (its steps 2 to 8), with the work as the facts and as if it were being
    filed before the work started:
    - already tracked? A match gets its handoff or close there instead of a new issue;
-   - kind, outcome title and body: a bug states what someone saw and what should happen, a feature the
-     need; nothing in the body says the work is done or how;
+   - kind, outcome title, TL;DR and body: a bug states what someone saw and what should happen, a feature
+     the need; nothing in the body says the work is done or how;
+   - fields as `issue` sets them (CI-008): who asked, the original request, documents, related issues;
    - team and project by the procedure's ladder; the changed files and the repository are strong signals;
    - priority by CI-007 as it would have been when reported (a customer-visible bug is not `low` because it
      is fixed now);
@@ -67,7 +68,7 @@ Then, for each issue, exactly what the other skills do:
      comment;
    - done: then as `close` does it (its steps 2 to 6) with result `done` implied: ticked `Done when` items
      the work shows are met (CI-051), the `Done:` comment, follow-ups as new linked issues.
-7. **Picked findings, as `issue` does them** (its steps 2 to 7): new open issues in the backlog status,
+7. **Picked findings, as `issue` does them** (its steps 2 to 8): new open issues in the backlog status,
    priority by CI-007, no assignee unless the user names one, each linked to the issue it came from (CI-060). The issue that found them says so
    only through the link, not in its closing comment.
 8. **Confirm everything at once**, as the procedure says: every issue with its target, kind, priority and

@@ -1,4 +1,4 @@
-# Conventional Issues 0.2.0
+# Conventional Issues 0.3.0
 
 A convention for issues and tasks: what an issue, a comment, a handoff and a close look like, in any
 tracker. It does not care whether the tracker is Linear, Jira, GitHub, Trello or a spreadsheet. Every rule
@@ -46,6 +46,25 @@ priority, date, version or person, and no hedges ("probably", "should now work",
 
 A missing fact the shape requires is asked. A missing optional fact means the section is left out. Never
 "unknown", "TBD" or a placeholder.
+
+### CI-008 Stands on its own
+
+Someone who was not there can pick the issue up and finish it from the issue alone, without the
+conversation it came from. Every issue answers:
+
+| Question | Where it goes |
+|---|---|
+| what should be true afterwards | the title and the TL;DR |
+| why, and for whom | Problem, Need, Today or Why |
+| how to tell it is done | Done when |
+| who asked, when it was not the one filing it, and who answers questions | the tracker's people fields (subscriber, mention, customer or requester link) |
+| what the work needs: documents, files, accounts, the original request, related or blocking issues | the tracker's attachments and links |
+| by when, if a date was given | the due date |
+
+A fact the work needs that was said only in the conversation goes into the issue; one that is missing is
+asked (CI-005). Text holds only what its reader may see (CI-002, CI-003). Context only the team may see
+goes into an internal comment if the tracker has them, otherwise a linked issue in an internal-only team or
+project.
 
 ## 3. Kinds
 
@@ -106,10 +125,10 @@ there; optional ones are left out when empty. Nothing else.
 
 | Kind | Required | Optional |
 |---|---|---|
-| `bug` | Problem, Expected | Steps, Done when |
+| `bug` | Problem, Expected, Done when | Steps |
 | `feature` | Need, Done when | Not included |
-| `improvement` | Today, Better | Done when |
-| `task` | What, Done when | Why |
+| `improvement` | Today, Better, Done when | — |
+| `task` | What, Why, Done when | — |
 
 Order:
 
@@ -133,18 +152,27 @@ Order:
 
 ### CI-022 What goes in each section
 
-- **Problem:** what happens, where, since when, who is affected.
+- **Problem:** what happens, where, since when, who is affected and how.
 - **Expected:** what should happen instead.
 - **Steps:** a numbered list that reproduces it.
 - **Need:** who needs what, for what.
-- **Today / Better:** how it works now; how it should work.
-- **What / Why:** the work; one line on why now.
+- **Today / Better:** how it works now and what that costs whom; how it should work.
+- **What / Why:** the work; one line on why it is needed, and why now.
 - **Done when:** a checklist (`- [ ]`) of observable results, each one line.
 - **Not included:** what the issue explicitly does not cover.
 
 ### CI-023 Durable truth lives in the description
 
 When scope or acceptance criteria change, the description is updated; a comment says only what changed.
+
+### CI-024 Starts with a TL;DR
+
+The body's first line comes before the first section: one sentence of
+at most 25 words, led by `TL;DR:` (German `Kurz:`), saying what the matter is and for whom or why. It adds
+to the title instead of repeating it. It counts toward the 120 words.
+
+- "TL;DR: Multi-line notes in exported invoices end up on one line; customers send them to their guests."
+- "Kurz: Der Mietvertrag für das Büro Leipzig läuft am 31.12. aus und soll um zwei Jahre verlängert werden."
 
 ## 6. Comments
 
@@ -218,6 +246,9 @@ types) are found by meaning in each workspace. Typical:
 |---|---|
 | kind | a type label (`Bug`, `Feature`, `Improvement`; `Chore`, `Tech debt` or `Docs` for a task) |
 | priority | the tracker's priority field, or a priority label if it has no field |
+| who asked, who answers | subscribers or mentions; the customer or requester link if the tracker has one |
+| what the work needs | attachments and links (the original request, related, blocked by) |
+| by when | the due date |
 | `done` | the completed status |
 | `wont-do` | the canceled status, with a won't-fix label if one exists |
 | `works-as-intended` | the canceled status, with a user-error or not-a-bug label if one exists |

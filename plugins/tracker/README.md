@@ -24,18 +24,22 @@ result comes back ready to copy and paste.
   own, so nothing internal goes in unless the issue is internal: no code, paths, commits, stack traces,
   secrets, personal data, other customers, blame, or how the work was made.
 - **Nothing guessed.** A missing fact is asked or its section is left out.
+- **Stands on its own.** Someone who was not there can finish the issue from it alone: why, done when, who
+  to ask and what the work needs. People, documents, the original request and related issues go into the
+  tracker's fields, not the text.
 - **One kind:** `bug`, `feature`, `improvement`, `task` (also non-software work).
 - **Always a priority**, inferred on a fixed scale (urgent, high, medium, low) from who is affected and what
   is waiting; `medium` when nothing says otherwise, shown with its reason before it is set.
 - **The title is the outcome**, at most 70 characters, no prefix, so it can go into a changelog as is.
-- **One body shape per kind**, at most 120 words without checklists:
+- **One body shape per kind**, at most 120 words without checklists, after a one-sentence `TL;DR:` line
+  (German `Kurz:`):
 
   | Kind | Sections |
   |---|---|
-  | `bug` | Problem, Expected, *Steps*, *Done when* |
+  | `bug` | Problem, Expected, *Steps*, Done when |
   | `feature` | Need, Done when, *Not included* |
-  | `improvement` | Today, Better, *Done when* |
-  | `task` | What, *Why*, Done when |
+  | `improvement` | Today, Better, Done when |
+  | `task` | What, Why, Done when |
 
 - **Comments** have one purpose, at most 60 words, and start with it: `Status:`, `Decision:`, `Question for
   <person>:`, `Blocked:` (German: `Stand:`, `Entscheidung:`, `Frage an <person>:`, `Blockiert:`).
@@ -95,7 +99,7 @@ tracker check [--json] <file|->
 ```
 
 The draft carries a small frontmatter (`type`, `kind`, `purpose`, `result`, `audience`); see
-[`PROCEDURE.md`](PROCEDURE.md). It decides title length and prefix, the sections and their order per kind,
+[`PROCEDURE.md`](PROCEDURE.md). It decides title length and prefix, the TL;DR line, the sections and their order per kind,
 required sections, checklists and numbered steps, placeholders, word and sentence limits, comment leads,
 handoff and close shape, secrets and personal data, and technical internals in customer-visible text. Exit
 0 when there is no error, 1 with errors, 2 on a usage error. It reports; it never rewrites.

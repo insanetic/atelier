@@ -28,6 +28,8 @@ def ids(meta, body, severity=None):
 
 BUG_DE = """# Zeilenumbrüche im Rechnungsexport erhalten
 
+Kurz: Mehrzeilige Notizen landen im PDF-Export in einer Zeile und sollen ihre Umbrüche behalten.
+
 ## Problem
 Seit dem 20.10. erscheinen mehrzeilige Notizen im PDF-Export in einer Zeile.
 
@@ -44,6 +46,8 @@ Notizen behalten ihre Zeilenumbrüche.
 
 FEATURE_EN = """# Filter the revenue report by booking channel
 
+TL;DR: Revenue managers want to compare booking channels inside the revenue report.
+
 ## Need
 Revenue managers need to compare channels without exporting to a spreadsheet.
 
@@ -57,8 +61,13 @@ Channel costs and commissions.
 
 TASK_DE = """# Mietvertrag Büro Leipzig verlängern
 
+Kurz: Der Mietvertrag für das Büro Leipzig soll vor dem Ablauf um zwei Jahre verlängert werden.
+
 ## Was
-Der Mietvertrag läuft am 31.12. aus und soll um zwei Jahre verlängert werden.
+Den Mietvertrag um zwei Jahre verlängern.
+
+## Warum
+Er läuft am 31.12. aus.
 
 ## Fertig, wenn
 - [ ] Verlängerung unterschrieben
@@ -67,11 +76,16 @@ Der Mietvertrag läuft am 31.12. aus und soll um zwei Jahre verlängert werden.
 
 IMPROVEMENT_EN = """# Show sync progress while bookings import
 
+TL;DR: Users cannot tell whether a booking import is still running.
+
 ## Today
 The import shows nothing until it finishes, which takes up to ten minutes.
 
 ## Better
 A progress bar shows how many bookings are imported.
+
+## Done when
+- [ ] The import shows how many bookings are done and how many are left
 """
 
 
@@ -116,7 +130,29 @@ class Issues(unittest.TestCase):
         self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n## Context\nText.\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n### Detail\nText.\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "task"},
-                                    "# Vertrag verlängern\n\n## Fertig, wenn\n- [ ] Unterschrieben\n\n## Was\nVerlängern.\n"))
+                                    "# Vertrag verlängern\n\nKurz: Vertrag verlängern.\n\n## Fertig, wenn\n- [ ] Unterschrieben\n\n"
+                                    "## Was\nVerlängern.\n\n## Warum\nLäuft aus.\n"))
+
+    def test_every_kind_says_why_and_done_when(self):
+        self.assertIn("CI-021", ids({"type": "issue", "kind": "task"}, TASK_DE.replace(
+            "## Warum\nEr läuft am 31.12. aus.\n\n", "")))
+        self.assertIn("CI-021", ids({"type": "issue", "kind": "bug"}, BUG_DE.split("## Fertig, wenn")[0]))
+        self.assertIn("CI-021", ids({"type": "issue", "kind": "improvement"},
+                                    IMPROVEMENT_EN.split("## Done when")[0]))
+
+    def test_tldr(self):
+        lead = "TL;DR: Revenue managers want to compare booking channels inside the revenue report.\n\n"
+        cases = {
+            "missing": FEATURE_EN.replace(lead, ""),
+            "no lead": FEATURE_EN.replace("TL;DR: ", ""),
+            "two sentences": FEATURE_EN.replace("report.\n\n## Need", "report. They ask weekly.\n\n## Need"),
+            "too long": FEATURE_EN.replace("inside the revenue report", "inside " + "the report " * 12),
+            "after a section": FEATURE_EN.replace(lead, "").replace("## Done when", lead + "## Done when"),
+        }
+        for name, body in cases.items():
+            with self.subTest(case=name):
+                self.assertIn("CI-024", ids({"type": "issue", "kind": "feature"}, body))
+        self.assertNotIn("CI-024", ids({"type": "issue", "kind": "bug"}, BUG_DE))
 
     def test_text_outside_sections(self):
         self.assertIn("CI-021", ids({"type": "issue", "kind": "task"}, TASK_DE.replace(
@@ -231,7 +267,7 @@ class Convention(unittest.TestCase):
     def test_shapes(self):
         for kind, shape in tracker.SHAPES.items():
             required = ", ".join(tracker.SECTIONS[k][0] for k, r in shape if r)
-            optional = ", ".join(tracker.SECTIONS[k][0] for k, r in shape if not r)
+            optional = ", ".join(tracker.SECTIONS[k][0] for k, r in shape if not r) or "—"
             self.assertIn("| `%s` | %s | %s |" % (kind, required, optional), self.text)
             self.assertIn("`%s` %s." % (kind, ", ".join(tracker.SECTIONS[k][0] for k, _ in shape)), self.text)
 
@@ -242,6 +278,7 @@ class Convention(unittest.TestCase):
         self.assertIn("At most %d characters" % tracker.TITLE_MAX, self.text)
         self.assertIn("At most %d words, not counting checklist lines" % tracker.BODY_MAX, self.text)
         self.assertIn("At most %d words and one purpose" % tracker.COMMENT_MAX, self.text)
+        self.assertIn("at most %d words, led by `%s` (German `%s`)" % (tracker.TLDR_MAX, *tracker.TLDR), self.text)
 
     def test_rule_ids_exist(self):
         cited = set(re.findall(r"CI-\d{3}", (PLUGIN / "lib" / "tracker.py").read_text()))

@@ -29,14 +29,21 @@ $ARGUMENTS
 3. **Kind** (CI-006). Pick from what the work is, not from the words used: wrong behaviour is a `bug`, a
    missing capability a `feature`, a working thing made better an `improvement`, everything else a
    `task`. Two fit honestly: ask. Two pieces of work: offer two issues.
-4. **Ask once** for what the kind's required sections need and the context lacks: for a `bug` what
-   happens and what is expected; for a `feature` who needs it and when it is done; for a `task` what
-   done looks like. Never ask for what you can read from the context. Assignee and due date are set only
-   when the user or a rule gives them.
+4. **Ask once** for what the kind's required sections and CI-008 need and the context lacks: for a `bug`
+   what happens, who is affected and what is expected; for a `feature` who needs it, for what, and when it
+   is done; for an `improvement` what today costs and when it is better; for a `task` why and what done
+   looks like; for every kind, who to ask and what the work needs, when that is not plain. Never ask for
+   what you can read from the context. Assignee and due date are set only when the user or a rule gives
+   them.
 5. **Title** (CI-010 to CI-012): the outcome, so it reads as a changelog line. A bug's title is the correct
    behaviour.
-6. **Body** (CI-020 to CI-022): only the kind's sections, in order; optional sections left out when empty.
-7. **Target and priority:** the team and project by the procedure's ladder (its step 2), the priority by
+6. **Body** (CI-020 to CI-024): the `TL;DR:` line (German `Kurz:`), then only the kind's sections, in
+   order; optional sections left out when empty.
+7. **Fields** (CI-008): who asked and who answers questions, documents and files, the original request,
+   related or blocking issues, a given date: each into its field as the procedure's step 5 says, not
+   into the text. Read the issue as someone who was not in the conversation: whatever they would still
+   have to ask is asked now.
+8. **Target and priority:** the team and project by the procedure's ladder (its step 2), the priority by
    CI-007 (its step 6), each shown with its reason in the confirmation.
-8. **Draft, check, confirm, write, report** as the procedure says. A bug found while working on another
+9. **Draft, check, confirm, write, report** as the procedure says. A bug found while working on another
    issue is linked to it (CI-060).

@@ -51,9 +51,16 @@ clear answer; ask only when the list ends with more than one candidate.
 
 ## 5. Facts
 
-Only what the user, the conversation or the work shows (CI-004). Collect what the shape needs and the
-context lacks, and ask for all of it in one question, with concrete options where there are some. Optional
-facts that are missing mean the section is left out (CI-005).
+Only what the user, the conversation or the work shows (CI-004). Collect what the shape and CI-008 need and
+the context lacks, and ask for all of it in one question, with concrete options where there are some.
+Optional facts that are missing mean the section is left out (CI-005).
+
+Before drafting, go through the conversation for facts the work needs that would otherwise stay there: who
+asked, who answers questions, a date, documents, files, accounts, the original request, related or blocking
+issues. Each one goes into a field (CI-008): people as subscribers or mentions, documents and files as
+attachments, the request and related issues as links, a date as the due date. Context only the team may
+see goes into an internal comment if the tracker has them, otherwise a linked issue in an internal-only team
+or project; if neither exists, ask.
 
 ## 6. Priority
 
@@ -93,9 +100,12 @@ not a wall of text):
 ```
 <ID or "new issue"> · <team / project> (<why this target>)
 Kind: <kind> → label <label>   Priority: <priority> (<why, or "default">)   Status: <status>   Assignee: <person>
+Due: <date>   Subscribers: <people>   Links: <request, related, blocked by>   Attachments: <files>
 <title>
 <body or comment>
 ```
+
+Fields with nothing to set are left out of the second line, and the line is left out when all are empty.
 
 Several writes in one flow (issues, comments, status changes) are confirmed together; the user may pick
 some and drop others. Nothing is written before the yes. A rule in context may waive confirmation for a
@@ -103,7 +113,8 @@ named action; nothing else does.
 
 ## 9. Write and report
 
-Write in this order: issue, then fields (kind label, status, assignee, links), then comment. Fetch the
+Write in this order: issue, then fields (kind label, priority, status, assignee, due date, subscribers,
+links, attachments), then comment. An attachment the tool cannot upload is reported as not written. Fetch the
 result back to see it landed. Report one line per write: ID, link, target, and what was set. If a write
 fails, stop, say what was and was not written, and do not retry blindly.
 
@@ -121,7 +132,8 @@ nothing was written:
 ```
 <body>
 ```
-**Set:** kind label `<kind>`, priority `<priority>`, project `<project>`, status `<status>`, assignee `<person>`, link to `<ID>`
+**Set:** kind label `<kind>`, priority `<priority>`, project `<project>`, status `<status>`, assignee `<person>`,
+due `<date>`, subscribers `<people>`, links `<request, related, blocked by>`, attach `<files>`
 ````
 
 A comment goes in a single code block, with the status to set under it.

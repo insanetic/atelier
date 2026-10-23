@@ -26,11 +26,12 @@ SECTIONS = {
     "what": ("What", "Was"), "why": ("Why", "Warum"),
 }
 SHAPES = {
-    "bug": [("problem", True), ("expected", True), ("steps", False), ("done", False)],
+    "bug": [("problem", True), ("expected", True), ("steps", False), ("done", True)],
     "feature": [("need", True), ("done", True), ("excluded", False)],
-    "improvement": [("today", True), ("better", True), ("done", False)],
-    "task": [("what", True), ("why", False), ("done", True)],
+    "improvement": [("today", True), ("better", True), ("done", True)],
+    "task": [("what", True), ("why", True), ("done", True)],
 }
+TLDR = ("TL;DR:", "Kurz:")  # (English, German) lead of the body's first line
 LEADS = {
     "progress": [r"Status:", r"Stand:"],
     "decision": [r"Decision:", r"Entscheidung:"],
@@ -58,10 +59,10 @@ GREETINGS = re.compile(r"(?i)^(?:hi|hello|hey|hallo|moin|liebe|lieber|dear)\b|(?
                        r" grüße|best regards|kind regards|thanks for (?:reporting|reaching out)|danke für"
                        r" (?:die|deine|ihre) meldung|sorry for|entschuldigen sie")
 
-TITLE_MAX, BODY_MAX, COMMENT_MAX, CLOSE_SENTENCES = 70, 120, 60, 2
+TITLE_MAX, BODY_MAX, COMMENT_MAX, CLOSE_SENTENCES, TLDR_MAX = 70, 120, 60, 2, 25
 
 ORDER = ["CI-002", "CI-003", "CI-004", "CI-005", "CI-006", "CI-010", "CI-011", "CI-012", "CI-020",
-         "CI-021", "CI-022", "CI-030", "CI-040", "CI-050", "CI-051", "CI-000"]
+         "CI-021", "CI-022", "CI-024", "CI-030", "CI-040", "CI-050", "CI-051", "CI-000"]
 INTERNAL_SUFFIXES = (".local", ".internal", ".lan", ".corp", ".intranet", ".localhost")
 
 
@@ -343,8 +344,23 @@ def check_issue(meta, body, report):
     if n > BODY_MAX:
         report.add("CI-020", "error", "body", "%d words, limit %d (checklists not counted)" % (n, BODY_MAX))
 
+    first = next((i for i, l in enumerate(rest) if l.strip()), None)
+    tldr = first if first is not None and rest[first].lstrip().startswith(TLDR) else None
+    if tldr is None:
+        report.add("CI-024", "error", "body", "the body starts with one `%s` sentence (de: `%s`), before the "
+                   "first section" % TLDR)
+    else:
+        text = rest[tldr].strip().split(":", 1)[1]
+        if count_sentences(text) > 1:
+            report.add("CI-024", "error", "line %d" % (start + tldr + 1), "TL;DR is one sentence", text.strip()[:60])
+        if len(words(text)) > TLDR_MAX:
+            report.add("CI-024", "error", "line %d" % (start + tldr + 1),
+                       "TL;DR is %d words, limit %d" % (len(words(text)), TLDR_MAX))
+
     found, current, content = [], None, {}
     for i, line in enumerate(rest, start + 1):
+        if i - start - 1 == tldr:
+            continue
         m = re.match(r"\s*(#{1,6})\s+(.*)$", line)
         if m:
             key = section_key(m.group(2))
@@ -358,6 +374,8 @@ def check_issue(meta, body, report):
         elif current:
             content[current].append(line)
         elif line.strip():
+            if line.lstrip().startswith(TLDR):
+                report.add("CI-024", "error", "line %d" % i, "the TL;DR comes first, before any section")
             report.add("CI-021", "error", "line %d" % i, "text outside a section", line.strip()[:60])
     if kind in SHAPES:
         shape = [k for k, _ in SHAPES[kind]]

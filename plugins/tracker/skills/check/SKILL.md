@@ -22,8 +22,10 @@ $ARGUMENTS
    honestly unclear.
 2. **Check.** Save it with its frontmatter (PROCEDURE.md, step 7) and run `tracker check --json <file>`.
 3. **Judge** what the script cannot, in this order: exposure in meaning (CI-002, CI-003), facts and guesses
-   (CI-004, CI-005), the kind (CI-006), whether the title states the outcome (CI-012), one purpose per
-   comment (CI-030).
+   (CI-004, CI-005), whether someone who was not there could finish the issue from it alone (CI-008: why,
+   done when, who to ask, what the work needs; for an existing issue, its fields count too), the kind
+   (CI-006), whether the title states the outcome (CI-012) and the TL;DR adds to it (CI-024), one purpose
+   per comment (CI-030). A CI-008 gap is a question, not a guess.
 4. **Report**, nothing around it:
 
    ```
