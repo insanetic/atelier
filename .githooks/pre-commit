@@ -24,3 +24,10 @@ if printf '%s\n' "$staged" | grep -q '^plugins/tone/'; then
     exit 1
   fi
 fi
+
+if printf '%s\n' "$staged" | grep -q '^plugins/tracker/'; then
+  if ! python3 -m unittest discover -s "$root/plugins/tracker/tests" >/dev/null 2>&1; then
+    echo "pre-commit: the tracker tests fail; run: python3 -m unittest discover -s plugins/tracker/tests" >&2
+    exit 1
+  fi
+fi
