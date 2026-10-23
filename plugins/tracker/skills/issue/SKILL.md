@@ -37,7 +37,7 @@ $ARGUMENTS
    them.
 5. **Title** (CI-010 to CI-012): the outcome, so it reads as a changelog line. A bug's title is the correct
    behaviour.
-6. **Body** (CI-020 to CI-024): the `TL;DR:` line (German `Kurz:`), then only the kind's sections, in
+6. **Body** (CI-020 to CI-024): the `TL;DR:` line (in every language), then only the kind's sections, in
    order; optional sections left out when empty.
 7. **Fields** (CI-008): who asked and who answers questions, documents and files, the original request,
    related or blocking issues, a given date: each into its field as the procedure's step 5 says, not

@@ -32,7 +32,7 @@ result comes back ready to copy and paste.
   is waiting; `medium` when nothing says otherwise, shown with its reason before it is set.
 - **The title is the outcome**, at most 70 characters, no prefix, so it can go into a changelog as is.
 - **One body shape per kind**, at most 120 words without checklists, after a one-sentence `TL;DR:` line
-  (German `Kurz:`):
+  (in every language):
 
   | Kind | Sections |
   |---|---|

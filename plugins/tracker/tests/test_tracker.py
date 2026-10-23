@@ -28,7 +28,7 @@ def ids(meta, body, severity=None):
 
 BUG_DE = """# Zeilenumbrüche im Rechnungsexport erhalten
 
-Kurz: Mehrzeilige Notizen landen im PDF-Export in einer Zeile und sollen ihre Umbrüche behalten.
+TL;DR: Mehrzeilige Notizen landen im PDF-Export in einer Zeile und sollen ihre Umbrüche behalten.
 
 ## Problem
 Seit dem 20.10. erscheinen mehrzeilige Notizen im PDF-Export in einer Zeile.
@@ -61,7 +61,7 @@ Channel costs and commissions.
 
 TASK_DE = """# Mietvertrag Büro Leipzig verlängern
 
-Kurz: Der Mietvertrag für das Büro Leipzig soll vor dem Ablauf um zwei Jahre verlängert werden.
+TL;DR: Der Mietvertrag für das Büro Leipzig soll vor dem Ablauf um zwei Jahre verlängert werden.
 
 ## Was
 Den Mietvertrag um zwei Jahre verlängern.
@@ -130,7 +130,7 @@ class Issues(unittest.TestCase):
         self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n## Context\nText.\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n### Detail\nText.\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "task"},
-                                    "# Vertrag verlängern\n\nKurz: Vertrag verlängern.\n\n## Fertig, wenn\n- [ ] Unterschrieben\n\n"
+                                    "# Vertrag verlängern\n\nTL;DR: Vertrag verlängern.\n\n## Fertig, wenn\n- [ ] Unterschrieben\n\n"
                                     "## Was\nVerlängern.\n\n## Warum\nLäuft aus.\n"))
 
     def test_every_kind_says_why_and_done_when(self):
@@ -147,6 +147,7 @@ class Issues(unittest.TestCase):
             "no lead": FEATURE_EN.replace("TL;DR: ", ""),
             "two sentences": FEATURE_EN.replace("report.\n\n## Need", "report. They ask weekly.\n\n## Need"),
             "too long": FEATURE_EN.replace("inside the revenue report", "inside " + "the report " * 12),
+            "translated lead": FEATURE_EN.replace("TL;DR: ", "Kurz: "),
             "after a section": FEATURE_EN.replace(lead, "").replace("## Done when", lead + "## Done when"),
         }
         for name, body in cases.items():
@@ -278,7 +279,7 @@ class Convention(unittest.TestCase):
         self.assertIn("At most %d characters" % tracker.TITLE_MAX, self.text)
         self.assertIn("At most %d words, not counting checklist lines" % tracker.BODY_MAX, self.text)
         self.assertIn("At most %d words and one purpose" % tracker.COMMENT_MAX, self.text)
-        self.assertIn("at most %d words, led by `%s` (German `%s`)" % (tracker.TLDR_MAX, *tracker.TLDR), self.text)
+        self.assertIn("at most %d words, led by `%s` in every language" % (tracker.TLDR_MAX, tracker.TLDR), self.text)
 
     def test_rule_ids_exist(self):
         cited = set(re.findall(r"CI-\d{3}", (PLUGIN / "lib" / "tracker.py").read_text()))

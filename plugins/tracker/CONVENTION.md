@@ -168,11 +168,11 @@ When scope or acceptance criteria change, the description is updated; a comment 
 ### CI-024 Starts with a TL;DR
 
 The body's first line comes before the first section: one sentence of
-at most 25 words, led by `TL;DR:` (German `Kurz:`), saying what the matter is and for whom or why. It adds
-to the title instead of repeating it. It counts toward the 120 words.
+at most 25 words, led by `TL;DR:` in every language, saying what the matter is and for whom or why. It
+adds to the title instead of repeating it. It counts toward the 120 words.
 
 - "TL;DR: Multi-line notes in exported invoices end up on one line; customers send them to their guests."
-- "Kurz: Der Mietvertrag für das Büro Leipzig läuft am 31.12. aus und soll um zwei Jahre verlängert werden."
+- "TL;DR: Der Mietvertrag für das Büro Leipzig läuft am 31.12. aus und soll um zwei Jahre verlängert werden."
 
 ## 6. Comments
 

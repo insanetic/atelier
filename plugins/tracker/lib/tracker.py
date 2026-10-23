@@ -31,7 +31,7 @@ SHAPES = {
     "improvement": [("today", True), ("better", True), ("done", True)],
     "task": [("what", True), ("why", True), ("done", True)],
 }
-TLDR = ("TL;DR:", "Kurz:")  # (English, German) lead of the body's first line
+TLDR = "TL;DR:"  # lead of the body's first line, in every language
 LEADS = {
     "progress": [r"Status:", r"Stand:"],
     "decision": [r"Decision:", r"Entscheidung:"],
@@ -347,8 +347,8 @@ def check_issue(meta, body, report):
     first = next((i for i, l in enumerate(rest) if l.strip()), None)
     tldr = first if first is not None and rest[first].lstrip().startswith(TLDR) else None
     if tldr is None:
-        report.add("CI-024", "error", "body", "the body starts with one `%s` sentence (de: `%s`), before the "
-                   "first section" % TLDR)
+        report.add("CI-024", "error", "body", "the body starts with one `%s` sentence, in every language, "
+                   "before the first section" % TLDR)
     else:
         text = rest[tldr].strip().split(":", 1)[1]
         if count_sentences(text) > 1:
