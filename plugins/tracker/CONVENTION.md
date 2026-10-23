@@ -1,4 +1,4 @@
-# Conventional Issues 0.3.0
+# Conventional Issues 0.4.0
 
 A convention for issues and tasks: what an issue, a comment, a handoff and a close look like, in any
 tracker. It does not care whether the tracker is Linear, Jira, GitHub, Trello or a spreadsheet. Every rule
@@ -70,19 +70,21 @@ project.
 
 ### CI-006 Exactly one kind per issue
 
-| Kind | When |
-|---|---|
-| `bug` | something behaves differently from what is intended |
-| `feature` | a capability that does not exist yet |
-| `improvement` | something that exists and works, but should work better |
-| `task` | work that changes no behaviour for users: maintenance, docs, refactoring, and non-software work (contracts, bookkeeping, hiring) |
+| Kind | When | Changelog group |
+|---|---|---|
+| `bug` | something behaves differently from what is intended | Fixed |
+| `feature` | a capability that does not exist yet | Added |
+| `improvement` | something that exists and works, but should work better | Changed |
+| `task` | work that changes no behaviour for users: maintenance, docs, refactoring, and non-software work (contracts, bookkeeping, hiring) | none |
+
+The changelog groups are those of Keep a Changelog, so an outcome title goes into a changelog as is.
 
 Two kinds fit honestly: ask. Two pieces of work: two issues. A `task` may carry a finer label the workspace
 has (chore, tech debt, docs) when one fits by meaning.
 
-### CI-007 Every issue has a priority, and the reason is known
+### CI-007 Priority comes from a signal, never from a default
 
-Priority is set on every new issue, from the signals in what was said or shown, by this scale:
+Priority is worked out for every new issue from the signals in what was said or shown, by this scale:
 
 | Priority | When |
 |---|---|
@@ -90,9 +92,11 @@ Priority is set on every new issue, from the signals in what was said or shown, 
 | high | a customer or a deal is affected or waiting, an important flow is broken for some, or a deadline this cycle |
 | medium | planned work with a clear benefit; no urgency signal (the default) |
 | low | nice to have, cosmetic, or no one is waiting |
+| none | no signal at all: the tracker's "no priority", or the field left empty |
 
-The strongest signal wins. With no signal the priority is `medium`, and it is said to be the default. The
-priority is shown with its reason before it is set, so it can be changed.
+The strongest signal wins. With no signal the priority is `none`, so a priority in the tracker always
+means someone judged it; a default `medium` would look judged when it was not. The priority is shown with its
+reason before it is set, so it can be changed.
 
 ## 4. Title
 
@@ -169,7 +173,9 @@ When scope or acceptance criteria change, the description is updated; a comment 
 
 The body's first line comes before the first section: one sentence of
 at most 25 words, led by `TL;DR:` in every language, saying what the matter is and for whom or why. It
-adds to the title instead of repeating it. It counts toward the 120 words.
+adds to the title instead of repeating it. For a bug it names what people see, in their words, so search
+and duplicate checks still find it while the title names the correct behaviour. It counts toward the 120
+words.
 
 - "TL;DR: Multi-line notes in exported invoices end up on one line; customers send them to their guests."
 - "TL;DR: Der Mietvertrag für das Büro Leipzig läuft am 31.12. aus und soll um zwei Jahre verlängert werden."
@@ -214,6 +220,8 @@ Open: none.
 ### CI-050 One result, one short closing comment
 
 Every close has one result and one comment of at most two sentences, starting with the result's lead.
+Where the tracker has a resolution field or a close reason, the result is set there too, so it can be
+filtered; the comment still starts with the lead.
 
 | Result | English | German | Says |
 |---|---|---|---|
@@ -244,14 +252,15 @@ types) are found by meaning in each workspace. Typical:
 
 | Convention | Typical counterpart |
 |---|---|
-| kind | a type label (`Bug`, `Feature`, `Improvement`; `Chore`, `Tech debt` or `Docs` for a task) |
-| priority | the tracker's priority field, or a priority label if it has no field |
+| kind | the tracker's issue type field when it has one (GitHub issue types, Jira work types); otherwise a type label (`Bug`, `Feature`, `Improvement`; `Chore`, `Tech debt` or `Docs` for a task) |
+| priority | the tracker's priority field, or a priority label if it has no field; `none` is "no priority" or empty |
 | who asked, who answers | subscribers or mentions; the customer or requester link if the tracker has one |
 | what the work needs | attachments and links (the original request, related, blocked by) |
 | by when | the due date |
-| `done` | the completed status |
-| `wont-do` | the canceled status, with a won't-fix label if one exists |
-| `works-as-intended` | the canceled status, with a user-error or not-a-bug label if one exists |
-| `duplicate` | the duplicate status or link |
-| `cant-reproduce`, `obsolete` | the canceled status |
+| `done` | the completed status; resolution Done; close reason completed |
+| `wont-do` | the canceled status; resolution Won't do; close reason not planned; a won't-fix label if one exists |
+| `works-as-intended` | the canceled status; a matching resolution if one exists; close reason not planned; a user-error or not-a-bug label if one exists |
+| `duplicate` | the duplicate status or link; resolution Duplicate; close reason duplicate |
+| `cant-reproduce` | the canceled status; resolution Cannot reproduce; close reason not planned |
+| `obsolete` | the canceled status; a matching resolution if one exists; close reason not planned |
 | handoff to review | the review status if one exists, otherwise the assignee only |

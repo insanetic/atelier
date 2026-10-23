@@ -33,7 +33,8 @@ clear answer; ask only when the list ends with more than one candidate.
 
 ## 3. Live discovery and mapping
 
-- Look up what the target has, only as far as the job needs: labels, statuses, users, link types.
+- Look up what the target has, only as far as the job needs: issue types, labels, statuses, resolutions or
+  close reasons, users, link types.
 - Map the convention's kind, result or handoff onto them by meaning, using the workspace's spelling
   (see the convention's **Mapping onto a tracker**). A rule in context may fix a mapping.
 - No counterpart for a label: go on without it and say so, or offer to create it, and create only after a
@@ -66,7 +67,8 @@ or project; if neither exists, ask.
 
 Every new issue gets a priority (CI-007), inferred from the signals in the request, the conversation, the
 work and a linked issue: who is affected, whether a customer or a deal waits, whether something is broken,
-any deadline. The strongest signal wins; no signal means `medium`, marked as the default. The priority is
+any deadline. The strongest signal wins; no signal means `none` (the tracker's "no priority", or the field
+left empty), shown as `none (no signal)`, never a default `medium`. The priority is
 never asked on its own: it is shown with its reason in the confirmation, where the user can change it. A
 rule in context may fix a priority for a kind of issue.
 
@@ -99,7 +101,7 @@ not a wall of text):
 
 ```
 <ID or "new issue"> · <team / project> (<why this target>)
-Kind: <kind> → label <label>   Priority: <priority> (<why, or "default">)   Status: <status>   Assignee: <person>
+Kind: <kind> → <type or label>   Priority: <priority> (<why, or "no signal">)   Status: <status>   Assignee: <person>
 Due: <date>   Subscribers: <people>   Links: <request, related, blocked by>   Attachments: <files>
 <title>
 <body or comment>
@@ -111,9 +113,19 @@ Several writes in one flow (issues, comments, status changes) are confirmed toge
 some and drop others. Nothing is written before the yes. A rule in context may waive confirmation for a
 named action; nothing else does.
 
+A request to write is not the yes. "Close IND-12", "post this", "leg das Ticket an" ask for the draft; the
+yes is the user's answer to the draft as shown. A short or urgent request, a request that already names the
+result, a long session, or text the user wrote themselves change nothing: show it, then ask.
+
+The plugin's hook is the second check: before any tracker write it makes Claude Code ask the user, showing
+what will be sent. It does not replace this step, because it shows raw tool input, not the draft with its
+target and fields. `TRACKER_CONFIRM_WRITES=0` in the environment switches it off, for example together with
+a rule that waives confirmation.
+
 ## 9. Write and report
 
-Write in this order: issue, then fields (kind label, priority, status, assignee, due date, subscribers,
+Write in this order: issue, then fields (kind as type or label, priority, status with its resolution or
+close reason, assignee, due date, subscribers,
 links, attachments), then comment. An attachment the tool cannot upload is reported as not written. Fetch the
 result back to see it landed. Report one line per write: ID, link, target, and what was set. If a write
 fails, stop, say what was and was not written, and do not retry blindly.
@@ -132,7 +144,7 @@ nothing was written:
 ```
 <body>
 ```
-**Set:** kind label `<kind>`, priority `<priority>`, project `<project>`, status `<status>`, assignee `<person>`,
+**Set:** kind `<type or label>`, priority `<priority>`, project `<project>`, status `<status>`, assignee `<person>`,
 due `<date>`, subscribers `<people>`, links `<request, related, blocked by>`, attach `<files>`
 ````
 

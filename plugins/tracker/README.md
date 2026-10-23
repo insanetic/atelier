@@ -28,8 +28,10 @@ result comes back ready to copy and paste.
   to ask and what the work needs. People, documents, the original request and related issues go into the
   tracker's fields, not the text.
 - **One kind:** `bug`, `feature`, `improvement`, `task` (also non-software work).
-- **Always a priority**, inferred on a fixed scale (urgent, high, medium, low) from who is affected and what
-  is waiting; `medium` when nothing says otherwise, shown with its reason before it is set.
+- **Priority from a signal**, on a fixed scale (urgent, high, medium, low) from who is affected and what is
+  waiting; `none` when nothing says so, never a default that looks judged. Shown with its reason first.
+- **Changelog-ready.** Each kind has a Keep a Changelog group (bug Fixed, feature Added, improvement
+  Changed), and a bug's TL;DR keeps the symptom so it stays findable.
 - **The title is the outcome**, at most 70 characters, no prefix, so it can go into a changelog as is.
 - **One body shape per kind**, at most 120 words without checklists, after a one-sentence `TL;DR:` line
   (in every language):
@@ -108,6 +110,17 @@ A writing-style plugin, if you have one, polishes the wording inside this shape;
 
 ---
 
+## Nothing is written without your yes
+
+The skills show every write and wait for your answer. A model can still skip that step, for example when
+you ask "close IND-12" and it takes the request as the yes. So the plugin also ships a hook: before any write
+to a tracker (an MCP tool of Linear, Jira, GitHub issues and similar, or `gh issue`, `gh api …/issues`,
+`glab issue`, `acli jira`, `jira`), Claude Code itself asks you and shows what will be sent. Reads are not
+affected. To switch the hook off, for example when a rule of yours waives confirmation, set
+`TRACKER_CONFIRM_WRITES=0` under `env` in your settings.
+
+---
+
 ## Layout
 
 ```text
@@ -116,10 +129,12 @@ plugins/tracker/
 ├── CONVENTION.md                  # Conventional Issues, CI-0xx
 ├── PROCEDURE.md                   # how every skill reads, maps, confirms and writes
 ├── bin/tracker                    # runs lib/tracker.py
+├── hooks/confirm.py               # asks before every tracker write (PreToolUse)
 ├── lib/tracker.py                 # the check
 ├── skills/{issue,retro,comment,handoff,close,check}/SKILL.md
 ├── examples/tracker.md            # rules file to copy into ~/.claude/rules/
 ├── tests/test_tracker.py          # also checks the script's tables against CONVENTION.md
+├── tests/test_confirm.py          # which tool calls count as tracker writes
 └── evals/                         # one case per scenario, dry and without a tracker
 ```
 

@@ -28,4 +28,5 @@ $ARGUMENTS
 4. **Scope or acceptance criteria changed?** Update the description (CI-023) and keep the comment to what
    changed; both go into the same confirmation.
 5. **Draft, check, confirm, write, report** as the procedure says. Nothing but the comment (and a
-   description update) is changed.
+   description update) is changed. A direct "post this" or "comment that …" is the request, not the yes:
+   show the comment first.

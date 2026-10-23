@@ -45,6 +45,9 @@ issue is visible to a customer.
 - Bad: asking to confirm a one-line status on my own internal issue.
 - Checked by: review
 
+The plugin's hook still asks before every tracker write; with this rule, also set
+`TRACKER_CONFIRM_WRITES=0` under `env` in your settings, or click allow.
+
 ### CI-105 [SHOULD] Customer-reported bugs start at high
 
 A bug that came from a customer or support gets priority high unless something says urgent. Outweighed when

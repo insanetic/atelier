@@ -3,4 +3,4 @@ type: llm
 weight: 3
 ---
 
-The issue gets priority medium (or low) and says it is the default or explains it (no one waiting, no deadline). It does not ask the user for the priority as a separate question.
+The issue gets no priority (none / 'No priority' / left empty) and says there was no signal, or low with a stated reason; it is not set to medium as a default. It does not ask the user for the priority as a separate question.

@@ -34,5 +34,7 @@ $ARGUMENTS
 4. **Checklist** (CI-051): tick met `Done when` items; an item dropped or not met is said in the comment.
 5. **Follow-ups** (CI-060): work that remains becomes a new linked issue (as **issue** does), confirmed
    together with the close.
-6. **Status and label** from the convention's mapping, found live. Several issues: one confirmation for all.
-7. **Draft, check, confirm, write, report** as the procedure says.
+6. **Status, resolution or close reason, and label** from the convention's mapping, found live. Several
+   issues: one confirmation for all.
+7. **Draft, check, confirm, write, report** as the procedure says. A direct "close it" is the request, not
+   the yes: show the result, the comment and the status first, even when the result was named.
