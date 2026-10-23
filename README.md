@@ -11,6 +11,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install rulebook@atelier
 /plugin install atlas@atelier
 /plugin install data-max@atelier
+/plugin install tone@atelier
 ```
 
 ---
@@ -26,6 +27,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 | [atlas](plugins/atlas) | `/atlas <question or fact>`, `/atlas:drain` | A personal brain: one folder of markdown notes in your home directory, the same in every project, consulted when a question is about something you recorded, with your standing preferences shown at session start. Typed notes with validity dates, a command that searches and maintains them with no index, a lint that finds what went stale, and it opens in Obsidian. |
 | [data-max](plugins/data-max) | `/data-max:inspect`, `/data-max:clean`, `/data-max:check`, `/data-max:model` | Raw exports to warehouse, deterministically: profile a CSV/Excel/JSON/XML export and settle its decisions in a declarative spec, clean it into typed, reconciled tables (CSV/Parquet, DDL, MERGE), check each new export for drift before loading, and model staging, facts, dimensions and history on top in dbt, SQLMesh or SQL. |
 | [paperwork](plugins/paperwork) | `/paperwork:setup`, `/paperwork:inbox`, `/paperwork:review`, `/paperwork:catalog`, `/paperwork:ask`, `/paperwork:match` | A company's or a person's paperwork in one folder that never deletes: drop anything into an inbox and it is read (XRechnung/ZUGFeRD XML, text layer, OCR, all inside Docker), checked against its own text and arithmetic, classified, assigned to one of your entities, renamed, filed, deduplicated and indexed into CSV. Your own document classes (contracts, payslips) decide fields, names and folders; rules and vendor templates make recurring documents deterministic, and what Claude decided alone waits for your confirmation. Every document also gets a markdown note (open the archive in Obsidian), and a bank statement or any list of payments can be matched against the archive to find the missing invoices. |
+| [tone](plugins/tone) | `/tone:write <draft>` | Text written for other people, short and safe: issues, comments and changelog lines checked against a profile for their reader. A deterministic `tone check` catches length, filler, AI tells, secrets, personal data and technical internals in customer-visible text; the review judges the rest (guesses stated as facts, other customers, blame, du or Sie) and returns a revised text. German and English. Your own `.claude/rules/` files override its defaults. |
 
 ---
 
@@ -41,6 +43,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install rulebook@atelier
 /plugin install atlas@atelier
 /plugin install data-max@atelier
+/plugin install tone@atelier
 # or, from a local clone:
 /plugin marketplace add ./path/to/atelier
 ```
@@ -56,6 +59,7 @@ claude plugin install market@atelier --scope project
 claude plugin install premortem@atelier --scope project
 claude plugin install rulebook@atelier --scope project
 claude plugin install data-max@atelier --scope project
+claude plugin install tone@atelier --scope project
 ```
 
 Update later with `/plugin marketplace update atelier`; enable or disable with `/plugin`.
@@ -75,7 +79,8 @@ Update later with `/plugin marketplace update atelier`; enable or disable with `
     ├── rulebook/                 # convention catalog: two skills, a reviewer agent, the rulebook CLI, an edit hook
     ├── atlas/                    # personal brain: two skills and the atlas CLI (Python, no dependencies)
     ├── data-max/                 # raw exports to warehouse: four skills and the data-max engine (Python, no dependencies)
-    └── paperwork/                # document archive: six skills, the paperwork engine (Python in Docker), a guard hook
+    ├── paperwork/                # document archive: six skills, the paperwork engine (Python in Docker), a guard hook
+    └── tone/                     # text for other people: one write skill, profiles and the tone check (Python, no dependencies)
 ```
 
 Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json` and has one entry in `.claude-plugin/marketplace.json`.
@@ -91,6 +96,6 @@ git config core.hooksPath .githooks
 ```
 
 - **`commit-msg`** requires [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `type(scope): subject`, with the plugin as scope, as in `feat(atlas): restore a note from the archive`.
-- **`pre-commit`** checks that staged manifests are valid JSON and runs a plugin's tests when it has a fast, dependency-free suite (atlas).
+- **`pre-commit`** checks that staged manifests are valid JSON and runs a plugin's tests when it has a fast, dependency-free suite (atlas, tone).
 
 Research results under `research/` are local and not committed.

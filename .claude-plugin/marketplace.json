@@ -37,6 +37,11 @@
       "name": "paperwork",
       "source": "./plugins/paperwork",
       "description": "Invoices and receipts into an archive that never deletes: inbox, checked extraction, configurable document classes, rules, one naming convention per entity, year and direction, duplicates, CSV index"
+    },
+    {
+      "name": "tone",
+      "source": "./plugins/tone",
+      "description": "Text for other people, short and safe: profiles for issues, comments and changelog lines, a deterministic check and a review that keeps secrets, personal data and internals out"
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "name": "tone",
+  "version": "0.1.0",
+  "description": "Text for other people, short and safe: profiles for issues, comments and changelog lines, a deterministic check and a review that cuts filler, guesses and AI tells and keeps secrets, personal data and internals out. German and English.",
+  "author": {
+    "name": "insanetic"
+  }
+}
