@@ -30,3 +30,5 @@ $ARGUMENTS
 5. **Draft, check, confirm, write, report** as the procedure says. Nothing but the comment (and a
    description update) is changed. A direct "post this" or "comment that …" is the request, not the yes:
    show the comment first.
+   Mentions only as CI-031 allows: the person a question or blocker needs, nobody for progress or a
+   decision.

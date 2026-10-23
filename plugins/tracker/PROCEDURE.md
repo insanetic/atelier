@@ -34,7 +34,8 @@ clear answer; ask only when the list ends with more than one candidate.
 ## 3. Live discovery and mapping
 
 - Look up what the target has, only as far as the job needs: issue types, labels, statuses, resolutions or
-  close reasons, users, link types.
+  close reasons, users, link types. A person to mention or assign is found here by name; never a guessed
+  handle (CI-031).
 - Map the convention's kind, result or handoff onto them by meaning, using the workspace's spelling
   (see the convention's **Mapping onto a tracker**). A rule in context may fix a mapping.
 - No counterpart for a label: go on without it and say so, or offer to create it, and create only after a
@@ -102,6 +103,7 @@ not a wall of text):
 ```
 <ID or "new issue"> · <team / project> (<why this target>)
 Kind: <kind> → <type or label>   Priority: <priority> (<why, or "no signal">)   Status: <status>   Assignee: <person>
+Notifies: <everyone mentioned, assigned or subscribed by this write>
 Due: <date>   Subscribers: <people>   Links: <request, related, blocked by>   Attachments: <files>
 <title>
 <body or comment>

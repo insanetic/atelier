@@ -29,5 +29,6 @@ $ARGUMENTS
    - `Open:` what is unclear or not done, or `none`.
    Only facts from the work and the conversation; what is not known goes under `Open:`.
 4. **Tick** `Done when` items that are met, and only those (CI-051).
-5. **Draft, check, confirm, write, report** as the procedure says. Never sets a completed or canceled
+5. **Mention** only the receiver or reviewer, found in the workspace (CI-031); nobody else.
+6. **Draft, check, confirm, write, report** as the procedure says. Never sets a completed or canceled
    status.

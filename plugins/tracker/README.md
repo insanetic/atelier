@@ -45,6 +45,8 @@ result comes back ready to copy and paste.
 
 - **Comments** have one purpose, at most 60 words, and start with it: `Status:`, `Decision:`, `Question for
   <person>:`, `Blocked:` (German: `Stand:`, `Entscheidung:`, `Frage an <person>:`, `Blockiert:`).
+- **Mention only who must act**: the person asked, the one a blocker needs, the receiver of a handoff;
+  never in descriptions, status or close comments, never `@team`.
 - **Handoff is not closing.** Moving to review or to someone always leaves three lines: `Ready for review:`,
   `To check:`, `Open:`.
 - **Close** with one result and at most two sentences: `Done:`, `Not doing:`, `Works as intended:`,
@@ -103,7 +105,7 @@ tracker check [--json] <file|->
 The draft carries a small frontmatter (`type`, `kind`, `purpose`, `result`, `audience`); see
 [`PROCEDURE.md`](PROCEDURE.md). It decides title length and prefix, the TL;DR line, the sections and their order per kind,
 required sections, checklists and numbered steps, placeholders, word and sentence limits, comment leads,
-handoff and close shape, secrets and personal data, and technical internals in customer-visible text. Exit
+handoff and close shape, mentions, secrets and personal data, and technical internals in customer-visible text. Exit
 0 when there is no error, 1 with errors, 2 on a usage error. It reports; it never rewrites.
 
 A writing-style plugin, if you have one, polishes the wording inside this shape; `tracker check` runs last.

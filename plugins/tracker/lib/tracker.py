@@ -62,7 +62,7 @@ GREETINGS = re.compile(r"(?i)^(?:hi|hello|hey|hallo|moin|liebe|lieber|dear)\b|(?
 TITLE_MAX, BODY_MAX, COMMENT_MAX, CLOSE_SENTENCES, TLDR_MAX = 70, 120, 60, 2, 25
 
 ORDER = ["CI-002", "CI-003", "CI-004", "CI-005", "CI-006", "CI-010", "CI-011", "CI-012", "CI-020",
-         "CI-021", "CI-022", "CI-024", "CI-030", "CI-040", "CI-050", "CI-051", "CI-000"]
+         "CI-021", "CI-022", "CI-024", "CI-030", "CI-031", "CI-040", "CI-050", "CI-051", "CI-000"]
 INTERNAL_SUFFIXES = (".local", ".internal", ".lan", ".corp", ".intranet", ".localhost")
 
 
@@ -449,6 +449,33 @@ def check_comment(meta, body, report):
                 report.add("CI-050", "error", "body", "%d sentences, limit %d" % (n, CLOSE_SENTENCES))
 
 
+MENTION = re.compile(r"(?<![\w.@/+-])@([A-Za-z0-9](?:[\w.-]*\w)?)(/[\w.-]+)?")
+GROUP_HANDLES = {"team", "channel", "here", "all", "everyone", "everybody", "group", "alle"}
+MENTION_PURPOSES = ("question", "blocker", "handoff")
+
+
+def check_mentions(meta, prose, report):
+    """CI-031: a mention notifies, so only someone who must act is mentioned, and only in a comment."""
+    found = list(MENTION.finditer(prose))
+    if not found:
+        return
+    for m in found:
+        if m.group(1).lower() in GROUP_HANDLES or m.group(2):
+            report.add("CI-031", "error", "line %d" % line_of(prose, m.start()),
+                       "group or team mention notifies everyone; name the one person who must act",
+                       m.group(0), m.start())
+    where = "line %d" % line_of(prose, found[0].start())
+    if meta.get("type") == "issue":
+        report.add("CI-031", "error", where, "no mentions in a description; people go into the assignee or "
+                   "subscriber fields (CI-008)", found[0].group(0), found[0].start())
+    elif meta.get("purpose") in PURPOSES and meta.get("purpose") not in MENTION_PURPOSES:
+        report.add("CI-031", "error", where, "mention only someone who must act: in a question, blocker or "
+                   "handoff; others follow as subscribers", found[0].group(0), found[0].start())
+    elif len({m.group(1).lower() for m in found}) > 1:
+        report.add("CI-031", "note", where, "several people mentioned; mention only those who must act, "
+                   "normally one", found[0].group(0), found[0].start())
+
+
 def check(draft):
     meta, body = parse_frontmatter(draft)
     report = Report()
@@ -467,6 +494,7 @@ def check(draft):
         check_urls(prose, report)
         check_internals(body, prose_no_urls, report)
     check_hedges(prose_no_urls, report)
+    check_mentions({**meta, "type": kind}, prose_no_urls, report)
     if kind == "issue":
         check_issue(meta, body, report)
     elif kind == "comment":

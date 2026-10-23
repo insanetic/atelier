@@ -1,4 +1,4 @@
-# Conventional Issues 0.4.0
+# Conventional Issues 0.5.0
 
 A convention for issues and tasks: what an issue, a comment, a handoff and a close look like, in any
 tracker. It does not care whether the tracker is Linear, Jira, GitHub, Trello or a spreadsheet. Every rule
@@ -195,6 +195,22 @@ second purpose is a second comment.
 | blocker | `Blocked:` | `Blockiert:` | by what, and what or whom it needs |
 
 No greetings, sign-offs, thanks or apologies.
+
+### CI-031 Mention only someone who must act
+
+A mention notifies, so it is a request for action, not a way to inform.
+
+- **When:** in a comment that needs one person to act: the person in `Question for`, the person a `Blocked:`
+  comment needs, the receiver in `Handed to`, a reviewer in `Ready for review:`. Normally one person; two
+  only when both must act.
+- **Not:** in a description (people go into the assignee and subscriber fields, CI-008); in a status,
+  decision or closing comment (whoever should follow is a subscriber); to say thanks or "fyi"; the author
+  themself; a group or team handle (`@team`, `@channel`, `@here`, `@all`); the person already assigned, for
+  routine progress.
+- **Who:** only a person found in the workspace, with the tracker's own mention, never a guessed handle. No
+  account: the name without `@`, and ask whether someone else should be mentioned. Customers and other
+  external people are mentioned only in their own issue, and only when they must answer (CI-002).
+- **Shown first:** the confirmation lists everyone a write will notify.
 
 ## 7. Handoff
 

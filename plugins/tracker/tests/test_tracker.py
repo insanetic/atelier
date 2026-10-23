@@ -228,6 +228,36 @@ class Comments(unittest.TestCase):
                                     "Done: one. Two. Three."))
 
 
+class Mentions(unittest.TestCase):
+    def test_allowed_where_someone_must_act(self):
+        for purpose, text in [("question", "Question for @maria: which properties are affected?"),
+                              ("blocker", "Blocked: the channel manager login is missing. Needs @jonas to grant it."),
+                              ("handoff", "Handed to @swen: the contract is ready to sign.\nOpen: none.")]:
+            with self.subTest(purpose=purpose):
+                self.assertNotIn("CI-031", ids({"type": "comment", "purpose": purpose}, text))
+
+    def test_not_in_descriptions_status_decisions_or_closes(self):
+        self.assertIn("CI-031", ids({"type": "issue", "kind": "task"}, TASK_DE.replace(
+            "Den Mietvertrag", "@swen soll den Mietvertrag")))
+        for purpose, text, meta in [
+                ("progress", "Status: the import runs again, fyi @lena.", {}),
+                ("decision", "Decision: we keep the hourly sync @maria.", {}),
+                ("close", "Done: exports keep line breaks. Thanks @maria.", {"result": "done"})]:
+            with self.subTest(purpose=purpose):
+                self.assertIn("CI-031", ids({"type": "comment", "purpose": purpose, **meta}, text))
+
+    def test_group_handles_and_several_people(self):
+        self.assertIn("CI-031", ids({"type": "comment", "purpose": "question"},
+                                    "Question for @team: who owns the export?"))
+        found = tracker.check(draft({"type": "comment", "purpose": "question"},
+                                    "Question for @maria and @jonas: which properties are affected?"))["findings"]
+        self.assertIn(("CI-031", "note"), [(f["id"], f["severity"]) for f in found])
+
+    def test_emails_and_code_are_not_mentions(self):
+        self.assertNotIn("CI-031", ids({"type": "comment", "purpose": "progress", "audience": "internal"},
+                                       "Status: wrote to max@example.com; bumped `@types/node`."))
+
+
 class Exposure(unittest.TestCase):
     def test_external_by_default(self):
         text = "Status: fixed in src/export/pdf.ts, commit 3f9a2c1e."
