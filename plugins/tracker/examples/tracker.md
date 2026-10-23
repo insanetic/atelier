@@ -44,3 +44,11 @@ issue is visible to a customer.
 
 - Bad: asking to confirm a one-line status on my own internal issue.
 - Checked by: review
+
+### CI-105 [SHOULD] Customer-reported bugs start at high
+
+A bug that came from a customer or support gets priority high unless something says urgent. Outweighed when
+the customer says it is not pressing.
+
+- Bad: a customer-reported broken export filed at medium.
+- Checked by: review

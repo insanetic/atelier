@@ -7,15 +7,28 @@ what the text looks like; this file says how it gets into the tracker. Rule IDs 
 
 - Use whatever tracker tool is connected in this session: an MCP server or a CLI for issues and tasks.
   Find it by what it offers (find issues, create issue, add comment, list labels or statuses).
-- **None connected:** do everything up to step 6, then hand the result over to copy and paste (see
+- **None connected:** do everything up to step 7, then hand the result over to copy and paste (see
   **Copy and paste**). Say once that nothing was written.
 - **More than one:** a rule in context decides; otherwise ask which one.
 
 ## 2. The target
 
-- Team or board, and project or list, from the request, the issue being worked on, and rules files in
-  context (for example "this repository goes to team X, project Y"). Ask when it is not plain; never take a
-  default you happened to see earlier in the session.
+Team or board first, then project or list. Work down this list and stop at the first step that gives one
+clear answer; ask only when the list ends with more than one candidate.
+
+1. A rule in context (for example "this repository goes to team X, project Y").
+2. What the user said in this request.
+3. The issue being worked on: its team and project, or its parent's or a linked issue's.
+4. The repository, when there is one: its name, remote and the area of the changed files, matched against
+   the tracker's team and project names and descriptions.
+5. Similar existing issues: search the tracker for the same terms and take the team and project most of
+   the close matches share.
+6. The team when the workspace has exactly one.
+
+- **One candidate:** use it and show the reason in the confirmation ("project Mews: same as IND-41").
+- **Several:** ask, ranked, the best first, each with its reason.
+- **None for the project:** go on without a project and say so; never pick one at random.
+- Never take a default you happened to see earlier in the session.
 - For an existing issue, fetch it by its ID and confirm it is the one meant, not a same-named neighbour.
 
 ## 3. Live discovery and mapping
@@ -33,7 +46,8 @@ what the text looks like; this file says how it gets into the tracker. Rule IDs 
 - **Language:** the language the issue or thread already uses. New issues: a rule's default language,
   else the language of the user's request.
 - **Address** (German and any language with a formal you): as the thread does, as the reporter wrote, or as
-  the user said. Nothing to go on: `Sie` for external, `du` for internal. One form throughout.
+  the user said. Nothing to go on: `Sie` for external, `du` for internal. One form throughout. This is about
+  the text written into the tracker; talk to the user in the chat as usual.
 
 ## 5. Facts
 
@@ -41,7 +55,15 @@ Only what the user, the conversation or the work shows (CI-004). Collect what th
 context lacks, and ask for all of it in one question, with concrete options where there are some. Optional
 facts that are missing mean the section is left out (CI-005).
 
-## 6. Draft and check
+## 6. Priority
+
+Every new issue gets a priority (CI-007), inferred from the signals in the request, the conversation, the
+work and a linked issue: who is affected, whether a customer or a deal waits, whether something is broken,
+any deadline. The strongest signal wins; no signal means `medium`, marked as the default. The priority is
+never asked on its own: it is shown with its reason in the confirmation, where the user can change it. A
+rule in context may fix a priority for a kind of issue.
+
+## 7. Draft and check
 
 1. Write the draft in the convention's shape.
 2. If a writing-style skill is available in this session, apply it to the wording now. The convention wins
@@ -63,14 +85,14 @@ facts that are missing mean the section is left out (CI-005).
    (for example a longer comment limit) or the match is plainly not what the rule means; list it under
    **Dismissed** in the confirmation with the reason. A `note` is for judgement.
 
-## 7. Confirm
+## 8. Confirm
 
 Show every write in one message, exactly as it will be posted, and ask once (a question with the options,
 not a wall of text):
 
 ```
-<ID or "new issue"> · <team / project>
-Kind: <kind> → label <label>   Status: <status>   Assignee: <person>
+<ID or "new issue"> · <team / project> (<why this target>)
+Kind: <kind> → label <label>   Priority: <priority> (<why, or "default">)   Status: <status>   Assignee: <person>
 <title>
 <body or comment>
 ```
@@ -79,7 +101,7 @@ Several writes in one flow (issues, comments, status changes) are confirmed toge
 some and drop others. Nothing is written before the yes. A rule in context may waive confirmation for a
 named action; nothing else does.
 
-## 8. Write and report
+## 9. Write and report
 
 Write in this order: issue, then fields (kind label, status, assignee, links), then comment. Fetch the
 result back to see it landed. Report one line per write: ID, link, target, and what was set. If a write
@@ -99,7 +121,7 @@ nothing was written:
 ```
 <body>
 ```
-**Set:** kind label `<kind>`, status `<status>`, assignee `<person>`, link to `<ID>`
+**Set:** kind label `<kind>`, priority `<priority>`, project `<project>`, status `<status>`, assignee `<person>`, link to `<ID>`
 ````
 
 A comment goes in a single code block, with the status to set under it.

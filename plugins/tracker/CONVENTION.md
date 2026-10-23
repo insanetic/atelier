@@ -1,4 +1,4 @@
-# Conventional Issues 0.1.0
+# Conventional Issues 0.2.0
 
 A convention for issues and tasks: what an issue, a comment, a handoff and a close look like, in any
 tracker. It does not care whether the tracker is Linear, Jira, GitHub, Trello or a spreadsheet. Every rule
@@ -60,6 +60,20 @@ A missing fact the shape requires is asked. A missing optional fact means the se
 
 Two kinds fit honestly: ask. Two pieces of work: two issues. A `task` may carry a finer label the workspace
 has (chore, tech debt, docs) when one fits by meaning.
+
+### CI-007 Every issue has a priority, and the reason is known
+
+Priority is set on every new issue, from the signals in what was said or shown, by this scale:
+
+| Priority | When |
+|---|---|
+| urgent | an active outage, data loss or wrong data reaching customers, many customers blocked, or a hard deadline within days |
+| high | a customer or a deal is affected or waiting, an important flow is broken for some, or a deadline this cycle |
+| medium | planned work with a clear benefit; no urgency signal (the default) |
+| low | nice to have, cosmetic, or no one is waiting |
+
+The strongest signal wins. With no signal the priority is `medium`, and it is said to be the default. The
+priority is shown with its reason before it is set, so it can be changed.
 
 ## 4. Title
 
@@ -203,6 +217,7 @@ types) are found by meaning in each workspace. Typical:
 | Convention | Typical counterpart |
 |---|---|
 | kind | a type label (`Bug`, `Feature`, `Improvement`; `Chore`, `Tech debt` or `Docs` for a task) |
+| priority | the tracker's priority field, or a priority label if it has no field |
 | `done` | the completed status |
 | `wont-do` | the canceled status, with a won't-fix label if one exists |
 | `works-as-intended` | the canceled status, with a user-error or not-a-bug label if one exists |

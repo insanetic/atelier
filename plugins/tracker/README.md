@@ -25,6 +25,8 @@ result comes back ready to copy and paste.
   secrets, personal data, other customers, blame, or how the work was made.
 - **Nothing guessed.** A missing fact is asked or its section is left out.
 - **One kind:** `bug`, `feature`, `improvement`, `task` (also non-software work).
+- **Always a priority**, inferred on a fixed scale (urgent, high, medium, low) from who is affected and what
+  is waiting; `medium` when nothing says otherwise, shown with its reason before it is set.
 - **The title is the outcome**, at most 70 characters, no prefix, so it can go into a changelog as is.
 - **One body shape per kind**, at most 120 words without checklists:
 
@@ -57,12 +59,15 @@ German and English section names and leads are both defined; the text follows th
 | `/tracker:close` | close one or several issues with a result and a closing comment |
 | `/tracker:check` | check a draft or an existing issue against the convention |
 
-Every skill follows [`PROCEDURE.md`](PROCEDURE.md): find the tracker, resolve the exact target, look up its
+Every skill follows [`PROCEDURE.md`](PROCEDURE.md): find the tracker, resolve the exact target (your rule,
+what you said, the related issue, the repository matched against project names, the project of similar
+issues; asking only when several fit), look up its
 labels and statuses live and map the convention onto them, draft, check, **show you everything it will write
 and wait for your yes**, then write and report the ID and link. It never invents labels, statuses or people
 and never creates a label without asking.
 
-Typical chains: work done → `retro` → `handoff` (testing) or `close` (done). A bug found on the way → `issue`,
+Typical chains: work done → `retro` → `handoff` (testing) or `close` (done). Retro reuses the `issue`,
+`handoff` and `close` steps, so a backfilled issue looks exactly as if it had been filed first. A bug found on the way → `issue`,
 linked to the one in progress.
 
 ### Turning it on

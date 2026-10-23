@@ -20,7 +20,7 @@ $ARGUMENTS
 1. **The text.** A draft or file as given; an issue ID is fetched (title, description, recent comments).
    Decide type, kind, purpose or result and audience from the text and its context; ask only if it is
    honestly unclear.
-2. **Check.** Save it with its frontmatter (PROCEDURE.md, step 6) and run `tracker check --json <file>`.
+2. **Check.** Save it with its frontmatter (PROCEDURE.md, step 7) and run `tracker check --json <file>`.
 3. **Judge** what the script cannot, in this order: exposure in meaning (CI-002, CI-003), facts and guesses
    (CI-004, CI-005), the kind (CI-006), whether the title states the outcome (CI-012), one purpose per
    comment (CI-030).

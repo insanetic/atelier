@@ -20,7 +20,9 @@ Read [CONVENTION.md](../../CONVENTION.md) (audience, facts, kinds, title, body, 
 $ARGUMENTS
 ```
 
-1. **Facts.** Gather them from the request and the conversation. Keep only what is stated or shown.
+1. **Facts.** Gather them from the request and the conversation. Keep only what is stated or shown. If the
+   work is already done, fixed or being tested, this is a backfill: follow [retro](../retro/SKILL.md)
+   instead, which reuses these steps and adds the handoff or close.
 2. **Already tracked?** Search the target for an open issue about the same thing (title words, the
    symptom, the customer's wording). If one fits, propose a comment or a link there instead, and stop
    unless the user still wants a new one.
@@ -29,11 +31,12 @@ $ARGUMENTS
    `task`. Two fit honestly: ask. Two pieces of work: offer two issues.
 4. **Ask once** for what the kind's required sections need and the context lacks: for a `bug` what
    happens and what is expected; for a `feature` who needs it and when it is done; for a `task` what
-   done looks like. Never ask for what you can read from the context. Priority, assignee, project and
-   due date are set only when the user or a rule gives them; ask for priority only when the tracker
-   requires it.
+   done looks like. Never ask for what you can read from the context. Assignee and due date are set only
+   when the user or a rule gives them.
 5. **Title** (CI-010 to CI-012): the outcome, so it reads as a changelog line. A bug's title is the correct
    behaviour.
 6. **Body** (CI-020 to CI-022): only the kind's sections, in order; optional sections left out when empty.
-7. **Draft, check, confirm, write, report** as the procedure says. A bug found while working on another
+7. **Target and priority:** the team and project by the procedure's ladder (its step 2), the priority by
+   CI-007 (its step 6), each shown with its reason in the confirmation.
+8. **Draft, check, confirm, write, report** as the procedure says. A bug found while working on another
    issue is linked to it (CI-060).

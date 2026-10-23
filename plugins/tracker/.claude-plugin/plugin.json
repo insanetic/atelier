@@ -1,6 +1,6 @@
 {
   "name": "tracker",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Conventional Issues: one short, fixed shape for issues, comments, handoffs and closes in any tracker, a deterministic check, and skills that create, backfill, comment, hand over and close issues by it, nothing guessed and nothing internal for customers to see.",
   "author": {
     "name": "insanetic"
