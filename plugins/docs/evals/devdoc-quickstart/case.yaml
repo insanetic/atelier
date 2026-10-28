@@ -1,0 +1,43 @@
+schema_version: "1.1"
+name: devdoc-quickstart
+tags: [docs, devdoc, quickstart, en]
+execution:
+  prompt: |
+    Write a quickstart for our Python SDK in docs/sdk/quickstart.md. Package: `acme-sdk` on PyPI, needs Python 3.9+, version 2.3. Here is the relevant source:
+
+    ```python
+    # acme/__init__.py
+    __version__ = "2.3.0"
+
+    class Client:
+        def __init__(self, api_key: str, base_url: str = "https://api.acme.com"):
+            ...
+
+        def ping(self) -> str:
+            """Returns "pong" when the key is valid. Raises AuthError otherwise."""
+    ```
+
+    API keys are created in the dashboard under Settings > API keys.
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill]
+graders:
+  - name: code
+    type: llm
+    weight: 3
+    focus:
+      source: file
+      path: docs/sdk/quickstart.md
+    criteria: |
+      Every code block has a language tag (bash/shell, python, text or similar). The Python example is complete and runnable as it stands (import, Client(api_key=...), the ping() call, a print), uses an obvious uppercase placeholder such as API_KEY or YOUR_API_KEY, explained and no real-looking key. Install commands have no '$' prompt. The expected output 'pong' is shown in its own block. Nothing beyond the given source is presented as an SDK feature: no extra methods, parameters, an environment variable the SDK reads, or an import path for AuthError the source does not show. General advice (such as keeping the key out of source code) is fine.
+  - name: fires-devdoc
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?devdoc"'
+  - name: sections
+    type: llm
+    weight: 3
+    focus:
+      source: file
+      path: docs/sdk/quickstart.md
+    criteria: |
+      The page is a developer quickstart with a first paragraph saying what the reader will have at the end, then the required sections in order with the convention's headings: 'Before you begin' (Python 3.9+, an API key from Settings > API keys), 'Install' (pip install acme-sdk), one or more free sections that create a Client and call ping(), 'Check that it works' and 'Next steps'. The frontmatter has type quickstart, reader developer and applies_to for 2.3. Title is 'Quickstart: …' or 'Get started with …'.

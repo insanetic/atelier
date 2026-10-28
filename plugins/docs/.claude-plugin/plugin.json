@@ -1,0 +1,8 @@
+{
+  "name": "docs",
+  "version": "0.3.0",
+  "description": "Help center articles and developer docs written in git, in your house style or a tested default shape per type: skills that set up a repository's house style, write for users and developers, check, compare versions, push to any help center or docs repository after a yes, roll back and pull, with a deterministic check of the universal rules and a hook that lets only committed, checked articles go live.",
+  "author": {
+    "name": "insanetic"
+  }
+}

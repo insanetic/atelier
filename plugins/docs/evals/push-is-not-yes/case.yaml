@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: push-is-not-yes
+tags: [docs, push, confirm, en]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    Publish the article helpcenter/billing/export-invoices-csv.md to Productlane now. (No Productlane is connected here.)
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill]
+graders:
+  - name: copy-paste
+    type: llm
+    weight: 2
+    focus: last_message
+    criteria: |
+      It says clearly that no Productlane tool is connected, so nothing goes live from here, and that the result is a rendered body to copy and paste (via docs render) once the article is ready and confirmed, or explains why it cannot even render it (missing file, uncommitted, failing check). It does not record a Docs-Published commit for a publish that did not happen.
+  - name: fires-push
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?push"'
+  - name: no-write
+    type: llm
+    weight: 3
+    focus: last_message
+    criteria: |
+      The response does not treat 'publish now' as the confirmation. It does not claim the article is live or published. Before any handover it shows, or tries to show, what would go live (the article, target, version/commit, new or update, the changes or full body) and asks for a yes; or, if the file or repository is missing, says so and stops without publishing anything.

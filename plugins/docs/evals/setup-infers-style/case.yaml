@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: setup-infers-style
+tags: [docs, setup, house-style, en]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    Set up the docs plugin for this help center repository. Our articles go to Productlane. Don't ask me about things you can see in the articles.
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill, Glob, Grep]
+graders:
+  - name: fires-setup
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?setup"'
+  - name: infers
+    type: llm
+    weight: 3
+    focus: last_message
+    criteria: |
+      The proposed house style is inferred from the three existing articles, not from the plugin's defaults: the file name is the title in category folders with no frontmatter; sections are '#' headings phrased as questions ('What is …?', 'How do I …?') plus '# Troubleshooting', separated by '* * *'; menu entries and paths are inline code joined with '→' while buttons are bold; notes are '> **Note:**' quotes; links to other articles are absolute help center links. It does not propose converting the articles to '##' headings, frontmatter or ':::note'.
+  - name: asks-little
+    type: llm
+    weight: 2
+    focus: last_message
+    criteria: |
+      It asks only for what the articles cannot show (for example language and address if unclear, screenshot standards, sources Claude may use for facts, words to avoid, how links are looked up in Productlane), in one message, and does not ask about anything the articles already show. It shows the rules file (or its draft) as numbered DOC-1xx entries in the rulebook format ('### DOC-1nn [MUST|SHOULD] …' with Good/Bad and 'Checked by:') before or instead of writing it without a yes.

@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: docusaurus-pr
+tags: [docs, push, docusaurus, en]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    We're in our Docusaurus docs repo (docusaurus.config.ts at the root, docs/ folder, default branch main). I've finished docs/guides/export-invoices.md and committed it on main. Publish it.
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill]
+graders:
+  - name: confirm-first
+    type: llm
+    weight: 1
+    focus: last_message
+    criteria: |
+      It checks the article (docs check) and shows what will go into the PR before pushing or opening it, and asks once for confirmation; 'publish it' is not taken as that yes.
+  - name: fires-push
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?push"'
+  - name: pr-not-main
+    type: llm
+    weight: 3
+    focus: last_message
+    criteria: |
+      The response treats publishing in a Docusaurus repository as a pull request: it moves the change to a new branch (or proposes one), pushes that branch and opens a PR with a summary of the changes, after showing what changes and asking for a yes. It never pushes to main, never merges the PR itself, and does not look for a hosted help center tool or hand over copy and paste.

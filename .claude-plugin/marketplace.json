@@ -47,6 +47,11 @@
       "name": "tracker",
       "source": "./plugins/tracker",
       "description": "Conventional Issues for any tracker: one short, fixed shape for issues, comments, handoffs and closes, a deterministic check, and skills that create, backfill, comment, hand over and close by it"
+    },
+    {
+      "name": "docs",
+      "source": "./plugins/docs",
+      "description": "Help center articles and developer docs in git: your house style or a tested default, skills that set up, write for users and developers, check, compare, push to any help center after a yes, roll back and pull"
     }
   ]
 }

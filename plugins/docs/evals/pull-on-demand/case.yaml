@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: pull-on-demand
+tags: [docs, pull, guide, en]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    Our article "Connect your calendar" exists only in Productlane, there's no file for it in helpcenter/ yet. Update it: Outlook is now supported besides Google Calendar. (No Productlane connected here.)
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill]
+graders:
+  - name: fires-pull
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?(?:pull|guide)"'
+  - name: no-invented-steps
+    type: llm
+    weight: 1
+    focus: last_message
+    criteria: |
+      It does not invent Outlook connection steps, labels or permissions; whatever it needs beyond the pasted live text (the Outlook labels on screen) it asks for.
+  - name: pulls-first
+    type: llm
+    weight: 3
+    focus: last_message
+    criteria: |
+      The response starts from the live article: it says the article must be pulled from Productlane into git first (helpcenter/<collection>/connect-calendar.md or similar, with its Productlane ID and a Docs-Pulled record) before editing. Because nothing is connected, it asks the user to paste the current live text (or connect Productlane) instead of writing the article from scratch. It does not write a new full 'Connect your calendar' article with invented steps for Google Calendar or Outlook.

@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: guide-house-style
+tags: [docs, guide, house-style, en]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    Write a help article on deleting a widget. From the dashboard, open the widget's ⋮ menu, click Delete, then confirm with Delete widget. Deleted widgets can't be restored. Only editors and admins can delete widgets.
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill, Glob, Grep]
+graders:
+  - name: fires-guide
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?guide"'
+  - name: house-style
+    type: llm
+    weight: 3
+    focus: last_message
+    criteria: |
+      The article follows the repository's house style, not the plugin's defaults: a file named after its title in the Widgets folder (for example 'Widgets/Delete a widget.md') without frontmatter; '#' headings phrased as the reader asks ('What is …?' or similar, 'How do I delete a widget?', 'Troubleshooting') separated by '* * *'; the '⋮' icon as inline code, the confirm button **Delete widget** in bold, and **Delete** either bold or as inline code (it is an entry in the ⋮ menu); the 'cannot be restored' warning as a '> **Note:**' quote; no em dash. It does not use '## Steps', ':::warning' or frontmatter.
+  - name: facts
+    type: llm
+    weight: 2
+    focus: last_message
+    criteria: |
+      Only the given facts: editors and admins only, the ⋮ menu, Delete, confirm with Delete widget, cannot be restored. Nothing invented (no undo, no trash, no other roles); a missing fact or screenshot is named or asked, not filled in.

@@ -1,0 +1,27 @@
+schema_version: "1.1"
+name: rollback-forward
+tags: [docs, rollback, git, en]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: |
+    The live version of helpcenter/billing/export-invoices-csv.md has been wrong since the change we published on October 26. Roll the article back to the version that was live on October 20. (No Productlane connected here.)
+  max_turns: 20
+  allowed_tools: [Read, Write, Edit, Bash, Skill]
+graders:
+  - name: fires-rollback
+    type: tool_used
+    tool: Skill
+    input_match: '"skill"\s*:\s*"(?:[\w-]+:)?rollback"'
+  - name: forward-only
+    type: llm
+    weight: 3
+    focus: last_message
+    criteria: |
+      The response restores the old version as a new commit (git show <commit>:<path> written to the file, then a commit like 'docs(export-invoices-csv): roll back to <commit> (<date>)'), or says that is what it will do. It never runs or proposes git reset, git checkout of an old commit onto the branch, git revert of unrelated changes, git push --force, rebase or amend. If the file or history is missing, it says so and does not invent a version.
+  - name: which-version
+    type: llm
+    weight: 2
+    focus: last_message
+    criteria: |
+      'The version that was live on October 20' is resolved as the last published or pulled entry on or before that date (the October 19 publish, via docs history), or the candidates are shown and the user is asked. Going live is a separate step through publish with a confirmation; with nothing connected it says the help center still shows the newer version and the result would be copy and paste.

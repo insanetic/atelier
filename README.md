@@ -13,6 +13,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install data-max@atelier
 /plugin install tone@atelier
 /plugin install tracker@atelier
+/plugin install docs@atelier
 ```
 
 ---
@@ -30,6 +31,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 | [paperwork](plugins/paperwork) | `/paperwork:setup`, `/paperwork:inbox`, `/paperwork:review`, `/paperwork:catalog`, `/paperwork:ask`, `/paperwork:match` | A company's or a person's paperwork in one folder that never deletes: drop anything into an inbox and it is read (XRechnung/ZUGFeRD XML, text layer, OCR, all inside Docker), checked against its own text and arithmetic, classified, assigned to one of your entities, renamed, filed, deduplicated and indexed into CSV. Your own document classes (contracts, payslips) decide fields, names and folders; rules and vendor templates make recurring documents deterministic, and what Claude decided alone waits for your confirmation. Every document also gets a markdown note (open the archive in Obsidian), and a bank statement or any list of payments can be matched against the archive to find the missing invoices. |
 | [tone](plugins/tone) | `/tone:write <draft>` | Text written for other people, short and safe: issues, comments and changelog lines checked against a profile for their reader. A deterministic `tone check` catches length, filler, AI tells, secrets, personal data and technical internals in customer-visible text; the review judges the rest (guesses stated as facts, other customers, blame, du or Sie) and returns a revised text. German and English. Your own `.claude/rules/` files override its defaults. |
 | [tracker](plugins/tracker) | `/tracker:issue`, `/tracker:retro`, `/tracker:comment`, `/tracker:handoff`, `/tracker:close`, `/tracker:check` | Conventional Issues: one short, fixed shape for issues, comments, handoffs and closes in any tracker (Linear, Jira, GitHub, Trello, or none: then copy and paste). Written for customers by default, nothing guessed, outcome titles that work as changelog lines. Skills create issues, backfill issues for work already done (one or several, as if reported first), comment with one purpose, hand over to review with what to check, and close with a result; every write is shown and confirmed first. A deterministic `tracker check` lints each draft. |
+| [docs](plugins/docs) | `/docs:setup`, `/docs:guide`, `/docs:devdoc`, `/docs:check`, `/docs:diff`, `/docs:push`, `/docs:rollback`, `/docs:pull` | Help center articles and developer docs written with you as Markdown in git. `setup` reads your existing articles and writes your house style down as numbered rules (rulebook format); without one, well-tested defaults apply: plain-language how-tos, troubleshooting, overviews, references and FAQs for users; quickstarts, how-tos, references and concepts for developers, verified against the source. Links between articles resolve, and are looked up at the target when pushed. Compare versions by meaning, roll back as a new commit, and push to any help center (Productlane, Intercom, Zendesk, or a Docusaurus repository through a pull request; with none, copy and paste) only from a committed, checked version after a yes, enforced by a hook. A deterministic `docs check` lints the universal rules; German and English. |
 
 ---
 
@@ -47,6 +49,7 @@ A [Claude Code](https://claude.com/claude-code) **plugin marketplace**: insaneti
 /plugin install data-max@atelier
 /plugin install tone@atelier
 /plugin install tracker@atelier
+/plugin install docs@atelier
 # or, from a local clone:
 /plugin marketplace add ./path/to/atelier
 ```
@@ -64,6 +67,7 @@ claude plugin install rulebook@atelier --scope project
 claude plugin install data-max@atelier --scope project
 claude plugin install tone@atelier --scope project
 claude plugin install tracker@atelier --scope project
+claude plugin install docs@atelier --scope project
 ```
 
 Update later with `/plugin marketplace update atelier`; enable or disable with `/plugin`.

@@ -8,3 +8,5 @@
 __pycache__/
 
 /test_invoices/
+# material prepared for teams, handed over outside this repository
+/handover/
