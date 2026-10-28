@@ -38,10 +38,10 @@ result comes back ready to copy and paste.
 
   | Kind | Sections |
   |---|---|
-  | `bug` | Problem, Expected, *Steps*, Done when |
-  | `feature` | Need, Done when, *Not included* |
-  | `improvement` | Today, Better, Done when |
-  | `task` | What, Why, Done when |
+  | `bug` | Problem, Expected behaviour, *Steps to reproduce*, Acceptance criteria |
+  | `feature` | Goal, Acceptance criteria, *Out of scope* |
+  | `improvement` | Current state, Goal, Acceptance criteria |
+  | `task` | Task, Why, Acceptance criteria |
 
 - **Comments** have one purpose, at most 60 words, and start with it: `Status:`, `Decision:`, `Question for
   <person>:`, `Blocked:` (German: `Stand:`, `Entscheidung:`, `Frage an <person>:`, `Blockiert:`).
@@ -49,10 +49,13 @@ result comes back ready to copy and paste.
   never in descriptions, status or close comments, never `@team`.
 - **Handoff is not closing.** Moving to review or to someone always leaves three lines: `Ready for review:`,
   `To check:`, `Open:`.
-- **Close** with one result and at most two sentences: `Done:`, `Not doing:`, `Works as intended:`,
+- **Close** with one result and at most two sentences: `Done:`, `Won't do:`, `Works as intended:`,
   `Duplicate of`, `Not reproducible:`, `No longer relevant:`.
 
-German and English section names and leads are both defined; the text follows the language of the thread.
+German and English section names and leads are both defined, and each text uses exactly one language's
+terms, spelled the same every time (CI-070): never `Soll-Zustand` for `Ziel` or `Status:` in a German comment.
+It holds for what Claude writes; existing issues and text people write themselves are left alone.
+Other languages use the English terms until a column is added to the tables and to `lib/tracker.py`.
 
 ---
 
@@ -102,8 +105,9 @@ On the `PATH` while the plugin is enabled. Python 3.9+, no dependencies, no netw
 tracker check [--json] <file|->
 ```
 
-The draft carries a small frontmatter (`type`, `kind`, `purpose`, `result`, `audience`); see
-[`PROCEDURE.md`](PROCEDURE.md). It decides title length and prefix, the TL;DR line, the sections and their order per kind,
+The draft carries a small frontmatter (`type`, `kind`, `purpose`, `result`, `audience`, `language`); see
+[`PROCEDURE.md`](PROCEDURE.md). It decides title length and prefix, the TL;DR line, the sections and their order per kind, the fixed
+terms (exact spelling, one language per text, no synonyms),
 required sections, checklists and numbered steps, placeholders, word and sentence limits, comment leads,
 handoff and close shape, mentions, secrets and personal data, and technical internals in customer-visible text. Exit
 0 when there is no error, 1 with errors, 2 on a usage error. It reports; it never rewrites.
@@ -115,10 +119,20 @@ A writing-style plugin, if you have one, polishes the wording inside this shape;
 ## Nothing is written without your yes
 
 The skills show every write and wait for your answer. A model can still skip that step, for example when
-you ask "close IND-12" and it takes the request as the yes. So the plugin also ships a hook: before any write
-to a tracker (an MCP tool of Linear, Jira, GitHub issues and similar, or `gh issue`, `gh api …/issues`,
-`glab issue`, `acli jira`, `jira`), Claude Code itself asks you and shows what will be sent. Reads are not
-affected. To switch the hook off, for example when a rule of yours waives confirmation, set
+you ask "close IND-12" and it takes the request as the yes. So the plugin also ships a hook that runs before
+any write to a tracker (an MCP tool of Linear, Jira, GitHub issues and similar, or `gh issue`, `gh api
+…/issues`, `glab issue`, `acli jira`, `jira`):
+
+1. New text (a new issue or comment) with wrong fixed terms (a synonym such as `Soll-Zustand` or `Definition
+   of done`, `Ist Zustand` without the hyphen, English leads in a German comment) is sent back unwritten,
+   with the fix. Edits to existing issues are not checked for terms.
+2. New text that was not shown to you in the chat, word for word, before your last answer is sent back
+   unwritten: Claude has to show the draft and wait for you. The hook reads this from the session's
+   transcript.
+3. Every write, new or an edit, then waits for your yes in Claude Code's permission prompt, which shows what
+   will be sent.
+
+Reads are not affected. To switch the hook off, for example when a rule of yours waives confirmation, set
 `TRACKER_CONFIRM_WRITES=0` under `env` in your settings.
 
 ---
@@ -131,12 +145,12 @@ plugins/tracker/
 ├── CONVENTION.md                  # Conventional Issues, CI-0xx
 ├── PROCEDURE.md                   # how every skill reads, maps, confirms and writes
 ├── bin/tracker                    # runs lib/tracker.py
-├── hooks/confirm.py               # asks before every tracker write (PreToolUse)
+├── hooks/confirm.py               # before every tracker write: fixed terms, draft shown, then ask
 ├── lib/tracker.py                 # the check
 ├── skills/{issue,retro,comment,handoff,close,check}/SKILL.md
 ├── examples/tracker.md            # rules file to copy into ~/.claude/rules/
 ├── tests/test_tracker.py          # also checks the script's tables against CONVENTION.md
-├── tests/test_confirm.py          # which tool calls count as tracker writes
+├── tests/test_confirm.py          # which calls are tracker writes, and when they are sent back
 └── evals/                         # one case per scenario, dry and without a tracker
 ```
 

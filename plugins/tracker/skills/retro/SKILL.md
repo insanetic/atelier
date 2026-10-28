@@ -66,7 +66,7 @@ Then, for each issue, exactly what the other skills do:
    - in progress: the issue only, status in progress;
    - being tested: then as `handoff` does it (its steps 2 to 4): review status or receiver, the three-line
      comment;
-   - done: then as `close` does it (its steps 2 to 6) with result `done` implied: ticked `Done when` items
+   - done: then as `close` does it (its steps 2 to 6) with result `done` implied: ticked acceptance criteria
      the work shows are met (CI-051), the `Done:` comment, follow-ups as new linked issues.
 7. **Picked findings, as `issue` does them** (its steps 2 to 8): new open issues in the backlog status,
    priority by CI-007, no assignee unless the user names one, each linked to the issue it came from (CI-060). The issue that found them says so

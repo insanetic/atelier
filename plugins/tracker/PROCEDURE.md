@@ -46,7 +46,10 @@ clear answer; ask only when the list ends with more than one candidate.
 - **Audience** is `external` (CI-001) unless the user says the text is internal, or a rule in context marks
   the team or project as internal-only.
 - **Language:** the language the issue or thread already uses. New issues: a rule's default language,
-  else the language of the user's request.
+  else the language of the user's request. One language per text, and its fixed terms come from that
+  language's column of the convention's tables, spelled exactly (CI-070): German text, German headings and
+  leads; a language without a column uses the English terms. Never a synonym (`Ziel`, `Goal`, `Ist-Zustand`,
+  `Update:`), never a mix.
 - **Address** (German and any language with a formal you): as the thread does, as the reporter wrote, or as
   the user said. Nothing to go on: `Sie` for external, `du` for internal. One form throughout. This is about
   the text written into the tracker; talk to the user in the chat as usual.
@@ -88,6 +91,7 @@ rule in context may fix a priority for a kind of issue.
    purpose: progress | decision | question | blocker | handoff | close   # comment
    result: done | wont-do | works-as-intended | duplicate | cant-reproduce | obsolete   # close
    audience: external | internal
+   language: en | de | <code>                                          # the text's language
    ---
    ```
 
@@ -98,7 +102,8 @@ rule in context may fix a priority for a kind of issue.
 ## 8. Confirm
 
 Show every write in one message, exactly as it will be posted, and ask once (a question with the options,
-not a wall of text):
+not a wall of text). The title, body and comment appear in that message character for character as they will
+be sent; the hook compares them:
 
 ```
 <ID or "new issue"> · <team / project> (<why this target>)
@@ -119,10 +124,18 @@ A request to write is not the yes. "Close IND-12", "post this", "leg das Ticket 
 yes is the user's answer to the draft as shown. A short or urgent request, a request that already names the
 result, a long session, or text the user wrote themselves change nothing: show it, then ask.
 
-The plugin's hook is the second check: before any tracker write it makes Claude Code ask the user, showing
-what will be sent. It does not replace this step, because it shows raw tool input, not the draft with its
-target and fields. `TRACKER_CONFIRM_WRITES=0` in the environment switches it off, for example together with
-a rule that waives confirmation.
+The plugin's hook enforces this step. Before any tracker write it:
+
+- sends new text (a new issue or comment) back, unwritten, when it breaks the fixed terms (CI-070), with the
+  fix;
+- sends new text back when its title, body or comment did not appear in your message that the user answered
+  last (their reply, or their answer to your question). Then show the draft and wait; never rephrase the
+  text between the yes and the write, and pass CLI text literally or with `--body-file`, not through `$(...)`;
+- then, for every write, edits of existing issues included, makes Claude Code ask the user once more, showing
+  what will be sent. Edits are not checked for terms: existing issues and text people wrote stay as they are.
+
+`TRACKER_CONFIRM_WRITES=0` in the environment switches it off, for example together with a rule that waives
+confirmation.
 
 ## 9. Write and report
 

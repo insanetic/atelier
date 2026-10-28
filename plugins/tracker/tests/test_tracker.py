@@ -33,14 +33,14 @@ TL;DR: Mehrzeilige Notizen landen im PDF-Export in einer Zeile und sollen ihre U
 ## Problem
 Seit dem 20.10. erscheinen mehrzeilige Notizen im PDF-Export in einer Zeile.
 
-## Erwartet
+## Erwartetes Verhalten
 Notizen behalten ihre Zeilenumbrüche.
 
-## Schritte
+## Schritte zum Nachstellen
 1. Rechnung mit mehrzeiliger Notiz anlegen
 2. Als PDF exportieren
 
-## Fertig, wenn
+## Akzeptanzkriterien
 - [ ] Notizen behalten ihre Zeilenumbrüche
 """
 
@@ -48,14 +48,14 @@ FEATURE_EN = """# Filter the revenue report by booking channel
 
 TL;DR: Revenue managers want to compare booking channels inside the revenue report.
 
-## Need
+## Goal
 Revenue managers need to compare channels without exporting to a spreadsheet.
 
-## Done when
+## Acceptance criteria
 - [ ] The report has a channel filter
 - [ ] The filter is kept when the report is shared
 
-## Not included
+## Out of scope
 Channel costs and commissions.
 """
 
@@ -63,13 +63,13 @@ TASK_DE = """# Mietvertrag Büro Leipzig verlängern
 
 TL;DR: Der Mietvertrag für das Büro Leipzig soll vor dem Ablauf um zwei Jahre verlängert werden.
 
-## Was
+## Aufgabe
 Den Mietvertrag um zwei Jahre verlängern.
 
 ## Warum
 Er läuft am 31.12. aus.
 
-## Fertig, wenn
+## Akzeptanzkriterien
 - [ ] Verlängerung unterschrieben
 - [ ] Kopie in der Buchhaltung abgelegt
 """
@@ -78,21 +78,36 @@ IMPROVEMENT_EN = """# Show sync progress while bookings import
 
 TL;DR: Users cannot tell whether a booking import is still running.
 
-## Today
+## Current state
 The import shows nothing until it finishes, which takes up to ten minutes.
 
-## Better
+## Goal
 A progress bar shows how many bookings are imported.
 
-## Done when
+## Acceptance criteria
 - [ ] The import shows how many bookings are done and how many are left
+"""
+
+
+IMPROVEMENT_DE = """# Importfortschritt anzeigen
+
+TL;DR: Nutzer sehen nicht, ob der Import der Buchungen noch läuft.
+
+## Ist-Zustand
+Der Import zeigt nichts, bis er fertig ist, und das dauert bis zu zehn Minuten.
+
+## Ziel
+Ein Balken zeigt, wie viele Buchungen schon importiert sind.
+
+## Akzeptanzkriterien
+- [ ] Der Import zeigt, wie viele Buchungen fertig sind und wie viele fehlen
 """
 
 
 class Issues(unittest.TestCase):
     def test_good_issues_are_clean(self):
         for kind, body in [("bug", BUG_DE), ("feature", FEATURE_EN), ("task", TASK_DE),
-                           ("improvement", IMPROVEMENT_EN)]:
+                           ("improvement", IMPROVEMENT_EN), ("improvement", IMPROVEMENT_DE)]:
             with self.subTest(kind=kind):
                 self.assertEqual(tracker.check(draft({"type": "issue", "kind": kind}, body))["findings"], [])
 
@@ -126,29 +141,29 @@ class Issues(unittest.TestCase):
         self.assertIn("CI-021", found)
 
     def test_foreign_unknown_and_misordered_sections(self):
-        self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n## Steps\n1. a\n"))
+        self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n## Steps to reproduce\n1. a\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n## Context\nText.\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "feature"}, FEATURE_EN + "\n### Detail\nText.\n"))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "task"},
-                                    "# Vertrag verlängern\n\nTL;DR: Vertrag verlängern.\n\n## Fertig, wenn\n- [ ] Unterschrieben\n\n"
-                                    "## Was\nVerlängern.\n\n## Warum\nLäuft aus.\n"))
+                                    "# Vertrag verlängern\n\nTL;DR: Vertrag verlängern.\n\n## Akzeptanzkriterien\n- [ ] Unterschrieben\n\n"
+                                    "## Aufgabe\nVerlängern.\n\n## Warum\nLäuft aus.\n"))
 
     def test_every_kind_says_why_and_done_when(self):
         self.assertIn("CI-021", ids({"type": "issue", "kind": "task"}, TASK_DE.replace(
             "## Warum\nEr läuft am 31.12. aus.\n\n", "")))
-        self.assertIn("CI-021", ids({"type": "issue", "kind": "bug"}, BUG_DE.split("## Fertig, wenn")[0]))
+        self.assertIn("CI-021", ids({"type": "issue", "kind": "bug"}, BUG_DE.split("## Akzeptanzkriterien")[0]))
         self.assertIn("CI-021", ids({"type": "issue", "kind": "improvement"},
-                                    IMPROVEMENT_EN.split("## Done when")[0]))
+                                    IMPROVEMENT_EN.split("## Acceptance criteria")[0]))
 
     def test_tldr(self):
         lead = "TL;DR: Revenue managers want to compare booking channels inside the revenue report.\n\n"
         cases = {
             "missing": FEATURE_EN.replace(lead, ""),
             "no lead": FEATURE_EN.replace("TL;DR: ", ""),
-            "two sentences": FEATURE_EN.replace("report.\n\n## Need", "report. They ask weekly.\n\n## Need"),
+            "two sentences": FEATURE_EN.replace("report.\n\n## Goal", "report. They ask weekly.\n\n## Goal"),
             "too long": FEATURE_EN.replace("inside the revenue report", "inside " + "the report " * 12),
             "translated lead": FEATURE_EN.replace("TL;DR: ", "Kurz: "),
-            "after a section": FEATURE_EN.replace(lead, "").replace("## Done when", lead + "## Done when"),
+            "after a section": FEATURE_EN.replace(lead, "").replace("## Acceptance criteria", lead + "## Acceptance criteria"),
         }
         for name, body in cases.items():
             with self.subTest(case=name):
@@ -157,7 +172,7 @@ class Issues(unittest.TestCase):
 
     def test_text_outside_sections(self):
         self.assertIn("CI-021", ids({"type": "issue", "kind": "task"}, TASK_DE.replace(
-            "## Was", "Kurz vorab.\n\n## Was")))
+            "## Aufgabe", "Kurz vorab.\n\n## Aufgabe")))
 
     def test_section_contents(self):
         self.assertIn("CI-022", ids({"type": "issue", "kind": "task"}, TASK_DE.replace(
@@ -174,10 +189,10 @@ class Issues(unittest.TestCase):
                     "zwei Jahre", word)))
 
     def test_body_words_skip_checklists(self):
-        body = "# Keep notes\n\n## What\n" + "word " * 110 + "\n\n## Done when\n" + "- [ ] item\n" * 30
+        body = "# Keep notes\n\n## Task\n" + "word " * 110 + "\n\n## Acceptance criteria\n" + "- [ ] item\n" * 30
         self.assertNotIn("CI-020", ids({"type": "issue", "kind": "task"}, body))
         self.assertIn("CI-020", ids({"type": "issue", "kind": "task"},
-                                    "# Keep notes\n\n## What\n" + "word " * 121 + "\n\n## Done when\n- [ ] a\n"))
+                                    "# Keep notes\n\n## Task\n" + "word " * 121 + "\n\n## Acceptance criteria\n- [ ] a\n"))
 
 
 class Comments(unittest.TestCase):
@@ -212,7 +227,7 @@ class Comments(unittest.TestCase):
 
     def test_close(self):
         good = [("done", "Erledigt: Exportierte Rechnungen behalten Zeilenumbrüche. Folgeaufgabe: IND-88."),
-                ("wont-do", "Not doing: the export is replaced by the new report in November."),
+                ("wont-do", "Won't do: the export is replaced by the new report in November."),
                 ("works-as-intended", "Funktioniert wie vorgesehen: Stornos zählen nicht zum Umsatz. "
                                       "Sie stehen im Storno-Report."),
                 ("duplicate", "Duplikat von IND-42."),
@@ -278,6 +293,70 @@ class Exposure(unittest.TestCase):
         self.assertEqual([(f["id"], f["severity"]) for f in found], [("CI-004", "note")])
 
 
+class Terms(unittest.TestCase):
+    """CI-070: the same fixed terms every time, in the text's one language."""
+
+    def test_synonyms_are_named_with_the_fix(self):
+        body = IMPROVEMENT_EN.replace("## Goal", "## Better")
+        found = tracker.check(draft({"type": "issue", "kind": "improvement"}, body))["findings"]
+        self.assertIn(("CI-021", "not a section of this convention; use `Goal`"),
+                      [(f["id"], f["message"]) for f in found])
+        german = TASK_DE.replace("## Warum", "## Hintergrund")
+        messages = [f["message"] for f in tracker.check(draft({"type": "issue", "kind": "task"}, german))["findings"]]
+        self.assertIn("not a section of this convention; use `Warum`", messages)
+        for heading in ["Today", "Soll-Zustand", "Aktuell", "Done when", "Definition of done", "Status quo"]:
+            with self.subTest(heading=heading):
+                self.assertIn("CI-021", ids({"type": "issue", "kind": "improvement"},
+                                            IMPROVEMENT_EN.replace("## Current state", "## " + heading)))
+        german_bug = BUG_DE.replace("## Erwartetes Verhalten", "## Erwartet")
+        messages = [f["message"] for f in tracker.check(draft({"type": "issue", "kind": "bug"}, german_bug))["findings"]]
+        self.assertIn("not a section of this convention; use `Erwartetes Verhalten`", messages)
+
+    def test_exact_spelling(self):
+        for right, wrong in [("## Akzeptanzkriterien", "## akzeptanzkriterien"),
+                             ("## Akzeptanzkriterien", "## Akzeptanzkriterien:"),
+                             ("## Ist-Zustand", "## Ist Zustand"), ("## Ist-Zustand", "## Ist-zustand")]:
+            with self.subTest(heading=wrong):
+                self.assertEqual(ids({"type": "issue", "kind": "improvement"}, IMPROVEMENT_DE.replace(right, wrong)),
+                                 ["CI-070"])
+
+    def test_one_language_per_text(self):
+        self.assertEqual(ids({"type": "issue", "kind": "task"}, TASK_DE.replace("## Warum", "## Why")), ["CI-070"])
+        self.assertEqual(ids({"type": "issue", "kind": "improvement"},
+                             IMPROVEMENT_EN.replace("## Acceptance criteria", "## Akzeptanzkriterien")), ["CI-070"])
+        self.assertEqual(ids({"type": "comment", "purpose": "progress"},
+                             "Status: Der Import läuft wieder und wir prüfen jetzt die Daten."), ["CI-070"])
+        self.assertEqual(ids({"type": "comment", "purpose": "handoff"},
+                             "Bereit zur Prüfung: Export behält Umbrüche.\nTo check: export an invoice.\nOffen: keine."),
+                         ["CI-070"])
+        self.assertEqual(ids({"type": "comment", "purpose": "close", "result": "done"},
+                             "Done: Die Rechnungen werden wieder mit den Zeilenumbrüchen exportiert."), ["CI-070"])
+
+    def test_language_from_frontmatter(self):
+        self.assertEqual(ids({"type": "comment", "purpose": "progress", "language": "de"}, "Status: ok."), ["CI-070"])
+        self.assertEqual(ids({"type": "comment", "purpose": "progress", "language": "de"}, "Stand: ok."), [])
+        self.assertEqual(ids({"type": "comment", "purpose": "progress", "language": "en"}, "Status: ok."), [])
+
+    def test_languages_without_terms_use_english(self):
+        self.assertEqual(ids({"type": "comment", "purpose": "progress", "language": "fr"},
+                             "Status: l'import fonctionne de nouveau."), [])
+        self.assertEqual(ids({"type": "comment", "purpose": "progress", "language": "fr"}, "Stand: ok."), ["CI-070"])
+
+    def test_every_term_has_every_language(self):
+        for key, terms in tracker.TERMS.items():
+            self.assertEqual(len(terms), len(tracker.LANGUAGES), key)
+
+    def test_unframed_text_before_a_write(self):
+        self.assertEqual(tracker.term_findings(TASK_DE.split("\n", 2)[2]), [])
+        self.assertEqual(tracker.term_findings("Stand: Der Import läuft wieder."), [])
+        found = tracker.term_findings(TASK_DE.replace("## Warum", "## Hintergrund"))
+        self.assertEqual([f["id"] for f in found], ["CI-021"])
+        self.assertEqual([f["id"] for f in tracker.term_findings("Status: Der Import läuft wieder und wir prüfen jetzt.")],
+                         ["CI-070"])
+        # Text not written by the convention (no TL;DR) keeps its own headings, e.g. ticking a box in an old issue.
+        self.assertEqual(tracker.term_findings("## Acceptance criteria\n- [x] export works"), [])
+
+
 class Frontmatter(unittest.TestCase):
     def test_type_and_audience(self):
         self.assertIn("CI-000", ids({"kind": "bug"}, BUG_DE))
@@ -294,6 +373,15 @@ class Convention(unittest.TestCase):
     def test_section_names(self):
         for english, german in tracker.SECTIONS.values():
             self.assertIn("| %s | %s |" % (english, german), self.text)
+
+    def test_comment_and_handoff_terms(self):
+        for key in ("progress", "decision", "question", "blocker"):
+            self.assertIn("| `%s` | `%s` |" % tracker.TERMS[key], self.text)
+        en, de = tracker.TERMS["review"]
+        self.assertIn("`%s` or `%s` | `%s` or `%s`" % (en, tracker.TERMS["handed"][0], de, tracker.TERMS["handed"][1]),
+                      self.text)
+        for key in ("check", "open"):
+            self.assertIn("| `%s` | `%s` |" % tracker.TERMS[key], self.text)
 
     def test_shapes(self):
         for kind, shape in tracker.SHAPES.items():

@@ -1,4 +1,4 @@
-# Conventional Issues 0.5.0
+# Conventional Issues 0.6.0
 
 A convention for issues and tasks: what an issue, a comment, a handoff and a close look like, in any
 tracker. It does not care whether the tracker is Linear, Jira, GitHub, Trello or a spreadsheet. Every rule
@@ -55,8 +55,8 @@ conversation it came from. Every issue answers:
 | Question | Where it goes |
 |---|---|
 | what should be true afterwards | the title and the TL;DR |
-| why, and for whom | Problem, Need, Today or Why |
-| how to tell it is done | Done when |
+| why, and for whom | Problem, Goal, Current state or Why |
+| how to tell it is done | Acceptance criteria |
 | who asked, when it was not the one filing it, and who answers questions | the tracker's people fields (subscriber, mention, customer or requester link) |
 | what the work needs: documents, files, accounts, the original request, related or blocking issues | the tracker's attachments and links |
 | by when, if a date was given | the due date |
@@ -129,41 +129,40 @@ there; optional ones are left out when empty. Nothing else.
 
 | Kind | Required | Optional |
 |---|---|---|
-| `bug` | Problem, Expected, Done when | Steps |
-| `feature` | Need, Done when | Not included |
-| `improvement` | Today, Better, Done when | — |
-| `task` | What, Why, Done when | — |
+| `bug` | Problem, Expected behaviour, Acceptance criteria | Steps to reproduce |
+| `feature` | Goal, Acceptance criteria | Out of scope |
+| `improvement` | Current state, Goal, Acceptance criteria | — |
+| `task` | Task, Why, Acceptance criteria | — |
 
 Order:
 
-- `bug` Problem, Expected, Steps, Done when.
-- `feature` Need, Done when, Not included.
-- `improvement` Today, Better, Done when.
-- `task` What, Why, Done when.
+- `bug` Problem, Expected behaviour, Steps to reproduce, Acceptance criteria.
+- `feature` Goal, Acceptance criteria, Out of scope.
+- `improvement` Current state, Goal, Acceptance criteria.
+- `task` Task, Why, Acceptance criteria.
 
 | English | German |
 |---|---|
 | Problem | Problem |
-| Expected | Erwartet |
-| Steps | Schritte |
-| Done when | Fertig, wenn |
-| Need | Bedarf |
-| Not included | Nicht enthalten |
-| Today | Heute |
-| Better | Besser |
-| What | Was |
+| Expected behaviour | Erwartetes Verhalten |
+| Steps to reproduce | Schritte zum Nachstellen |
+| Goal | Ziel |
+| Current state | Ist-Zustand |
+| Task | Aufgabe |
 | Why | Warum |
+| Acceptance criteria | Akzeptanzkriterien |
+| Out of scope | Nicht im Umfang |
 
 ### CI-022 What goes in each section
 
 - **Problem:** what happens, where, since when, who is affected and how.
-- **Expected:** what should happen instead.
-- **Steps:** a numbered list that reproduces it.
-- **Need:** who needs what, for what.
-- **Today / Better:** how it works now and what that costs whom; how it should work.
-- **What / Why:** the work; one line on why it is needed, and why now.
-- **Done when:** a checklist (`- [ ]`) of observable results, each one line.
-- **Not included:** what the issue explicitly does not cover.
+- **Expected behaviour:** what should happen instead.
+- **Steps to reproduce:** a numbered list that reproduces it.
+- **Goal:** for a feature, who needs what, for what; for an improvement, how it should work.
+- **Current state:** how it works now, and what that costs whom.
+- **Task / Why:** the work; one line on why it is needed, and why now.
+- **Acceptance criteria:** a checklist (`- [ ]`) of observable results, each one line.
+- **Out of scope:** what the issue explicitly does not cover.
 
 ### CI-023 Durable truth lives in the description
 
@@ -242,7 +241,7 @@ filtered; the comment still starts with the lead.
 | Result | English | German | Says |
 |---|---|---|---|
 | `done` | `Done:` | `Erledigt:` | what changed for the reader; follow-ups by ID |
-| `wont-do` | `Not doing:` | `Nicht umgesetzt:` | the reason |
+| `wont-do` | `Won't do:` | `Nicht umgesetzt:` | the reason |
 | `works-as-intended` | `Works as intended:` | `Funktioniert wie vorgesehen:` | why, and what to do instead |
 | `duplicate` | `Duplicate of` | `Duplikat von` | the other issue |
 | `cant-reproduce` | `Not reproducible:` | `Nicht reproduzierbar:` | what was tried; what would reopen it |
@@ -250,7 +249,7 @@ filtered; the comment still starts with the lead.
 
 ### CI-051 Checklists tell the truth
 
-A `Done when` item is ticked only when it is met. A dropped item is said in the closing comment.
+An acceptance criterion is ticked only when it is met. A dropped item is said in the closing comment.
 
 ## 9. Links
 
@@ -258,6 +257,26 @@ A `Done when` item is ticked only when it is met. A dropped item is said in the 
 
 Follow-up work is a new, linked issue, not a longer comment or a reopened scope. A duplicate is linked to
 the issue it duplicates. Related work is linked, not retold.
+
+## 10. Terms
+
+### CI-070 The same words, every time
+
+Every fixed term is written exactly as the tables above spell it, in the text's language: section headings
+(CI-021), comment leads (CI-030), handoff lines (CI-040) and close leads (CI-050). `TL;DR:` is the same in
+every language (CI-024). So a reader, a search and a script can rely on them.
+
+- **Exactly:** same spelling, case and punctuation. `Ist-Zustand`, not `Ist Zustand`; `Acceptance
+  criteria`, not `Acceptance Criteria:`; `Expected behaviour`, not `Expected behavior`.
+- **No synonyms:** not `Soll-Zustand`, `Aktuell`, `Definition of done`, `Hintergrund`, `Background`,
+  `Update:`, `Zwischenstand:`. The table's term, or nothing.
+- **What Claude writes:** the rule holds for every new issue and comment Claude writes. Existing issues
+  and text people write themselves are left as they are; `check` cleans one up when asked.
+- **One language per text:** the language of the text decides the column (PROCEDURE.md, step 4). A German
+  issue has German headings and leads, an English one English; never mixed, also not when the thread mixes.
+- **Other languages:** a language with a column in the tables uses its own terms. A language without one
+  uses the English terms until a column is added: one more entry per term, here and in `lib/tracker.py`,
+  never translated ad hoc in a single issue.
 
 ---
 

@@ -17,39 +17,69 @@ KINDS = ("bug", "feature", "improvement", "task")
 PURPOSES = ("progress", "decision", "question", "blocker", "handoff", "close")
 RESULTS = ("done", "wont-do", "works-as-intended", "duplicate", "cant-reproduce", "obsolete")
 
-# Section: (English, German). Required and optional per kind, in order.
-SECTIONS = {
-    "problem": ("Problem", "Problem"), "expected": ("Expected", "Erwartet"),
-    "steps": ("Steps", "Schritte"), "done": ("Done when", "Fertig, wenn"),
-    "need": ("Need", "Bedarf"), "excluded": ("Not included", "Nicht enthalten"),
-    "today": ("Today", "Heute"), "better": ("Better", "Besser"),
-    "what": ("What", "Was"), "why": ("Why", "Warum"),
+# Every fixed term, one column per language (CI-070). The column order is LANGUAGES; a language is added by
+# adding its code there and one more entry to every tuple. A language without a column uses the English terms.
+LANGUAGES = ("en", "de")
+LANGUAGE_NAMES = {"en": "English", "de": "German"}
+TERMS = {
+    # issue sections
+    "problem": ("Problem", "Problem"), "expected": ("Expected behaviour", "Erwartetes Verhalten"),
+    "steps": ("Steps to reproduce", "Schritte zum Nachstellen"), "goal": ("Goal", "Ziel"),
+    "current": ("Current state", "Ist-Zustand"), "task": ("Task", "Aufgabe"), "why": ("Why", "Warum"),
+    "criteria": ("Acceptance criteria", "Akzeptanzkriterien"), "excluded": ("Out of scope", "Nicht im Umfang"),
+    # comment leads
+    "progress": ("Status:", "Stand:"), "decision": ("Decision:", "Entscheidung:"),
+    "question": ("Question for <person>:", "Frage an <person>:"), "blocker": ("Blocked:", "Blockiert:"),
+    # handoff lines
+    "review": ("Ready for review:", "Bereit zur Prüfung:"), "handed": ("Handed to <person>:", "Übergabe an <person>:"),
+    "check": ("To check:", "Zu prüfen:"), "open": ("Open:", "Offen:"),
+    # close leads
+    "close-done": ("Done:", "Erledigt:"), "close-wont-do": ("Won't do:", "Nicht umgesetzt:"),
+    "close-works-as-intended": ("Works as intended:", "Funktioniert wie vorgesehen:"),
+    "close-duplicate": ("Duplicate of", "Duplikat von"),
+    "close-cant-reproduce": ("Not reproducible:", "Nicht reproduzierbar:"),
+    "close-obsolete": ("No longer relevant:", "Nicht mehr relevant:"),
 }
+SECTION_KEYS = ("problem", "expected", "steps", "goal", "current", "task", "why", "criteria", "excluded")
+SECTIONS = {k: TERMS[k] for k in SECTION_KEYS}
 SHAPES = {
-    "bug": [("problem", True), ("expected", True), ("steps", False), ("done", True)],
-    "feature": [("need", True), ("done", True), ("excluded", False)],
-    "improvement": [("today", True), ("better", True), ("done", True)],
-    "task": [("what", True), ("why", True), ("done", True)],
+    "bug": [("problem", True), ("expected", True), ("steps", False), ("criteria", True)],
+    "feature": [("goal", True), ("criteria", True), ("excluded", False)],
+    "improvement": [("current", True), ("goal", True), ("criteria", True)],
+    "task": [("task", True), ("why", True), ("criteria", True)],
 }
 TLDR = "TL;DR:"  # lead of the body's first line, in every language
-LEADS = {
-    "progress": [r"Status:", r"Stand:"],
-    "decision": [r"Decision:", r"Entscheidung:"],
-    "question": [r"Question for [^:\n]+:", r"Frage an [^:\n]+:"],
-    "blocker": [r"Blocked:", r"Blockiert:"],
+LEAD_KEYS = {"progress": ["progress"], "decision": ["decision"], "question": ["question"], "blocker": ["blocker"]}
+HANDOFF_KEYS = [(["review", "handed"], True), (["check"], False), (["open"], False)]  # (keys, required)
+CLOSE_LEADS = {r: TERMS["close-" + r] for r in RESULTS}
+
+# Words people reach for instead of the fixed term. Only for the hint; any other heading is wrong too.
+SECTION_SYNONYMS = {
+    ("goal",): ["goals", "target", "target state", "objective", "need", "better", "desired state", "proposal",
+                "solution", "improvement", "ziele", "soll", "sollzustand", "soll-zustand", "zielzustand", "bedarf",
+                "besser", "gewünscht", "vorschlag", "lösung", "verbesserung"],
+    ("expected",): ["expected", "expected behavior", "expected result", "desired behaviour", "desired behavior",
+                    "erwartet", "erwartetes ergebnis", "erwartung", "soll-verhalten"],
+    ("current", "problem"): ["today", "current", "current behaviour", "current behavior", "actual behaviour",
+                             "actual behavior", "status quo", "as is", "now", "heute", "ist", "istzustand",
+                             "aktuell", "aktueller stand", "aktueller zustand", "derzeit", "bisher",
+                             "aktuelles verhalten", "tatsächliches verhalten", "situation"],
+    ("problem",): ["bug", "issue", "error", "fehler", "fehlerbild", "symptom"],
+    ("criteria",): ["done when", "done", "definition of done", "acceptance criterion", "fertig, wenn", "fertig wenn",
+                    "erledigt, wenn", "erledigt wenn", "abnahmekriterien", "kriterien"],
+    ("steps",): ["steps", "reproduction", "repro", "how to reproduce", "schritte", "reproduktion",
+                 "schritte zur reproduktion", "nachstellen"],
+    ("excluded",): ["not included", "not in scope", "non-goals", "nicht enthalten", "außerhalb des umfangs",
+                    "abgrenzung"],
+    ("why",): ["motivation", "reason", "background", "context", "begründung", "grund", "hintergrund", "kontext"],
+    ("task",): ["what", "todo", "scope", "was", "umfang", "aufgaben"],
 }
-HANDOFF = [  # (lines that may start it, required)
-    ([r"Ready for review:", r"Handed to [^:\n]+:", r"Bereit zur Prüfung:", r"Übergabe an [^:\n]+:"], True),
-    ([r"To check:", r"Zu prüfen:"], False),
-    ([r"Open:", r"Offen:"], False),
-]
-CLOSE_LEADS = {
-    "done": [r"Done:", r"Erledigt:"],
-    "wont-do": [r"Not doing:", r"Nicht umgesetzt:"],
-    "works-as-intended": [r"Works as intended:", r"Funktioniert wie vorgesehen:"],
-    "duplicate": [r"Duplicate of\b", r"Duplikat von\b"],
-    "cant-reproduce": [r"Not reproducible:", r"Nicht reproduzierbar:"],
-    "obsolete": [r"No longer relevant:", r"Nicht mehr relevant:"],
+PROSE_WORDS = {  # common words that tell the prose language apart (CI-070)
+    "en": {"the", "and", "is", "are", "not", "with", "for", "we", "they", "this", "that", "will", "should", "from",
+           "after", "when", "now", "still", "can", "has", "have", "of", "to", "it", "be", "was", "were", "please"},
+    "de": {"der", "die", "das", "und", "ist", "sind", "nicht", "mit", "für", "wir", "sie", "ein", "eine", "einen",
+           "wird", "werden", "soll", "von", "nach", "wenn", "jetzt", "noch", "kann", "hat", "haben", "zu", "es",
+           "im", "den", "dem", "des", "auf", "bitte", "wurde", "auch"},
 }
 HEDGES = ["probably", "presumably", "seems to", "should now work", "should be fixed", "might be",
           "I think", "I believe", "vermutlich", "wahrscheinlich", "scheint", "sollte jetzt",
@@ -61,7 +91,7 @@ GREETINGS = re.compile(r"(?i)^(?:hi|hello|hey|hallo|moin|liebe|lieber|dear)\b|(?
 
 TITLE_MAX, BODY_MAX, COMMENT_MAX, CLOSE_SENTENCES, TLDR_MAX = 70, 120, 60, 2, 25
 
-ORDER = ["CI-002", "CI-003", "CI-004", "CI-005", "CI-006", "CI-010", "CI-011", "CI-012", "CI-020",
+ORDER = ["CI-002", "CI-003", "CI-004", "CI-005", "CI-006", "CI-070", "CI-010", "CI-011", "CI-012", "CI-020",
          "CI-021", "CI-022", "CI-024", "CI-030", "CI-031", "CI-040", "CI-050", "CI-051", "CI-000"]
 INTERNAL_SUFFIXES = (".local", ".internal", ".lan", ".corp", ".intranet", ".localhost")
 
@@ -289,16 +319,140 @@ def is_checklist(line):
     return bool(re.match(r"\s*[-*+]\s+\[[ xX]\]\s", line))
 
 
-def section_key(heading):
-    name = heading.strip().rstrip(":").strip().lower().replace(",", "")
-    for key, names in SECTIONS.items():
-        if name in (n.lower().replace(",", "") for n in names):
-            return key
+# --- terms (CI-070) ---------------------------------------------------------------------------------
+
+LINE_KEYS = [k for k in TERMS if k not in SECTION_KEYS]
+
+
+def language_index(code):
+    """The column for a language code; a language without a column uses the English terms."""
+    code = (code or "").strip().lower().split("-")[0]
+    return LANGUAGES.index(code) if code in LANGUAGES else 0
+
+
+def language_name(index):
+    return LANGUAGE_NAMES.get(LANGUAGES[index], LANGUAGES[index])
+
+
+def prose_language(prose):
+    """The column of the language the prose is plainly written in, or None when it is not plain."""
+    tokens = re.findall(r"[a-zäöüß]+", prose.lower())
+    counts = [sum(t in PROSE_WORDS.get(code, ()) for t in tokens) for code in LANGUAGES]
+    best = max(range(len(counts)), key=counts.__getitem__)
+    rest = max([c for i, c in enumerate(counts) if i != best] or [0])
+    return best if counts[best] >= 2 and rest * 2 < counts[best] else None
+
+
+def term_pattern(term):
+    pattern = re.escape(term).replace(re.escape("<person>"), r"[^:\n]+")
+    return pattern if term.endswith(":") else pattern + r"\b"
+
+
+def leading_term(text, keys):
+    """(key, languages) of the first fixed term among keys that text starts with, or None."""
+    for key in keys:
+        langs = {i for i, term in enumerate(TERMS[key]) if re.match(term_pattern(term), text)}
+        if langs:
+            return key, langs
     return None
 
 
-def starts_with(text, patterns):
-    return any(re.match(p, text) for p in patterns)
+def loose(name):
+    return re.sub(r"[\s-]+", " ", name.strip().rstrip(":").replace(",", "").lower())
+
+
+def heading_term(name):
+    """(key, languages, exact) for a section heading; key None when it is no section of the convention."""
+    name = name.strip()
+    for key in SECTION_KEYS:
+        langs = {i for i, term in enumerate(TERMS[key]) if name == term}
+        if langs:
+            return key, langs, True
+    for key in SECTION_KEYS:
+        langs = {i for i, term in enumerate(TERMS[key]) if loose(name) == loose(term)}
+        if langs:
+            return key, langs, False
+    return None, set(), False
+
+
+def say(keys, lang):
+    """The fixed terms for keys, in one language if it is known, else in every language."""
+    langs = [lang] if lang is not None else range(len(LANGUAGES))
+    return " or ".join("`%s`" % TERMS[k][i] for i in langs for k in keys)
+
+
+def synonym_hint(name, kind, lang):
+    shape = [k for k, _ in SHAPES.get(kind, [])]
+    for candidates, names in SECTION_SYNONYMS.items():
+        if loose(name) in {loose(n) for n in names}:
+            fitting = [k for k in candidates if k in shape] or ([] if shape else list(candidates))
+            if fitting:
+                return say(fitting[:1], lang)
+    if shape:
+        return "one of " + ", ".join(say([k], lang) for k in shape)
+    return None
+
+
+def check_heading(name, where, kind, lang, used, report):
+    """A `##` heading: the exact fixed term, or a finding. Returns the section key or None."""
+    key, langs, exact = heading_term(name)
+    if key is None:
+        hint = synonym_hint(name, kind, lang)
+        report.add("CI-021", "error", where, "not a section of this convention" + ("; use %s" % hint if hint else ""),
+                   name.strip()[:60])
+        return None
+    if not exact:
+        report.add("CI-070", "error", where, "write the heading exactly as " + " or ".join(
+            "`%s`" % TERMS[key][i] for i in sorted(langs)), name.strip()[:60])
+    used.append({"key": key, "langs": langs, "where": where, "text": name.strip()})
+    return key
+
+
+def check_language(meta, lang, used, report):
+    """Every fixed term is the term of the text's one language (CI-070)."""
+    if lang is None:
+        common = set(range(len(LANGUAGES)))
+        for u in used:
+            common &= u["langs"]
+        if used and not common:
+            names = sorted({language_name(min(u["langs"])) for u in used})
+            report.add("CI-070", "error", used[0]["where"], "terms in %s mixed; use one language's terms "
+                       "throughout" % " and ".join(names), ", ".join(u["text"] for u in used)[:80])
+        return
+    code = meta.get("language")
+    label = language_name(lang) if not code or code.split("-")[0].lower() in LANGUAGES else \
+        "%s (no terms of its own, so English)" % code
+    for u in used:
+        if lang not in u["langs"]:
+            report.add("CI-070", "error", u["where"], "%s term in a %s text; write %s" % (
+                language_name(min(u["langs"])), label, say([u["key"]], lang)), u["text"][:60])
+
+
+def text_language(meta, prose):
+    """The column the fixed terms must come from: the frontmatter's language, else the prose's, else None."""
+    if meta.get("language"):
+        return language_index(meta["language"])
+    return prose_language(prose)
+
+
+def term_findings(text):
+    """CI-070 and heading errors for text without frontmatter, as it is about to be written to a tracker."""
+    report, used = Report(), []
+    prose = URL.sub(" ", strip_code(text))
+    lang = prose_language(prose)
+    lines = text.splitlines()
+    convention = any(line.lstrip().startswith(TLDR) for line in lines)
+    for i, line in enumerate(lines, 1):
+        m = re.match(r"\s*##\s+(.*)$", line)
+        if m:
+            if convention:
+                check_heading(m.group(1), "line %d" % i, None, lang, used, report)
+            continue
+        found = leading_term(line.strip(), LINE_KEYS)
+        if found:
+            used.append({"key": found[0], "langs": found[1], "where": "line %d" % i, "text": line.strip()[:40]})
+    check_language({}, lang, used, report)
+    return [f for f in report.sorted() if f["severity"] == "error"]
 
 
 def check_hedges(prose, report):
@@ -311,7 +465,7 @@ def check_hedges(prose, report):
                    "placeholder; ask for the fact or leave the section out", m.group(0), m.start())
 
 
-def check_issue(meta, body, report):
+def check_issue(meta, body, report, lang=None, used=None):
     kind = meta.get("kind")
     if kind not in KINDS:
         report.add("CI-006", "error", "frontmatter", "kind must be one of: " + ", ".join(KINDS),
@@ -363,9 +517,12 @@ def check_issue(meta, body, report):
             continue
         m = re.match(r"\s*(#{1,6})\s+(.*)$", line)
         if m:
-            key = section_key(m.group(2))
-            if len(m.group(1)) != 2 or key is None:
-                report.add("CI-021", "error", "line %d" % i, "not a section of this convention", line.strip()[:60])
+            if len(m.group(1)) != 2:
+                report.add("CI-021", "error", "line %d" % i, "sections are `##` headings", line.strip()[:60])
+                current = None
+                continue
+            key = check_heading(m.group(2), "line %d" % i, kind, lang, used, report)
+            if key is None:
                 current = None
                 continue
             found.append(key)
@@ -381,27 +538,27 @@ def check_issue(meta, body, report):
         shape = [k for k, _ in SHAPES[kind]]
         for key, required in SHAPES[kind]:
             if required and key not in found:
-                report.add("CI-021", "error", "body", "missing required section: %s" % SECTIONS[key][0])
+                report.add("CI-021", "error", "body", "missing required section: %s" % say([key], lang))
         for key in found:
             if key not in shape:
-                report.add("CI-021", "error", "body", "section not part of a %s: %s" % (kind, SECTIONS[key][0]))
+                report.add("CI-021", "error", "body", "section not part of a %s: %s" % (kind, say([key], lang)))
         known = [k for k in found if k in shape]
         if known != sorted(known, key=shape.index):
             report.add("CI-021", "error", "body", "sections out of order; expected " +
-                       ", ".join(SECTIONS[k][0] for k in shape))
+                       ", ".join(say([k], lang) for k in shape))
         if len(set(found)) != len(found):
             report.add("CI-021", "error", "body", "a section appears twice")
     for key, text in content.items():
         filled = [l for l in text if l.strip()]
         if not filled:
-            report.add("CI-005", "error", "body", "empty section: %s; fill it or leave it out" % SECTIONS[key][0])
-        elif key == "done" and not all(is_checklist(l) for l in filled):
-            report.add("CI-022", "error", "body", "Done when holds only checklist lines (`- [ ] ...`)")
+            report.add("CI-005", "error", "body", "empty section: %s; fill it or leave it out" % say([key], lang))
+        elif key == "criteria" and not all(is_checklist(l) for l in filled):
+            report.add("CI-022", "error", "body", "%s holds only checklist lines (`- [ ] ...`)" % say(["criteria"], lang))
         elif key == "steps" and not all(re.match(r"\s*\d+[.)]\s", l) for l in filled):
-            report.add("CI-022", "error", "body", "Steps is a numbered list")
+            report.add("CI-022", "error", "body", "%s is a numbered list" % say(["steps"], lang))
 
 
-def check_comment(meta, body, report):
+def check_comment(meta, body, report, lang=None, used=None):
     purpose = meta.get("purpose")
     text = body.strip()
     if purpose not in PURPOSES:
@@ -417,22 +574,27 @@ def check_comment(meta, body, report):
         report.add("CI-030", "error", "line %d" % line_of(text, m.start()),
                    "greeting, sign-off, thanks or apology", m.group(0), m.start())
 
-    if purpose in LEADS:
-        if not starts_with(text, LEADS[purpose]):
-            report.add("CI-030", "error", "lead", "a %s comment starts with %s" % (purpose, " or ".join(
-                p.replace(r"[^:\n]+", "<person>").replace("\\b", "") for p in LEADS[purpose])), text[:30])
+    def lead(line, keys):
+        found = leading_term(line, keys)
+        if found:
+            used.append({"key": found[0], "langs": found[1], "where": "lead", "text": line[:40]})
+        return found
+
+    if purpose in LEAD_KEYS:
+        if not lead(text, LEAD_KEYS[purpose]):
+            report.add("CI-030", "error", "lead", "a %s comment starts with %s" % (
+                purpose, say(LEAD_KEYS[purpose], lang)), text[:30])
     elif purpose == "handoff":
         lines = [l.strip() for l in text.splitlines() if l.strip()]
         slots = []
         for line in lines:
-            slot = next((i for i, (pats, _) in enumerate(HANDOFF) if starts_with(line, pats)), None)
+            slot = next((i for i, (keys, _) in enumerate(HANDOFF_KEYS) if lead(line, keys)), None)
             if slot is None:
                 report.add("CI-040", "error", "body", "every handoff line starts with its label", line[:40])
             else:
                 slots.append(slot)
         if not slots or slots[0] != 0:
-            report.add("CI-040", "error", "body",
-                       "the first line is `Ready for review:` / `Handed to <person>:` (de: `Bereit zur Prüfung:` / `Übergabe an <person>:`)")
+            report.add("CI-040", "error", "body", "the first line is %s" % say(HANDOFF_KEYS[0][0], lang))
         if slots != sorted(set(slots)) or len(slots) != len(set(slots)):
             report.add("CI-040", "error", "body", "lines in order, each once: done, to check, open")
     elif purpose == "close":
@@ -441,9 +603,9 @@ def check_comment(meta, body, report):
             report.add("CI-050", "error", "frontmatter", "result must be one of: " + ", ".join(RESULTS),
                        result or None)
         else:
-            if not starts_with(text, CLOSE_LEADS[result]):
-                report.add("CI-050", "error", "lead", "a %s close starts with %s" % (result, " or ".join(
-                    p.replace("\\b", "") for p in CLOSE_LEADS[result])), text[:30])
+            if not lead(text, ["close-" + result]):
+                report.add("CI-050", "error", "lead", "a %s close starts with %s" % (
+                    result, say(["close-" + result], lang)), text[:30])
             n = count_sentences(strip_code(text))
             if n > CLOSE_SENTENCES:
                 report.add("CI-050", "error", "body", "%d sentences, limit %d" % (n, CLOSE_SENTENCES))
@@ -495,10 +657,12 @@ def check(draft):
         check_internals(body, prose_no_urls, report)
     check_hedges(prose_no_urls, report)
     check_mentions({**meta, "type": kind}, prose_no_urls, report)
+    lang, used = text_language(meta, prose_no_urls), []
     if kind == "issue":
-        check_issue(meta, body, report)
+        check_issue(meta, body, report, lang, used)
     elif kind == "comment":
-        check_comment(meta, body, report)
+        check_comment(meta, body, report, lang, used)
+    check_language(meta, lang, used, report)
     return {"type": kind, "audience": audience, "findings": report.sorted()}
 
 
